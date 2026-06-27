@@ -1238,17 +1238,26 @@ async function saveToDrive(data) {
   setSyncStatus('syncing', 'Saving…');
   try {
     const body = JSON.stringify(data);
-    if (driveFileId) {
-      await gapi.client.request({path:`/upload/drive/v3/files/${driveFileId}`,method:'PATCH',params:{uploadType:'media'},body});
-    } else {
-      const meta = await gapi.client.drive.files.create({resource:{name:DATA_FILENAME,mimeType:'application/json'},fields:'id'});
-      driveFileId = meta.result.id;
-      await gapi.client.request({path:`/upload/drive/v3/files/${driveFileId}`,method:'PATCH',params:{uploadType:'media'},body});
-    }
+    const token = gapi.client.getToken().access_token;
+    const boundary = 'myfinance_boundary';
+    const meta = JSON.stringify({name: DATA_FILENAME, mimeType: 'application/json'});
+    const multipart = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+    const method = driveFileId ? 'PATCH' : 'POST';
+    const base = driveFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart`
+      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+    const res = await fetch(base, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body: multipart
+    });
+    if (!res.ok) throw new Error(`Drive save ${res.status}`);
+    const result = await res.json();
+    driveFileId = result.id;
     localStorage.setItem('myfinance_drive_file_id', driveFileId);
     setSyncStatus('synced', 'Saved to Drive');
     setTimeout(()=>setSyncStatus('synced','Synced ✓'),2000);
-  } catch(e) { setSyncStatus('','Save failed'); }
+  } catch(e) { setSyncStatus('','Save failed'); console.error(e); }
 }
 async function loadFromDrive() {
   if (!driveConnected) return;
@@ -1261,12 +1270,17 @@ async function loadFromDrive() {
       if (driveFileId) localStorage.setItem('myfinance_drive_file_id', driveFileId);
     }
     if (driveFileId) {
-      const res = await gapi.client.request({path:`/drive/v3/files/${driveFileId}`,params:{alt:'media'}});
-      loadDataObj(res.result);
-      localStorage.setItem('myfinance_data', JSON.stringify(res.result));
+      const token = gapi.client.getToken().access_token;
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error(`Drive fetch ${res.status}`);
+      const data = await res.json();
+      loadDataObj(data);
+      localStorage.setItem('myfinance_data', JSON.stringify(data));
       setSyncStatus('synced','Synced ✓');
     } else { setSyncStatus('synced','Drive connected'); }
-  } catch(e) { setSyncStatus('','Drive error'); }
+  } catch(e) { setSyncStatus('','Drive error'); console.error(e); }
 }
 
 function signIn() {
