@@ -1297,7 +1297,13 @@ function signIn() {
       driveConnected = true;
       localStorage.setItem('myfinance_drive','1');
       showApp();
-      await loadFromDrive();
+      // Push local data to Drive if we have it, otherwise pull from Drive
+      const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+      if ((localData.transactions || []).length > 0) {
+        await saveToDrive(localData);
+      } else {
+        await loadFromDrive();
+      }
       renderOverview();
       updateDriveUI();
     }
@@ -1364,7 +1370,13 @@ function reconnectDrive() {
         if (resp.error) { setSyncStatus('', 'Local only'); return; }
         driveConnected = true;
         updateDriveUI();
-        await loadFromDrive();
+        // If we have local transactions, push them to Drive rather than overwriting with Drive data
+        const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+        if ((localData.transactions || []).length > 0) {
+          await saveToDrive(localData);
+        } else {
+          await loadFromDrive();
+        }
         renderOverview();
       }
     });
