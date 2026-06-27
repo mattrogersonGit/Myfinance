@@ -1322,17 +1322,41 @@ function clearData() {
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('loading').style.display='none';
-  const hadDrive   = localStorage.getItem('myfinance_drive');
-  const hasLocal   = !!localStorage.getItem('myfinance_data');
+  const hadDrive = localStorage.getItem('myfinance_drive');
+  const hasLocal = !!localStorage.getItem('myfinance_data');
+
   if (hadDrive && GDRIVE_CLIENT_ID !== 'YOUR_GOOGLE_CLIENT_ID') {
-    signIn();
+    // Load local data immediately so app is usable, then reconnect Drive in background
+    showApp();
+    loadFromLocal();
+    renderOverview();
+    reconnectDrive();
   } else if (hasLocal) {
-    // Data already loaded — skip auth screen and go straight in
     skipAuth();
   } else {
     document.getElementById('auth-screen').style.display='flex';
   }
 });
+
+function reconnectDrive() {
+  // Wait for Google API to finish loading, then silently reconnect
+  if (!gapiLoaded) { setTimeout(reconnectDrive, 500); return; }
+  try {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPES,
+      prompt: '',
+      callback: async (resp) => {
+        if (resp.error) { setSyncStatus('', 'Local only'); return; }
+        driveConnected = true;
+        updateDriveUI();
+        await loadFromDrive();
+        renderOverview();
+      }
+    });
+    client.requestAccessToken({prompt: ''});
+  } catch(e) { setSyncStatus('', 'Local only'); }
+}
 </script>
 
 <!-- Google Identity Services (loads async, only needed for Drive) -->
