@@ -135,15 +135,19 @@
     .nw-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 
     /* Investment rows */
-    .inv-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 0.5px solid var(--border); }
+    .inv-row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 0.5px solid var(--border); }
     .inv-row:last-child { border-bottom: none; }
-    .inv-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+    .inv-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
     .inv-info { flex: 1; min-width: 0; }
     .inv-name { font-size: 14px; font-weight: 500; }
-    .inv-type { font-size: 12px; color: var(--text2); }
-    .inv-right { text-align: right; }
-    .inv-val { font-size: 14px; font-weight: 600; }
+    .inv-meta { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .inv-updated { font-size: 11px; color: var(--text3); }
+    .inv-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .inv-val { font-size: 15px; font-weight: 600; }
     .inv-gain { font-size: 12px; }
+    .inv-actions { display: flex; gap: 6px; margin-top: 2px; }
+    .btn-update { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 0.5px solid var(--border); background: var(--bg3); color: var(--text2); cursor: pointer; }
+    .btn-update:hover { color: var(--text); background: var(--bg2); }
 
     /* Auth screen */
     #auth-screen { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; z-index: 999; }
@@ -1022,20 +1026,30 @@ function renderInvestments() {
   let totalCost=0, totalVal=0;
   const byType = {};
   const list = document.getElementById('inv-list');
-  list.innerHTML = investments.map(inv => {
-    const cost=inv.units*inv.buy, val=inv.units*inv.current, gain=val-cost;
-    const pct=((gain/cost)*100).toFixed(1);
+  list.innerHTML = investments.map((inv,i) => {
+    const cost=inv.buy, val=inv.current, gain=val-cost;
+    const pct=cost>0?((gain/cost)*100).toFixed(1):'0.0';
     totalCost+=cost; totalVal+=val;
     byType[inv.type]=(byType[inv.type]||0)+val;
+    const emoji = inv.type==='KiwiSaver'?'🥝':inv.type==='ETF'?'📊':inv.type==='Shares'?'📈':'💼';
+    const color = INV_COLORS[i%INV_COLORS.length];
+    const updatedStr = inv.updatedAt ? new Date(inv.updatedAt).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}) : 'Never updated';
     return `<div class="inv-row">
-      <div class="inv-icon" style="background:${INV_COLORS[investments.indexOf(inv)%INV_COLORS.length]}22">${inv.type==='KiwiSaver'?'🥝':inv.type==='ETF'?'📊':inv.type==='Shares'?'📈':'💼'}</div>
+      <div class="inv-icon" style="background:${color}22">${emoji}</div>
       <div class="inv-info">
         <div class="inv-name">${inv.name}</div>
-        <div class="inv-type">${inv.type} · ${inv.units} units</div>
+        <div class="inv-meta">
+          <span>${inv.type}</span>
+          <span class="inv-updated">· Updated ${updatedStr}</span>
+        </div>
       </div>
       <div class="inv-right">
         <div class="inv-val">${fmt(val)}</div>
         <div class="inv-gain ${gain>=0?'pos':'neg'}">${gain>=0?'+':''}${fmt(gain)} (${pct}%)</div>
+        <div class="inv-actions">
+          <button class="btn-update" onclick="openUpdateInvestment(${inv.id})">Update</button>
+          <button class="btn-update" style="color:#e05c5c" onclick="deleteInvestment(${inv.id})">Delete</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1059,21 +1073,49 @@ function renderInvestments() {
 function openAddInvestment() {
   document.getElementById('modal-title').textContent = 'Add investment';
   document.getElementById('modal-body').innerHTML = `
-    <div class="input-group"><label>Name</label><input type="text" id="inv-name" placeholder="e.g. NZX50 ETF"></div>
-    <div class="input-group"><label>Type</label><select id="inv-type"><option>ETF</option><option>Shares</option><option>KiwiSaver</option><option>Property</option><option>Other</option></select></div>
+    <div class="input-group"><label>Name</label><input type="text" id="inv-name" placeholder="e.g. KiwiSaver"></div>
+    <div class="input-group"><label>Type</label><select id="inv-type"><option>KiwiSaver</option><option>ETF</option><option>Shares</option><option>Property</option><option>Other</option></select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="input-group"><label>Units</label><input type="number" id="inv-units" value="1"></div>
-      <div class="input-group"><label>Buy price ($)</label><input type="number" id="inv-buy" value="100"></div>
+      <div class="input-group"><label>Amount invested ($)</label><input type="number" id="inv-buy" value="0" min="0"></div>
+      <div class="input-group"><label>Current value ($)</label><input type="number" id="inv-current" value="0" min="0"></div>
     </div>
-    <div class="input-group"><label>Current price ($)</label><input type="number" id="inv-current" value="100"></div>
   `;
   document.getElementById('modal-confirm').onclick = () => {
     const name = document.getElementById('inv-name').value.trim();
     if (!name) return;
-    investments.push({id:Date.now(),name,type:document.getElementById('inv-type').value,units:parseFloat(document.getElementById('inv-units').value)||1,buy:parseFloat(document.getElementById('inv-buy').value)||0,current:parseFloat(document.getElementById('inv-current').value)||0});
+    investments.push({
+      id: Date.now(), name,
+      type: document.getElementById('inv-type').value,
+      units: 1,
+      buy: parseFloat(document.getElementById('inv-buy').value)||0,
+      current: parseFloat(document.getElementById('inv-current').value)||0,
+      updatedAt: new Date().toISOString().slice(0,10)
+    });
     closeModal(); renderInvestments(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
+}
+function openUpdateInvestment(id) {
+  const inv = investments.find(i=>i.id===id);
+  if (!inv) return;
+  document.getElementById('modal-title').textContent = 'Update ' + inv.name;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Current value ($)</label><input type="number" id="inv-new-val" value="${inv.current}" min="0"></div>
+    <div style="font-size:12px;color:var(--text3);margin-top:4px">Original investment: ${fmt(inv.buy)}</div>
+  `;
+  document.getElementById('modal-confirm').onclick = () => {
+    const val = parseFloat(document.getElementById('inv-new-val').value);
+    if (isNaN(val)) return;
+    inv.current = val;
+    inv.updatedAt = new Date().toISOString().slice(0,10);
+    closeModal(); renderInvestments(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function deleteInvestment(id) {
+  if (!confirm('Delete this investment?')) return;
+  investments = investments.filter(i=>i.id!==id);
+  renderInvestments(); scheduleSave();
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
@@ -1098,8 +1140,11 @@ function handleCSV(input, account) {
   const reader = new FileReader();
   reader.onload = e => {
     const newTxns = parseWestpacCSV(e.target.result, account);
-    transactions = transactions.filter(t=>t.account!==account).concat(newTxns);
-    document.getElementById(account==='everyday'?'everyday-status':'cc-status').textContent = '✓ '+newTxns.length+' transactions imported';
+    // Deduplicate: fingerprint existing transactions by date+amount+desc
+    const existing = new Set(transactions.map(t=>`${t.date}|${t.amount}|${t.desc}`));
+    const added = newTxns.filter(t=>!existing.has(`${t.date}|${t.amount}|${t.desc}`));
+    transactions = transactions.concat(added).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    document.getElementById(account==='everyday'?'everyday-status':'cc-status').textContent = `✓ ${added.length} new (${newTxns.length - added.length} duplicates skipped)`;
     scheduleSave();
     if (currentPage==='overview') renderOverview();
   };
