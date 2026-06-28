@@ -1068,10 +1068,12 @@ function calcDebtForecast(d) {
     const months = (new Date(last.date) - new Date(first.date)) / (1000*60*60*24*30.44);
     if (months > 0.5) avgMonthly = (first.value - last.value) / months;
   }
-  // Fallback: use payment - interest
+  // Fallback: use payment - interest (convert to monthly based on frequency)
   if (!avgMonthly && d.payment) {
+    const freq = d.paymentFreq || 'monthly';
+    const payMonthly = freq==='weekly' ? d.payment*52/12 : freq==='fortnightly' ? d.payment*26/12 : d.payment;
     const monthlyInt = d.balance * ((d.rate||0) / 100 / 12);
-    avgMonthly = d.payment - monthlyInt;
+    avgMonthly = payMonthly - monthlyInt;
   }
   const projectedMonths = (avgMonthly && avgMonthly > 0) ? remaining / avgMonthly : null;
   const projectedDate = projectedMonths ? new Date(Date.now() + projectedMonths*30.44*86400000) : null;
@@ -1087,7 +1089,7 @@ function renderOtherDebts() {
   const list = document.getElementById('other-debt-list');
   if (!list) return;
   if (!otherDebts.length) { list.innerHTML = ''; return; }
-  list.innerHTML = otherDebts.map(d => {
+  list.innerHTML = otherDebts.map((d, i) => {
     const dateStr = d.updatedAt ? new Date(d.updatedAt).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}) : 'Never';
     const orig = d.originalBalance || d.history?.[0]?.value || d.balance;
     const paidPct = orig > 0 ? Math.min(100, Math.round((orig - d.balance) / orig * 100)) : 0;
@@ -1116,7 +1118,9 @@ function renderOtherDebts() {
           <div class="card-title">${d.name}</div>
           <div style="font-size:11px;color:var(--text3)">${d.type}</div>
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-update" onclick="moveOtherDebt(${d.id},-1)" ${i===0?'disabled':''} style="padding:3px 6px">↑</button>
+          <button class="btn-update" onclick="moveOtherDebt(${d.id},1)" ${i===otherDebts.length-1?'disabled':''} style="padding:3px 6px">↓</button>
           ${hasHistory ? `<button class="btn-update" onclick="openOtherDebtHistory(${d.id})">History</button>` : ''}
           <button class="btn-update" onclick="openUpdateOtherDebt(${d.id})">Update</button>
           <button class="btn-update" style="color:#e05c5c" onclick="deleteOtherDebt(${d.id})">Delete</button>
@@ -1124,7 +1128,7 @@ function renderOtherDebts() {
       </div>
       <div class="mort-summary neg">${fmt(d.balance)}</div>
       <div class="mort-updated">Updated ${dateStr}</div>
-      ${d.rate ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${d.rate}% p.a.${d.payment ? ` · $${d.payment}/mo payment` : ''}</div>` : ''}
+      ${(d.rate||d.payment) ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${d.rate ? d.rate+'% p.a.' : ''}${d.rate && d.payment ? ' · ' : ''}${d.payment ? fmt(d.payment)+'/'+(d.paymentFreq||'mo') : ''}</div>` : ''}
       ${hasHistory ? `<div class="chart-wrap" style="height:100px;margin-top:12px"><canvas id="debt-chart-${d.id}"></canvas></div>` : ''}
       ${goalHtml}
     </div>`;
@@ -1147,32 +1151,44 @@ function renderOtherDebts() {
     });
   });
 }
+function debtFormHtml(d) {
+  const v = (k, def='') => d ? (d[k] ?? def) : def;
+  const sel = (id, val) => `document.getElementById('${id}').value='${val}'`;
+  const freqOpts = ['weekly','fortnightly','monthly'].map(f=>`<option value="${f}" ${v('paymentFreq','monthly')===f?'selected':''}>${f.charAt(0).toUpperCase()+f.slice(1)}</option>`).join('');
+  const typeOpts = ['Car Loan','Credit Card','Personal Loan','Student Loan','Buy Now Pay Later','Other'].map(t=>`<option ${v('type')===t?'selected':''}>${t}</option>`).join('');
+  const goalVal = v('goalDate') ? v('goalDate').slice(0,7) : '';
+  return `
+    <div class="input-group"><label>Name</label><input type="text" id="od-name" value="${v('name')}" placeholder="e.g. Car loan"></div>
+    <div class="input-group"><label>Type</label><select id="od-type">${typeOpts}</select></div>
+    <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="${v('balance',0)}" min="0"></div>
+    <div class="input-group"><label>Interest rate (% p.a.)</label><input type="number" id="od-rate" value="${v('rate','')}" min="0" step="0.01" placeholder="e.g. 12.5"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="input-group"><label>Repayment ($)</label><input type="number" id="od-pay" value="${v('payment','')}" min="0" placeholder="amount"></div>
+      <div class="input-group"><label>Frequency</label><select id="od-freq">${freqOpts}</select></div>
+    </div>
+    <div class="input-group"><label>Goal — pay off by</label><input type="month" id="od-goal" value="${goalVal}"></div>`;
+}
+function readDebtForm() {
+  const goalRaw = document.getElementById('od-goal').value;
+  return {
+    name:     document.getElementById('od-name').value.trim(),
+    type:     document.getElementById('od-type').value,
+    balance:  parseFloat(document.getElementById('od-bal').value)||0,
+    rate:     parseFloat(document.getElementById('od-rate').value)||null,
+    payment:  parseFloat(document.getElementById('od-pay').value)||null,
+    paymentFreq: document.getElementById('od-freq').value,
+    goalDate: goalRaw ? goalRaw+'-01' : null,
+  };
+}
 function openAddOtherDebt() {
   document.getElementById('modal-title').textContent = 'Add debt';
-  document.getElementById('modal-body').innerHTML = `
-    <div class="input-group"><label>Name</label><input type="text" id="od-name" placeholder="e.g. Car loan"></div>
-    <div class="input-group"><label>Type</label><select id="od-type"><option>Car Loan</option><option>Credit Card</option><option>Personal Loan</option><option>Student Loan</option><option>Buy Now Pay Later</option><option>Other</option></select></div>
-    <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="0" min="0"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="input-group"><label>Interest rate (% p.a.)</label><input type="number" id="od-rate" value="" min="0" step="0.01" placeholder="e.g. 12.5"></div>
-      <div class="input-group"><label>Regular payment ($/mo)</label><input type="number" id="od-pay" value="" min="0" placeholder="e.g. 400"></div>
-    </div>
-    <div class="input-group"><label>Goal — pay off by</label><input type="month" id="od-goal"></div>`;
+  document.getElementById('modal-body').innerHTML = debtFormHtml(null);
   document.getElementById('modal-confirm').textContent = 'Add';
   document.getElementById('modal-confirm').onclick = () => {
-    const name = document.getElementById('od-name').value.trim();
-    if (!name) return;
-    const bal = parseFloat(document.getElementById('od-bal').value)||0;
+    const f = readDebtForm();
+    if (!f.name) return;
     const today = new Date().toISOString().slice(0,10);
-    const goalRaw = document.getElementById('od-goal').value;
-    otherDebts.push({
-      id:Date.now(), name, type:document.getElementById('od-type').value,
-      balance:bal, originalBalance:bal,
-      rate:parseFloat(document.getElementById('od-rate').value)||null,
-      payment:parseFloat(document.getElementById('od-pay').value)||null,
-      goalDate:goalRaw ? goalRaw+'-01' : null, goalBalance:0,
-      updatedAt:today, history:[{date:today,value:bal}]
-    });
+    otherDebts.push({id:Date.now(), ...f, originalBalance:f.balance, goalBalance:0, updatedAt:today, history:[{date:today,value:f.balance}]});
     closeModal(); renderDebt(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
@@ -1180,16 +1196,20 @@ function openAddOtherDebt() {
 function openUpdateOtherDebt(id) {
   const d = otherDebts.find(x=>x.id===id);
   if (!d) return;
-  document.getElementById('modal-title').textContent = 'Update ' + d.name;
-  document.getElementById('modal-body').innerHTML = `
-    <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="${d.balance}" min="0"></div>
-    <div style="font-size:12px;color:var(--text3);margin-top:4px">Original: ${fmt(d.originalBalance||d.balance)}</div>`;
+  document.getElementById('modal-title').textContent = 'Edit ' + d.name;
+  document.getElementById('modal-body').innerHTML = debtFormHtml(d);
   document.getElementById('modal-confirm').textContent = 'Save';
   document.getElementById('modal-confirm').onclick = () => {
-    d.balance = parseFloat(document.getElementById('od-bal').value)||0;
-    d.updatedAt = new Date().toISOString().slice(0,10);
+    const f = readDebtForm();
+    if (!f.name) return;
+    const prevBal = d.balance;
+    Object.assign(d, f);
     if (!d.history) d.history = [];
-    d.history.push({date:d.updatedAt, value:d.balance});
+    // Only add history entry if balance changed
+    if (f.balance !== prevBal) {
+      d.updatedAt = new Date().toISOString().slice(0,10);
+      d.history.push({date:d.updatedAt, value:f.balance});
+    }
     closeModal(); renderDebt(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
@@ -1207,6 +1227,13 @@ function openOtherDebtHistory(id) {
     <tbody>${rows}</tbody></table>`;
   document.getElementById('modal-confirm').style.display='none';
   document.getElementById('modal').classList.add('open');
+}
+function moveOtherDebt(id, dir) {
+  const i = otherDebts.findIndex(x=>x.id===id);
+  const j = i + dir;
+  if (j < 0 || j >= otherDebts.length) return;
+  [otherDebts[i], otherDebts[j]] = [otherDebts[j], otherDebts[i]];
+  renderDebt(); scheduleSave();
 }
 function deleteOtherDebt(id) {
   if (!confirm('Delete this debt?')) return;
