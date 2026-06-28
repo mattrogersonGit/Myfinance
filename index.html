@@ -454,6 +454,7 @@
     <!-- IMPORT / SETTINGS -->
     <div id="page-import" class="page">
       <div class="section-header"><div class="section-title">Import & Settings</div></div>
+      <div id="pending-banner"></div>
 
       <div class="card">
         <div class="card-title">Import Westpac CSV</div>
@@ -654,7 +655,8 @@ let mortgages = [
 let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:1110000, beachVal:0};
 let otherDebts = [];
-let debtOrder = []; // e.g. ['mortgage-home','mortgage-beach','debt-1234']
+let debtOrder = [];
+let pendingTxns = [];
 let pnlPeriod = 'month';
 let activeCatTxnId = null;
 let activeCatFilter = null;
@@ -727,7 +729,7 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderCategories(); renderRules(); }
+  if (page==='import') { renderCategories(); renderRules(); renderPendingBanner(); }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -875,7 +877,7 @@ function renderTransactions() {
     <div class="txn-item">
       <div class="txn-icon" style="background:${catColor(t.cat)}22">${catEmoji(t.cat)}</div>
       <div class="txn-info">
-        <div class="txn-name">${t.desc}</div>
+        <div class="txn-name" onclick="editTxnDesc(${t.id})" style="cursor:pointer" title="Tap to edit">${t.desc} <span style="font-size:10px;color:var(--text3)">✏</span></div>
         <div class="txn-meta">
           <span>${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</span>
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
@@ -916,6 +918,26 @@ function deleteTxn(id) {
   transactions = transactions.filter(t=>t.id!==id);
   scheduleSave();
   renderTransactions();
+}
+function editTxnDesc(id) {
+  const t = transactions.find(x=>x.id===id);
+  if (!t) return;
+  document.getElementById('modal-title').textContent = 'Edit description';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Description</label>
+      <input type="text" id="txn-desc-input" value="${t.desc.replace(/"/g,'&quot;')}" style="font-size:15px">
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-top:6px">${t.amount>=0?'+':''}${fmt(t.amount)} · ${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})}</div>`;
+  document.getElementById('modal-confirm').textContent = 'Save';
+  document.getElementById('modal-confirm').style.display = '';
+  document.getElementById('modal-confirm').onclick = () => {
+    const val = document.getElementById('txn-desc-input').value.trim();
+    if (!val) return;
+    t.desc = val;
+    closeModal(); scheduleSave(); renderTransactions();
+  };
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => document.getElementById('txn-desc-input')?.select(), 80);
 }
 
 // ─── P&L ──────────────────────────────────────────────────────────────────────
@@ -1492,20 +1514,96 @@ function handleCSV(input, account) {
   reader.onload = e => {
     const newTxns = parseWestpacCSV(e.target.result, account);
     if (!newTxns.length) return;
-    // Deduplicate by date + amount + account (descriptions differ between Excel and CSV sources)
+    // Deduplicate against committed + already-pending transactions
     const fp = t => `${t.date instanceof Date ? t.date.toISOString().slice(0,10) : String(t.date).slice(0,10)}|${t.amount}|${t.account}`;
-    const existing = new Set(transactions.map(fp));
+    const existing = new Set([...transactions, ...pendingTxns].map(fp));
     const added = newTxns.filter(t => !existing.has(fp(t)));
-    transactions = transactions.concat(added).sort((a,b)=>b.date-a.date);
-    document.getElementById(account==='everyday'?'everyday-status':'cc-status').textContent =
-      `✓ ${added.length} added, ${newTxns.length - added.length} duplicates skipped`;
+    const dupes = newTxns.length - added.length;
+    pendingTxns = pendingTxns.concat(added);
+    const statusEl = document.getElementById(account==='everyday'?'everyday-status':'cc-status');
+    statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped`;
     scheduleSave();
-    if (currentPage==='transactions') renderTransactions();
-    else if (currentPage==='overview') renderOverview();
+    renderPendingBanner();
+    if (added.length) openPendingReview();
   };
   reader.readAsText(file);
 }
 
+
+// ─── Pending transaction review ───────────────────────────────────────────────
+function renderPendingBanner() {
+  const el = document.getElementById('pending-banner');
+  if (!el) return;
+  if (!pendingTxns.length) { el.style.display='none'; return; }
+  el.style.display='block';
+  el.innerHTML = `<div style="background:var(--teal);color:#fff;border-radius:var(--radius);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span style="font-weight:600">${pendingTxns.length} transactions ready to review</span>
+    <button onclick="openPendingReview()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer">Review →</button>
+  </div>`;
+}
+function renderPendingList() {
+  return pendingTxns.map(t => {
+    const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'});
+    const acct = t.account==='creditcard'?'Credit card':'Everyday';
+    return `<div id="pr-${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.desc}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${dateStr} · ${acct}</div>
+      </div>
+      <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;flex-shrink:0;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="${t.amount>=0?'pos':'neg'}" style="font-size:14px;font-weight:600;white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
+        <button onclick="rejectPending(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✕ remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function openPendingReview() {
+  if (!pendingTxns.length) return;
+  document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
+  document.querySelector('.modal-box').classList.add('modal-wide');
+  document.getElementById('modal-body').innerHTML = renderPendingList();
+  document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
+  document.getElementById('modal-confirm').style.display = '';
+  document.getElementById('modal-confirm').onclick = acceptAllPending;
+  document.getElementById('modal').classList.add('open');
+}
+function openPendingCatSheet(id) {
+  const t = pendingTxns.find(x=>x.id===id);
+  if (!t) return;
+  const opts = document.getElementById('cat-options');
+  opts.innerHTML = CATS.map(c=>`
+    <div class="cat-option" onclick="setPendingCat(${id},'${c.name}')">
+      <span class="cat-emoji">${c.emoji}</span><span class="cat-name">${c.name}</span>
+      ${t.cat===c.name?'<span class="cat-check">✓</span>':''}
+    </div>`).join('');
+  document.getElementById('cat-sheet').classList.add('open');
+  document.getElementById('sheet-overlay').classList.add('open');
+}
+function setPendingCat(id, cat) {
+  const t = pendingTxns.find(x=>x.id===id);
+  if (t) t.cat = cat;
+  closeCatSheet();
+  document.getElementById('modal-body').innerHTML = renderPendingList();
+  document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
+  scheduleSave();
+}
+function rejectPending(id) {
+  pendingTxns = pendingTxns.filter(t=>t.id!==id);
+  if (!pendingTxns.length) { closeModal(); renderPendingBanner(); scheduleSave(); return; }
+  document.getElementById('modal-body').innerHTML = renderPendingList();
+  document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
+  scheduleSave();
+}
+function acceptAllPending() {
+  transactions = transactions.concat(pendingTxns).sort((a,b)=>b.date-a.date);
+  pendingTxns = [];
+  closeModal();
+  renderPendingBanner();
+  scheduleSave();
+  if (currentPage==='transactions') renderTransactions();
+  else if (currentPage==='overview') renderOverview();
+}
 
 // ─── Categories management ────────────────────────────────────────────────────
 function renderCategories() {
@@ -1590,7 +1688,7 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, debtOrder, budgets,
+    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
@@ -1620,6 +1718,7 @@ function loadDataObj(obj) {
   }
   if (obj.otherDebts) otherDebts = obj.otherDebts;
   if (obj.debtOrder) debtOrder = obj.debtOrder;
+  if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
 }
 function saveData() {
   const data = getDataObj();
