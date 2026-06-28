@@ -501,6 +501,13 @@
         <div class="card-title">Google Drive sync</div>
         <div id="drive-status" style="font-size:14px;color:var(--text2);margin-bottom:12px">Not connected</div>
         <button class="btn btn-secondary btn-block" id="drive-btn" onclick="toggleDrive()">Connect Google Drive</button>
+        <div id="drive-manual-btns" style="display:none;margin-top:10px;display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+            <button class="btn btn-secondary" onclick="forcePushToDrive()" title="Upload this device's data to Drive, overwriting what's there">⬆ Push to Drive</button>
+            <button class="btn btn-secondary" onclick="forcePullFromDrive()" title="Download from Drive, overwriting this device's data">⬇ Pull from Drive</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Use Push on the device with the correct data, then Pull on the other device.</div>
+        </div>
       </div>
 
       <div class="card">
@@ -1697,6 +1704,19 @@ function toggleDrive() {
 function updateDriveUI() {
   document.getElementById('drive-status').textContent = driveConnected ? '✓ Connected — data syncs automatically' : 'Not connected';
   document.getElementById('drive-btn').textContent = driveConnected ? 'Disconnect Google Drive' : 'Connect Google Drive';
+  document.getElementById('drive-manual-btns').style.display = driveConnected ? 'block' : 'none';
+}
+async function forcePushToDrive() {
+  if (!driveConnected) return;
+  if (!confirm('Upload this device\'s data to Drive? This will overwrite whatever is currently saved in Drive.')) return;
+  saveData();
+}
+async function forcePullFromDrive() {
+  if (!driveConnected) return;
+  if (!confirm('Download data from Drive? This will replace all data on this device with whatever is in Drive.')) return;
+  await loadFromDrive();
+  renderOverview(); renderDebt(); renderAssets();
+  setSyncStatus('synced','Pulled from Drive ✓');
 }
 
 function clearData() {
