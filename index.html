@@ -881,7 +881,10 @@ function renderTransactions() {
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
         </div>
       </div>
-      <div class="txn-amount ${t.amount>=0?'pos':'neg'}">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div class="txn-amount ${t.amount>=0?'pos':'neg'}">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
+        <button onclick="deleteTxn(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;line-height:1">✕ delete</button>
+      </div>
     </div>`).join('');
 }
 
@@ -907,6 +910,11 @@ function setCat(id, cat) {
   const t = transactions.find(x=>x.id===id);
   if (t) { t.cat = cat; scheduleSave(); }
   closeCatSheet();
+  renderTransactions();
+}
+function deleteTxn(id) {
+  transactions = transactions.filter(t=>t.id!==id);
+  scheduleSave();
   renderTransactions();
 }
 
@@ -1442,18 +1450,39 @@ function deleteInvestment(id) {
 function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-confirm').style.display=''; document.querySelector('.modal-box').classList.remove('modal-wide'); }
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
+function parseCSVLine(line) {
+  const cols = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inQ = !inQ; }
+    else if (line[i] === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+    else { cur += line[i]; }
+  }
+  cols.push(cur.trim());
+  return cols;
+}
 function parseWestpacCSV(text, account) {
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase());
+  // Detect column positions from headers
+  const dateCol = ['process date','date'].reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
+  const amtCol  = headers.indexOf('amount');
+  const descCol = ['other party','description','narration'].reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
+  if (dateCol < 0 || amtCol < 0 || descCol < 0) {
+    alert(`Unrecognised CSV format. Headers found: ${headers.join(', ')}`);
+    return [];
+  }
   const txns = []; let idBase = transactions.length + Date.now();
-  for (let i=1;i<lines.length;i++) {
-    const cols = lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').trim());
-    if (cols.length<3) continue;
-    const dateStr=cols[0], desc=cols[1]||'Unknown', amount=parseFloat(cols[2])||0;
-    if (!dateStr||isNaN(amount)) continue;
-    const parts = dateStr.includes('/')? dateStr.split('/') : dateStr.split('-');
-    const date = new Date(parts[2]||2025, parseInt(parts[1])-1, parseInt(parts[0]));
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    const dateStr = cols[dateCol] || '';
+    const amount  = parseFloat(cols[amtCol]);
+    const desc    = (cols[descCol] || 'Unknown').replace(/\s+/g,' ').trim();
+    if (!dateStr || isNaN(amount) || amount === 0) continue;
+    const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
+    const date  = new Date(parseInt(parts[2]) || new Date().getFullYear(), parseInt(parts[1])-1, parseInt(parts[0]));
     if (isNaN(date.getTime())) continue;
-    txns.push({id:idBase++,date,desc,amount,account,cat:categorise(desc)});
+    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc)});
   }
   return txns;
 }
@@ -1462,13 +1491,17 @@ function handleCSV(input, account) {
   const reader = new FileReader();
   reader.onload = e => {
     const newTxns = parseWestpacCSV(e.target.result, account);
-    // Deduplicate: fingerprint existing transactions by date+amount+desc
-    const existing = new Set(transactions.map(t=>`${t.date}|${t.amount}|${t.desc}`));
-    const added = newTxns.filter(t=>!existing.has(`${t.date}|${t.amount}|${t.desc}`));
-    transactions = transactions.concat(added).sort((a,b)=>new Date(b.date)-new Date(a.date));
-    document.getElementById(account==='everyday'?'everyday-status':'cc-status').textContent = `✓ ${added.length} new (${newTxns.length - added.length} duplicates skipped)`;
+    if (!newTxns.length) return;
+    // Deduplicate by date + amount + account (descriptions differ between Excel and CSV sources)
+    const fp = t => `${t.date instanceof Date ? t.date.toISOString().slice(0,10) : String(t.date).slice(0,10)}|${t.amount}|${t.account}`;
+    const existing = new Set(transactions.map(fp));
+    const added = newTxns.filter(t => !existing.has(fp(t)));
+    transactions = transactions.concat(added).sort((a,b)=>b.date-a.date);
+    document.getElementById(account==='everyday'?'everyday-status':'cc-status').textContent =
+      `✓ ${added.length} added, ${newTxns.length - added.length} duplicates skipped`;
     scheduleSave();
-    if (currentPage==='overview') renderOverview();
+    if (currentPage==='transactions') renderTransactions();
+    else if (currentPage==='overview') renderOverview();
   };
   reader.readAsText(file);
 }
