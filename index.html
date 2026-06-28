@@ -225,9 +225,10 @@
     .rule-cat { color: var(--text2); font-size: 13px; }
 
     /* Modal */
-    #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; display: none; align-items: center; justify-content: center; padding: 20px; }
+    #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; display: none; align-items: center; justify-content: center; padding: 10px; }
     #modal.open { display: flex; }
-    .modal-box { background: var(--bg2); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 400px; max-height: 85vh; display: flex; flex-direction: column; border: 0.5px solid var(--border2); }
+    .modal-box { background: var(--bg2); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 560px; max-height: 88vh; display: flex; flex-direction: column; border: 0.5px solid var(--border2); }
+    .modal-box.modal-wide { padding: 16px; }
     .modal-title { font-size: 17px; font-weight: 600; margin-bottom: 16px; flex-shrink: 0; }
     #modal-body { overflow-y: auto; flex: 1; }
     .modal-actions { display: flex; gap: 8px; margin-top: 16px; flex-shrink: 0; }
@@ -400,10 +401,15 @@
       <div class="section-header"><div class="section-title">Debt</div></div>
       <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
         <div class="metric"><div class="metric-label">Total Debt</div><div class="metric-value neg" style="font-size:17px" id="mort-grand-total">—</div></div>
-        <div class="metric"><div class="metric-label">Own Home</div><div class="metric-value" style="font-size:17px" id="mort-home-total">—</div></div>
-        <div class="metric"><div class="metric-label">Beach House</div><div class="metric-value" style="font-size:17px" id="mort-beach-total">—</div></div>
+        <div class="metric"><div class="metric-label">Mortgages</div><div class="metric-value" style="font-size:17px" id="mort-mortgage-total">—</div></div>
+        <div class="metric"><div class="metric-label">Other</div><div class="metric-value" style="font-size:17px" id="mort-other-total">—</div></div>
       </div>
       <div id="mort-cards"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em">Other Debt</div>
+        <button class="btn-update" onclick="openAddOtherDebt()">+ Add</button>
+      </div>
+      <div id="other-debt-list"></div>
     </div>
 
     <!-- ASSETS -->
@@ -641,6 +647,7 @@ let mortgages = [
 ];
 let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:1110000, beachVal:0};
+let otherDebts = [];
 let pnlPeriod = 'month';
 let activeCatTxnId = null;
 let activeCatFilter = null;
@@ -1043,23 +1050,184 @@ function renderDebt() {
 
   const home = mortgages[0]?.history?.slice(-1)[0]?.total || 0;
   const beach = mortgages[1]?.history?.slice(-1)[0]?.total || 0;
-  document.getElementById('mort-grand-total').textContent = fmt(home + beach);
-  document.getElementById('mort-home-total').textContent = fmt(home);
-  document.getElementById('mort-beach-total').textContent = fmt(beach);
+  const mortTotal = home + beach;
+  const otherTotal = otherDebts.reduce((s,d)=>s+d.balance,0);
+  document.getElementById('mort-grand-total').textContent = fmt(mortTotal + otherTotal);
+  document.getElementById('mort-mortgage-total').textContent = fmt(mortTotal);
+  document.getElementById('mort-other-total').textContent = fmt(otherTotal);
+  renderOtherDebts();
+}
+let debtItemCharts = {};
+function calcDebtForecast(d) {
+  const target = d.goalBalance || 0;
+  const remaining = d.balance - target;
+  // Average monthly reduction from history
+  let avgMonthly = null;
+  if (d.history && d.history.length >= 2) {
+    const first = d.history[0], last = d.history[d.history.length-1];
+    const months = (new Date(last.date) - new Date(first.date)) / (1000*60*60*24*30.44);
+    if (months > 0.5) avgMonthly = (first.value - last.value) / months;
+  }
+  // Fallback: use payment - interest
+  if (!avgMonthly && d.payment) {
+    const monthlyInt = d.balance * ((d.rate||0) / 100 / 12);
+    avgMonthly = d.payment - monthlyInt;
+  }
+  const projectedMonths = (avgMonthly && avgMonthly > 0) ? remaining / avgMonthly : null;
+  const projectedDate = projectedMonths ? new Date(Date.now() + projectedMonths*30.44*86400000) : null;
+  // Required payment to meet goal
+  let requiredPayment = null;
+  if (d.goalDate) {
+    const monthsLeft = (new Date(d.goalDate) - Date.now()) / (1000*60*60*24*30.44);
+    if (monthsLeft > 0) requiredPayment = remaining / monthsLeft;
+  }
+  return {avgMonthly, projectedMonths, projectedDate, requiredPayment};
+}
+function renderOtherDebts() {
+  const list = document.getElementById('other-debt-list');
+  if (!list) return;
+  if (!otherDebts.length) { list.innerHTML = ''; return; }
+  list.innerHTML = otherDebts.map(d => {
+    const dateStr = d.updatedAt ? new Date(d.updatedAt).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}) : 'Never';
+    const orig = d.originalBalance || d.history?.[0]?.value || d.balance;
+    const paidPct = orig > 0 ? Math.min(100, Math.round((orig - d.balance) / orig * 100)) : 0;
+    const fc = calcDebtForecast(d);
+    // Goal section
+    let goalHtml = '';
+    if (d.goalDate || d.payment || d.rate) {
+      const goalDateStr = d.goalDate ? new Date(d.goalDate).toLocaleDateString('en-NZ',{month:'short',year:'numeric'}) : null;
+      const projStr = fc.projectedDate ? new Date(fc.projectedDate).toLocaleDateString('en-NZ',{month:'short',year:'numeric'}) : null;
+      const onTrack = fc.projectedDate && d.goalDate ? fc.projectedDate <= new Date(d.goalDate) : null;
+      goalHtml = `<hr class="divider">
+        <div class="mort-history-label">Goal & Forecast</div>
+        ${d.goalDate ? `<div class="mort-part-row"><span class="mort-part-name">Target payoff</span><span class="mort-part-bal">${goalDateStr}</span></div>` : ''}
+        ${fc.requiredPayment ? `<div class="mort-part-row"><span class="mort-part-name">Required payment</span><span class="mort-part-bal">${fmt(fc.requiredPayment)}/mo</span></div>` : ''}
+        ${fc.avgMonthly && fc.avgMonthly > 0 ? `<div class="mort-part-row"><span class="mort-part-name">Avg reduction</span><span class="mort-part-bal">${fmt(fc.avgMonthly)}/mo</span></div>` : ''}
+        ${projStr ? `<div class="mort-part-row"><span class="mort-part-name">Projected payoff</span><span class="mort-part-bal ${onTrack===true?'pos':onTrack===false?'neg':''}">${projStr}</span></div>` : ''}
+        <div style="margin-top:10px;background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+          <div style="height:100%;width:${paidPct}%;background:var(--teal);border-radius:4px;transition:width 0.4s"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${paidPct}% paid off</div>`;
+    }
+    const hasHistory = d.history && d.history.length > 1;
+    return `<div class="card">
+      <div class="card-title-row">
+        <div>
+          <div class="card-title">${d.name}</div>
+          <div style="font-size:11px;color:var(--text3)">${d.type}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${hasHistory ? `<button class="btn-update" onclick="openOtherDebtHistory(${d.id})">History</button>` : ''}
+          <button class="btn-update" onclick="openUpdateOtherDebt(${d.id})">Update</button>
+          <button class="btn-update" style="color:#e05c5c" onclick="deleteOtherDebt(${d.id})">Delete</button>
+        </div>
+      </div>
+      <div class="mort-summary neg">${fmt(d.balance)}</div>
+      <div class="mort-updated">Updated ${dateStr}</div>
+      ${d.rate ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${d.rate}% p.a.${d.payment ? ` · $${d.payment}/mo payment` : ''}</div>` : ''}
+      ${hasHistory ? `<div class="chart-wrap" style="height:100px;margin-top:12px"><canvas id="debt-chart-${d.id}"></canvas></div>` : ''}
+      ${goalHtml}
+    </div>`;
+  }).join('');
+  // Draw charts
+  requestAnimationFrame(() => {
+    otherDebts.forEach(d => {
+      if (!d.history || d.history.length < 2) return;
+      const ctx = document.getElementById(`debt-chart-${d.id}`);
+      if (!ctx) return;
+      if (debtItemCharts[d.id]) { debtItemCharts[d.id].destroy(); delete debtItemCharts[d.id]; }
+      debtItemCharts[d.id] = new Chart(ctx, {
+        type:'line',
+        data:{ labels:d.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),
+          datasets:[{data:d.history.map(h=>h.value),borderColor:'#e05c5c',backgroundColor:'rgba(224,92,92,0.10)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},
+          scales:{x:{ticks:{maxTicksLimit:5,color:'#7a7f96',font:{size:10}},grid:{display:false}},
+            y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#7a7f96',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}}}
+      });
+    });
+  });
+}
+function openAddOtherDebt() {
+  document.getElementById('modal-title').textContent = 'Add debt';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Name</label><input type="text" id="od-name" placeholder="e.g. Car loan"></div>
+    <div class="input-group"><label>Type</label><select id="od-type"><option>Car Loan</option><option>Credit Card</option><option>Personal Loan</option><option>Student Loan</option><option>Buy Now Pay Later</option><option>Other</option></select></div>
+    <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="0" min="0"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="input-group"><label>Interest rate (% p.a.)</label><input type="number" id="od-rate" value="" min="0" step="0.01" placeholder="e.g. 12.5"></div>
+      <div class="input-group"><label>Regular payment ($/mo)</label><input type="number" id="od-pay" value="" min="0" placeholder="e.g. 400"></div>
+    </div>
+    <div class="input-group"><label>Goal — pay off by</label><input type="month" id="od-goal"></div>`;
+  document.getElementById('modal-confirm').textContent = 'Add';
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('od-name').value.trim();
+    if (!name) return;
+    const bal = parseFloat(document.getElementById('od-bal').value)||0;
+    const today = new Date().toISOString().slice(0,10);
+    const goalRaw = document.getElementById('od-goal').value;
+    otherDebts.push({
+      id:Date.now(), name, type:document.getElementById('od-type').value,
+      balance:bal, originalBalance:bal,
+      rate:parseFloat(document.getElementById('od-rate').value)||null,
+      payment:parseFloat(document.getElementById('od-pay').value)||null,
+      goalDate:goalRaw ? goalRaw+'-01' : null, goalBalance:0,
+      updatedAt:today, history:[{date:today,value:bal}]
+    });
+    closeModal(); renderDebt(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function openUpdateOtherDebt(id) {
+  const d = otherDebts.find(x=>x.id===id);
+  if (!d) return;
+  document.getElementById('modal-title').textContent = 'Update ' + d.name;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="${d.balance}" min="0"></div>
+    <div style="font-size:12px;color:var(--text3);margin-top:4px">Original: ${fmt(d.originalBalance||d.balance)}</div>`;
+  document.getElementById('modal-confirm').textContent = 'Save';
+  document.getElementById('modal-confirm').onclick = () => {
+    d.balance = parseFloat(document.getElementById('od-bal').value)||0;
+    d.updatedAt = new Date().toISOString().slice(0,10);
+    if (!d.history) d.history = [];
+    d.history.push({date:d.updatedAt, value:d.balance});
+    closeModal(); renderDebt(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function openOtherDebtHistory(id) {
+  const d = otherDebts.find(x=>x.id===id);
+  if (!d || !d.history) return;
+  const rows = d.history.slice().reverse().map(h=>{
+    const dt = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+    return `<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--text3)">${dt}</td><td style="padding:6px 8px;text-align:right;font-weight:600">${fmt(h.value)}</td></tr>`;
+  }).join('');
+  document.getElementById('modal-title').textContent = d.name + ' — History';
+  document.getElementById('modal-body').innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead><tr style="border-bottom:0.5px solid var(--border)"><th style="padding:6px 8px;text-align:left;color:var(--text3)">Date</th><th style="padding:6px 8px;text-align:right;color:var(--text3)">Balance</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  document.getElementById('modal-confirm').style.display='none';
+  document.getElementById('modal').classList.add('open');
+}
+function deleteOtherDebt(id) {
+  if (!confirm('Delete this debt?')) return;
+  otherDebts = otherDebts.filter(x=>x.id!==id);
+  if (debtItemCharts[id]) { debtItemCharts[id].destroy(); delete debtItemCharts[id]; }
+  renderDebt(); scheduleSave();
 }
 function openDebtHistory(id) {
   const m = mortgages.find(x => x.id === id);
   if (!m) return;
   const rows = m.history.slice().reverse().map(h => {
-    const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
-    const partCols = m.parts.map(p => `<td style="padding:6px 8px;text-align:right">${fmt(h.balances[p]||0)}</td>`).join('');
-    const pay = h.payment ? `<td style="padding:6px 8px;text-align:right;color:var(--text3)">${fmt(h.payment)}</td>` : `<td></td>`;
-    return `<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--text3)">${d}</td>${partCols}<td style="padding:6px 8px;text-align:right;font-weight:600">${fmt(h.total)}</td>${id==='home'?pay:''}</tr>`;
+    const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'2-digit'});
+    const partCols = m.parts.map(p => `<td style="padding:5px 6px;text-align:right">${fmt(h.balances[p]||0)}</td>`).join('');
+    const pay = h.payment ? `<td style="padding:5px 6px;text-align:right;color:var(--text3)">${fmt(h.payment)}</td>` : `<td></td>`;
+    return `<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:5px 6px;color:var(--text3)">${d}</td>${partCols}<td style="padding:5px 6px;text-align:right;font-weight:600">${fmt(h.total)}</td>${id==='home'?pay:''}</tr>`;
   }).join('');
-  const headers = m.parts.map(p=>`<th style="padding:6px 8px;text-align:right;font-weight:500;color:var(--text3)">${p}</th>`).join('');
+  const headers = m.parts.map(p=>`<th style="padding:5px 6px;text-align:right;font-weight:500;color:var(--text3)">${p}</th>`).join('');
   document.getElementById('modal-title').textContent = m.name + ' — History';
-  document.getElementById('modal-body').innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
-    <thead><tr style="border-bottom:0.5px solid var(--border)"><th style="padding:6px 8px;text-align:left;color:var(--text3)">Date</th>${headers}<th style="padding:6px 8px;text-align:right;color:var(--text3)">Total</th>${id==='home'?'<th style="padding:6px 8px;text-align:right;color:var(--text3)">Payment</th>':''}</tr></thead>
+  document.querySelector('.modal-box').classList.add('modal-wide');
+  document.getElementById('modal-body').innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse;white-space:nowrap">
+    <thead><tr style="border-bottom:0.5px solid var(--border)"><th style="padding:5px 6px;text-align:left;color:var(--text3)">Date</th>${headers}<th style="padding:5px 6px;text-align:right;color:var(--text3)">Total</th>${id==='home'?'<th style="padding:5px 6px;text-align:right;color:var(--text3)">Payment</th>':''}</tr></thead>
     <tbody>${rows}</tbody></table></div>`;
   document.getElementById('modal-confirm').style.display = 'none';
   document.getElementById('modal').classList.add('open');
@@ -1240,7 +1408,7 @@ function deleteInvestment(id) {
   investments = investments.filter(i=>i.id!==id);
   renderInvestments(); scheduleSave();
 }
-function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-confirm').style.display=''; }
+function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-confirm').style.display=''; document.querySelector('.modal-box').classList.remove('modal-wide'); }
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 function parseWestpacCSV(text, account) {
@@ -1358,7 +1526,7 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, budgets,
+    rules, investments, mortgages, savings, property, otherDebts, budgets,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
@@ -1386,6 +1554,7 @@ function loadDataObj(obj) {
   if (obj.property) {
     property = 'homeVal' in obj.property ? obj.property : {homeVal:obj.property.val||0, beachVal:0};
   }
+  if (obj.otherDebts) otherDebts = obj.otherDebts;
 }
 function saveData() {
   const data = getDataObj();
