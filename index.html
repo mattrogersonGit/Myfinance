@@ -1520,10 +1520,13 @@ function handleCSV(input, account) {
   reader.onload = e => {
     const newTxns = parseWestpacCSV(e.target.result, account);
     if (!newTxns.length) return;
-    // Deduplicate against committed + already-pending transactions
+    // Deduplicate against committed + already-pending transactions.
+    // Use a count map so two same-day same-amount transactions (e.g. two school care invoices)
+    // are both allowed through if both already exist, or both treated as new if neither exists.
     const fp = t => `${t.date instanceof Date ? t.date.toISOString().slice(0,10) : String(t.date).slice(0,10)}|${(+t.amount).toFixed(2)}`;
-    const existing = new Set([...transactions, ...pendingTxns].map(fp));
-    const added = newTxns.filter(t => !existing.has(fp(t)));
+    const existingCounts = new Map();
+    [...transactions, ...pendingTxns].forEach(t => { const k=fp(t); existingCounts.set(k,(existingCounts.get(k)||0)+1); });
+    const added = newTxns.filter(t => { const k=fp(t); const n=existingCounts.get(k)||0; if(n>0){existingCounts.set(k,n-1);return false;} return true; });
     const dupes = newTxns.length - added.length;
     pendingTxns = pendingTxns.concat(added);
     const statusEl = document.getElementById(account==='everyday'?'everyday-status':'cc-status');
