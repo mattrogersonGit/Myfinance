@@ -508,6 +508,7 @@
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Use Push on the device with the correct data, then Pull on the other device.</div>
         </div>
+        <div id="data-summary" style="margin-top:12px;font-size:12px;color:var(--text3);line-height:1.8"></div>
       </div>
 
       <div class="card">
@@ -1639,7 +1640,7 @@ async function loadFromDrive() {
   try {
     driveFileId = localStorage.getItem('myfinance_drive_file_id');
     if (!driveFileId) {
-      const res = await gapi.client.drive.files.list({q:`name='${DATA_FILENAME}' and trashed=false`,fields:'files(id)'});
+      const res = await gapi.client.drive.files.list({q:`name='${DATA_FILENAME}' and trashed=false`,fields:'files(id)',orderBy:'modifiedTime desc'});
       driveFileId = res.result.files?.[0]?.id;
       if (driveFileId) localStorage.setItem('myfinance_drive_file_id', driveFileId);
     }
@@ -1709,6 +1710,17 @@ function updateDriveUI() {
     : 'Not connected';
   document.getElementById('drive-btn').textContent = driveConnected ? 'Disconnect Google Drive' : 'Connect Google Drive';
   document.getElementById('drive-manual-btns').style.display = driveConnected ? 'block' : 'none';
+  renderDataSummary();
+}
+function renderDataSummary() {
+  const el = document.getElementById('data-summary');
+  if (!el) return;
+  const mortSummary = mortgages.map(m => `${m.name.split(' ')[0]} (${m.history?.length||0} entries)`).join(', ');
+  el.innerHTML = `
+    <div>Transactions: <b>${transactions.length}</b></div>
+    <div>Mortgages: <b>${mortSummary||'none'}</b></div>
+    <div>Other debts: <b>${otherDebts.length}</b> (${otherDebts.map(d=>d.name).join(', ')||'none'})</div>
+    <div>Investments: <b>${investments.map(i=>i.name.split(' ')[0]+'('+( i.history?.length||0)+'hist)').join(', ')||'none'}</b></div>`;
 }
 async function forcePushToDrive() {
   if (!driveConnected) return;
@@ -1720,11 +1732,15 @@ async function forcePushToDrive() {
 async function forcePullFromDrive() {
   if (!driveConnected) return;
   if (!confirm('Download data from Drive? This will replace all data on this device with whatever is in Drive.')) return;
+  // Clear cached file ID so we always search Drive fresh (avoids fetching a stale/wrong file)
+  driveFileId = null;
+  localStorage.removeItem('myfinance_drive_file_id');
   await loadFromDrive();
   const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
   const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'unknown time';
   renderOverview(); renderDebt(); renderAssets();
   updateDriveUI();
+  renderDataSummary();
   setSyncStatus('synced', `Pulled ✓ · Drive data from ${when}`);
 }
 
