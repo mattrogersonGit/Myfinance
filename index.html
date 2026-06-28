@@ -1724,6 +1724,7 @@ async function forcePullFromDrive() {
   const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
   const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'unknown time';
   renderOverview(); renderDebt(); renderAssets();
+  updateDriveUI();
   setSyncStatus('synced', `Pulled ✓ · Drive data from ${when}`);
 }
 
