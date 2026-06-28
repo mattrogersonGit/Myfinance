@@ -1672,12 +1672,12 @@ function signIn() {
       driveConnected = true;
       localStorage.setItem('myfinance_drive','1');
       showApp();
-      // Push local data to Drive if we have it, otherwise pull from Drive
-      const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
-      if ((localData.transactions || []).length > 0) {
-        await saveToDrive(localData);
-      } else {
-        await loadFromDrive();
+      // Always pull from Drive first. If no Drive file exists yet, push local data to create it.
+      await loadFromDrive();
+      const driveEmpty = !driveFileId;
+      if (driveEmpty) {
+        const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+        if ((localData.transactions || []).length > 0) await saveToDrive(localData);
       }
       renderOverview();
       updateDriveUI();
@@ -1782,14 +1782,9 @@ function reconnectDrive() {
         if (resp.error) { setSyncStatus('', 'Local only'); return; }
         driveConnected = true;
         updateDriveUI();
-        // If we have local transactions, push them to Drive rather than overwriting with Drive data
-        const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
-        if ((localData.transactions || []).length > 0) {
-          await saveToDrive(localData);
-        } else {
-          await loadFromDrive();
-        }
-        renderOverview();
+        // Always pull from Drive on reconnect — prevents stale device from overwriting good data
+        await loadFromDrive();
+        renderOverview(); renderDebt(); renderAssets();
       }
     });
     client.requestAccessToken({prompt: ''});
