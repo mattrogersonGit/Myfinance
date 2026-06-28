@@ -149,6 +149,22 @@
     .btn-update { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 0.5px solid var(--border); background: var(--bg3); color: var(--text2); cursor: pointer; }
     .btn-update:hover { color: var(--text); background: var(--bg2); }
 
+    /* Mortgage & Assets pages */
+    .card-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .card-title-row .card-title { margin-bottom: 0; }
+    .mort-summary { font-size: 22px; font-weight: 700; color: var(--text); margin: 2px 0 2px; }
+    .mort-updated { font-size: 12px; color: var(--text3); margin-bottom: 10px; }
+    .mort-parts { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+    .mort-part-row { display: flex; justify-content: space-between; font-size: 14px; }
+    .mort-part-name { color: var(--text2); }
+    .mort-part-bal { font-weight: 500; }
+    .mort-history { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+    .mort-hist-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); padding: 3px 0; }
+    .mort-hist-date { color: var(--text3); }
+    .mort-history-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text3); margin-top: 12px; margin-bottom: 4px; }
+    .savings-val { font-size: 22px; font-weight: 700; margin: 2px 0; }
+    .inv-chart-section { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
+
     /* Auth screen */
     #auth-screen { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; z-index: 999; }
     .auth-logo { font-size: 48px; margin-bottom: 20px; }
@@ -378,72 +394,55 @@
       </div>
     </div>
 
-    <!-- NET WORTH -->
-    <div id="page-networth" class="page">
-      <div class="section-header"><div class="section-title">Mortgage & Net Worth</div></div>
-
-      <div class="card">
-        <div class="card-title">Mortgage</div>
-        <div class="input-group"><label>Loan balance ($)</label><input type="number" id="loan-bal" value="520000" oninput="updateMortgage()"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="input-group"><label>Monthly repayment ($)</label><input type="number" id="loan-rep" value="2800" oninput="updateMortgage()"></div>
-          <div class="input-group"><label>Interest rate (%)</label><input type="number" id="loan-rate" value="6.89" step="0.01" oninput="updateMortgage()"></div>
-        </div>
-        <hr class="divider">
-        <div class="stat-row"><span class="stat-label">Monthly interest</span><span class="stat-val neg" id="m-interest">—</span></div>
-        <div class="stat-row"><span class="stat-label">Monthly principal</span><span class="stat-val pos" id="m-principal">—</span></div>
-        <div class="stat-row"><span class="stat-label">Paid off in</span><span class="stat-val" id="m-years">—</span></div>
-        <div class="stat-row"><span class="stat-label">Total interest remaining</span><span class="stat-val neg" id="m-total-int">—</span></div>
+    <!-- MORTGAGE -->
+    <div id="page-mortgage" class="page">
+      <div class="section-header"><div class="section-title">Mortgages</div></div>
+      <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="metric"><div class="metric-label">Total Owed</div><div class="metric-value neg" style="font-size:17px" id="mort-grand-total">—</div></div>
+        <div class="metric"><div class="metric-label">Own Home</div><div class="metric-value" style="font-size:17px" id="mort-home-total">—</div></div>
+        <div class="metric"><div class="metric-label">Beach House</div><div class="metric-value" style="font-size:17px" id="mort-beach-total">—</div></div>
       </div>
-
-      <div class="card">
-        <div class="card-title">Property</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="input-group"><label>Estimated value ($)</label><input type="number" id="house-val" value="850000" oninput="updateNetWorth()"></div>
-          <div class="input-group"><label>Purchase price ($)</label><input type="number" id="house-buy" value="650000" oninput="updateNetWorth()"></div>
-        </div>
-        <div class="stat-row"><span class="stat-label">Capital gain</span><span class="stat-val pos" id="cap-gain">—</span></div>
-        <div class="stat-row"><span class="stat-label">Equity</span><span class="stat-val pos" id="equity">—</span></div>
-        <div class="stat-row"><span class="stat-label">LVR</span><span class="stat-val" id="lvr">—</span></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Net worth</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="input-group"><label>Savings ($)</label><input type="number" id="nw-savings" value="35000" oninput="updateNetWorth()"></div>
-          <div class="input-group"><label>Investments ($)</label><input type="number" id="nw-invest" value="45000" oninput="updateNetWorth()"></div>
-        </div>
-        <div class="nw-bar" id="nw-bar"></div>
-        <div class="nw-legend" id="nw-legend"></div>
-        <hr class="divider">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px">
-          <div class="metric"><div class="metric-label">Assets</div><div class="metric-value" style="font-size:17px" id="nw-assets">—</div></div>
-          <div class="metric"><div class="metric-label">Liabilities</div><div class="metric-value neg" style="font-size:17px" id="nw-liab">—</div></div>
-          <div class="metric"><div class="metric-label">Net worth</div><div class="metric-value pos" style="font-size:17px" id="nw-total">—</div></div>
-        </div>
-      </div>
+      <div id="mort-cards"></div>
     </div>
 
-    <!-- INVESTMENTS -->
-    <div id="page-investments" class="page">
-      <div class="section-header">
-        <div class="section-title">Investments</div>
-        <button class="btn btn-secondary" style="padding:8px 14px;font-size:13px" onclick="openAddInvestment()">+ Add</button>
-      </div>
+    <!-- ASSETS -->
+    <div id="page-assets" class="page">
+      <div class="section-header"><div class="section-title">Assets</div></div>
       <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
-        <div class="metric"><div class="metric-label">Invested</div><div class="metric-value neu" style="font-size:18px" id="inv-cost">—</div></div>
-        <div class="metric"><div class="metric-label">Value</div><div class="metric-value neu" style="font-size:18px" id="inv-val">—</div></div>
-        <div class="metric"><div class="metric-label">Return</div><div class="metric-value" style="font-size:18px" id="inv-ret">—</div></div>
+        <div class="metric"><div class="metric-label">Assets</div><div class="metric-value pos" style="font-size:17px" id="nw2-assets">—</div></div>
+        <div class="metric"><div class="metric-label">Debt</div><div class="metric-value neg" style="font-size:17px" id="nw2-debt">—</div></div>
+        <div class="metric"><div class="metric-label">Net Worth</div><div class="metric-value pos" style="font-size:17px" id="nw2-total">—</div></div>
       </div>
+
       <div class="card">
-        <div class="card-title">Allocation</div>
-        <div style="display:flex;gap:16px;align-items:center">
-          <div class="chart-wrap" style="height:130px;width:130px;flex-shrink:0"><canvas id="invChart" role="img" aria-label="Investment allocation donut chart"></canvas></div>
-          <div id="inv-legend" style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2)"></div>
+        <div class="card-title-row">
+          <div class="card-title">Property</div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="input-group"><label>Own Home ($)</label><input type="number" id="prop-home-val" value="0" oninput="recalcNetWorth()"></div>
+          <div class="input-group"><label>Beach House ($)</label><input type="number" id="prop-beach-val" value="0" oninput="recalcNetWorth()"></div>
+        </div>
+        <div class="stat-row"><span class="stat-label">Combined property</span><span class="stat-val" id="prop-combined">—</span></div>
+        <div class="stat-row"><span class="stat-label">Combined equity</span><span class="stat-val pos" id="prop-equity">—</span></div>
       </div>
-      <div class="card" style="padding:0 16px">
+
+      <div class="card" id="savings-card"></div>
+
+      <div class="card" style="padding:0 16px 16px">
+        <div class="card-title-row" style="padding-top:16px">
+          <div class="card-title">Investments</div>
+          <button class="btn-update" onclick="openAddInvestment()">+ Add</button>
+        </div>
         <div id="inv-list"></div>
+        <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border)">
+          <div class="metric"><div class="metric-label">Invested</div><div class="metric-value" style="font-size:16px" id="inv-cost">—</div></div>
+          <div class="metric"><div class="metric-label">Value</div><div class="metric-value" style="font-size:16px" id="inv-val">—</div></div>
+          <div class="metric"><div class="metric-label">Return</div><div class="metric-value" style="font-size:16px" id="inv-ret">—</div></div>
+        </div>
+        <div class="inv-chart-section">
+          <div class="chart-wrap" style="height:110px;width:110px;flex-shrink:0"><canvas id="invChart" role="img" aria-label="Investment allocation"></canvas></div>
+          <div id="inv-legend" style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text2)"></div>
+        </div>
       </div>
     </div>
 
@@ -520,13 +519,13 @@
       <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       P&L
     </button>
-    <button class="nav-item" onclick="navTo('networth',this)" aria-label="Net Worth">
+    <button class="nav-item" onclick="navTo('mortgage',this)" aria-label="Mortgage">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Net Worth
+      Mortgage
     </button>
-    <button class="nav-item" onclick="navTo('investments',this)" aria-label="Investments">
+    <button class="nav-item" onclick="navTo('assets',this)" aria-label="Assets">
       <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-      Invest
+      Assets
     </button>
     <button class="nav-item" onclick="navTo('import',this)" aria-label="Import">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -631,13 +630,16 @@ let rules = [
   {kw:'rates',cat:'Rates'},
 ];
 let investments = [
-  {id:1,name:'KiwiSaver (Matt)',  type:'KiwiSaver',units:1,buy:74378, current:74378},
-  {id:2,name:'KiwiSaver (Sheryl)',type:'KiwiSaver',units:1,buy:82615, current:82615},
-  {id:3,name:'Sharesies',         type:'Shares',   units:1,buy:8029,  current:8029},
+  {id:1,name:'KiwiSaver (Matt)',  type:'KiwiSaver',buy:74378, current:74378, updatedAt:null, history:[]},
+  {id:2,name:'KiwiSaver (Sheryl)',type:'KiwiSaver',buy:82615, current:82615, updatedAt:null, history:[]},
+  {id:3,name:'Sharesies',         type:'Shares',   buy:8029,  current:8029,  updatedAt:null, history:[]},
 ];
-let mortgage = {bal:226269,rep:2456,rate:6.5,term:25};
-let property = {val:1110000,buy:0};
-let networth = {savings:3943,invest:165022};
+let mortgages = [
+  {id:'home',  name:'Own Home (Ohaupo)', parts:['Mortgage 1','Mortgage 3','Offset'],                     history:[]},
+  {id:'beach', name:'Beach House',        parts:['Beach Section','Beach House 1','Beach House 2'], history:[]}
+];
+let savings = {current:0, updatedAt:null, history:[]};
+let property = {homeVal:1110000, beachVal:0};
 let pnlPeriod = 'month';
 let activeCatTxnId = null;
 let activeCatFilter = null;
@@ -707,8 +709,8 @@ function navTo(page, el) {
   if (page==='overview') renderOverview();
   if (page==='transactions') renderTransactions();
   if (page==='pnl') renderPNL();
-  if (page==='networth') { updateMortgage(); updateNetWorth(); }
-  if (page==='investments') renderInvestments();
+  if (page==='mortgage') renderMortgage();
+  if (page==='assets') renderAssets();
   if (page==='import') { renderCategories(); renderRules(); }
   document.getElementById('page-container').scrollTop = 0;
 }
@@ -973,51 +975,111 @@ function setPeriod(p, el) {
   renderPNL();
 }
 
-// ─── Mortgage & net worth ─────────────────────────────────────────────────────
-function updateMortgage() {
-  const bal = parseFloat(document.getElementById('loan-bal').value)||0;
-  const rep = parseFloat(document.getElementById('loan-rep').value)||0;
-  const rate = parseFloat(document.getElementById('loan-rate').value)||0;
-  const mr = rate/100/12;
-  const interest = bal*mr;
-  const principal = rep - interest;
-  const months = mr>0 ? Math.log(rep/(rep-bal*mr))/Math.log(1+mr) : bal/rep;
-  const totalInt = (rep*months)-bal;
-  document.getElementById('m-interest').textContent = fmt(interest)+'/mo';
-  document.getElementById('m-principal').textContent = fmt(Math.max(principal,0))+'/mo';
-  document.getElementById('m-years').textContent = isFinite(months) ? Math.round(months/12)+' years' : '—';
-  document.getElementById('m-total-int').textContent = fmt(Math.max(totalInt,0));
-  mortgage = {bal,rep,rate};
-  updateNetWorth();
-  scheduleSave();
+// ─── Mortgage ────────────────────────────────────────────────────────────────
+function renderMortgage() {
+  let grandTotal = 0;
+  const cards = document.getElementById('mort-cards');
+  cards.innerHTML = mortgages.map(m => {
+    const latest = m.history[m.history.length - 1];
+    if (!latest) return `<div class="card"><div class="card-title-row"><div class="card-title">${m.name}</div><button class="btn-update" onclick="openUpdateMortgage('${m.id}')">Update</button></div><div style="color:var(--text3);font-size:13px;padding:8px 0">No data yet — tap Update to add balances.</div></div>`;
+    grandTotal += latest.total;
+    const dateStr = new Date(latest.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+    const partRows = m.parts.map(p=>`<div class="mort-part-row"><span class="mort-part-name">${p}</span><span class="mort-part-bal">${fmt(latest.balances[p]||0)}</span></div>`).join('');
+    const hist = m.history.slice(-8).reverse();
+    const histRows = hist.length > 1 ? hist.map(h=>{
+      const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'2-digit'});
+      const pay = h.payment ? ` · pmt ${fmt(h.payment)}` : '';
+      return `<div class="mort-hist-row"><span class="mort-hist-date">${d}</span><span class="mort-hist-total">${fmt(h.total)}${pay}</span></div>`;
+    }).join('') : '';
+    return `<div class="card">
+      <div class="card-title-row"><div class="card-title">${m.name}</div><button class="btn-update" onclick="openUpdateMortgage('${m.id}')">Update</button></div>
+      <div class="mort-summary">${fmt(latest.total)}</div>
+      <div class="mort-updated">Updated ${dateStr}</div>
+      <hr class="divider">
+      <div class="mort-parts">${partRows}</div>
+      ${histRows ? `<div class="mort-history-label">Balance history</div><div class="mort-history">${histRows}</div>` : ''}
+    </div>`;
+  }).join('');
+  const home = mortgages[0]?.history?.slice(-1)[0]?.total || 0;
+  const beach = mortgages[1]?.history?.slice(-1)[0]?.total || 0;
+  document.getElementById('mort-grand-total').textContent = fmt(home + beach);
+  document.getElementById('mort-home-total').textContent = fmt(home);
+  document.getElementById('mort-beach-total').textContent = fmt(beach);
 }
-function updateNetWorth() {
-  const loanBal = parseFloat(document.getElementById('loan-bal')?.value)||0;
-  const houseVal = parseFloat(document.getElementById('house-val')?.value)||0;
-  const houseBuy = parseFloat(document.getElementById('house-buy')?.value)||0;
-  const savings = parseFloat(document.getElementById('nw-savings')?.value)||0;
-  const invest = parseFloat(document.getElementById('nw-invest')?.value)||0;
-  const equity = houseVal - loanBal;
-  const lvr = houseVal>0 ? Math.round((loanBal/houseVal)*100) : 0;
-  document.getElementById('cap-gain').textContent = fmtSigned(houseVal-houseBuy);
-  document.getElementById('equity').textContent = fmt(equity);
-  document.getElementById('lvr').textContent = lvr+'%';
-  const totalAssets = houseVal+savings+invest;
-  const nw = totalAssets - loanBal;
-  document.getElementById('nw-assets').textContent = fmt(totalAssets);
-  document.getElementById('nw-liab').textContent = fmt(loanBal);
-  document.getElementById('nw-total').textContent = fmt(nw);
+function openUpdateMortgage(id) {
+  const m = mortgages.find(x=>x.id===id);
+  if (!m) return;
+  const latest = m.history[m.history.length - 1] || {balances:{}, payment:0};
+  const partInputs = m.parts.map(p=>`<div class="input-group"><label>${p} ($)</label><input type="number" id="mp-${p.replace(/\s+/g,'-')}" value="${latest.balances[p]||0}" min="0"></div>`).join('');
+  const payInput = id==='home' ? `<div class="input-group"><label>Fortnightly payment ($)</label><input type="number" id="mp-payment" value="${latest.payment||0}" min="0"></div>` : '';
+  document.getElementById('modal-title').textContent = 'Update ' + m.name;
+  document.getElementById('modal-body').innerHTML = partInputs + payInput;
+  document.getElementById('modal-confirm').onclick = () => {
+    const balances = {};
+    let total = 0;
+    m.parts.forEach(p => { const v = parseFloat(document.getElementById(`mp-${p.replace(/\s+/g,'-')}`).value)||0; balances[p]=v; total+=v; });
+    const entry = {date:new Date().toISOString().slice(0,10), balances, total:Math.round(total)};
+    if (id==='home') entry.payment = parseFloat(document.getElementById('mp-payment').value)||0;
+    m.history.push(entry);
+    closeModal(); renderMortgage(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
 
-  const segs = [
-    {label:'Property',val:houseVal,color:'#4a8fe8'},
-    {label:'Savings',val:savings,color:'#1db88a'},
-    {label:'Investments',val:invest,color:'#7b6cf6'},
-  ].filter(s=>s.val>0);
-  const total = segs.reduce((s,x)=>s+x.val,0)||1;
-  document.getElementById('nw-bar').innerHTML = segs.map(s=>`<div class="nw-seg" style="width:${(s.val/total*100).toFixed(1)}%;background:${s.color}"></div>`).join('');
-  document.getElementById('nw-legend').innerHTML = segs.map(s=>`<div class="nw-legend-item"><div class="nw-dot" style="background:${s.color}"></div>${s.label}: ${fmt(s.val)}</div>`).join('');
-  property = {val:houseVal,buy:houseBuy};
-  networth = {savings,invest};
+// ─── Assets ──────────────────────────────────────────────────────────────────
+function renderAssets() {
+  renderSavingsCard();
+  renderInvestments();
+  // Populate property inputs
+  const hv = document.getElementById('prop-home-val');
+  const bv = document.getElementById('prop-beach-val');
+  if (hv) hv.value = property.homeVal || 0;
+  if (bv) bv.value = property.beachVal || 0;
+  recalcNetWorth();
+}
+function renderSavingsCard() {
+  const card = document.getElementById('savings-card');
+  if (!card) return;
+  const dateStr = savings.updatedAt ? new Date(savings.updatedAt).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}) : 'Never updated';
+  const hist = savings.history.slice(-8).reverse();
+  const histRows = hist.length > 1 ? hist.map(h=>{
+    const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'2-digit'});
+    return `<div class="mort-hist-row"><span class="mort-hist-date">${d}</span><span class="mort-hist-total">${fmt(h.value)}</span></div>`;
+  }).join('') : '';
+  card.innerHTML = `
+    <div class="card-title-row"><div class="card-title">Savings</div><button class="btn-update" onclick="openUpdateSavings()">Update</button></div>
+    <div class="savings-val">${fmt(savings.current)}</div>
+    <div class="mort-updated">Updated ${dateStr}</div>
+    ${histRows ? `<hr class="divider"><div class="mort-history-label">History</div><div class="mort-history">${histRows}</div>` : ''}
+  `;
+}
+function openUpdateSavings() {
+  document.getElementById('modal-title').textContent = 'Update Savings';
+  document.getElementById('modal-body').innerHTML = `<div class="input-group"><label>Current savings balance ($)</label><input type="number" id="sav-val" value="${savings.current}" min="0"></div>`;
+  document.getElementById('modal-confirm').onclick = () => {
+    const val = parseFloat(document.getElementById('sav-val').value)||0;
+    savings.current = val;
+    savings.updatedAt = new Date().toISOString().slice(0,10);
+    savings.history.push({date:savings.updatedAt, value:val});
+    closeModal(); renderSavingsCard(); recalcNetWorth(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function recalcNetWorth() {
+  const homeVal = parseFloat(document.getElementById('prop-home-val')?.value)||0;
+  const beachVal = parseFloat(document.getElementById('prop-beach-val')?.value)||0;
+  property.homeVal = homeVal; property.beachVal = beachVal;
+  const propTotal = homeVal + beachVal;
+  const mortTotal = (mortgages[0]?.history?.slice(-1)[0]?.total||0) + (mortgages[1]?.history?.slice(-1)[0]?.total||0);
+  const invTotal = investments.reduce((s,inv)=>s+inv.current,0);
+  const totalAssets = propTotal + (savings.current||0) + invTotal;
+  const nw = totalAssets - mortTotal;
+  const el = id => document.getElementById(id);
+  if (el('prop-combined')) el('prop-combined').textContent = fmt(propTotal);
+  if (el('prop-equity')) el('prop-equity').textContent = fmt(propTotal - mortTotal);
+  if (el('nw2-assets')) el('nw2-assets').textContent = fmt(totalAssets);
+  if (el('nw2-debt')) el('nw2-debt').textContent = fmt(mortTotal);
+  if (el('nw2-total')) { el('nw2-total').textContent = fmt(nw); el('nw2-total').className='metric-value '+(nw>=0?'pos':'neg'); }
   scheduleSave();
 }
 
@@ -1108,7 +1170,9 @@ function openUpdateInvestment(id) {
     if (isNaN(val)) return;
     inv.current = val;
     inv.updatedAt = new Date().toISOString().slice(0,10);
-    closeModal(); renderInvestments(); scheduleSave();
+    if (!inv.history) inv.history = [];
+    inv.history.push({date:inv.updatedAt, value:val});
+    closeModal(); renderAssets(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
 }
@@ -1235,7 +1299,7 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgage, property, networth, budgets,
+    rules, investments, mortgages, savings, property, budgets,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
@@ -1243,20 +1307,26 @@ function getDataObj() {
 function loadDataObj(obj) {
   if (!obj) return;
   transactions = (obj.transactions||[]).map(t=>({...t,date:new Date(t.date)}));
-  rules        = obj.rules        || rules;
-  investments  = obj.investments  || investments;
-  mortgage     = obj.mortgage     || mortgage;
-  property     = obj.property     || property;
-  networth     = obj.networth     || networth;
-  budgets      = obj.budgets      || budgets;
+  rules        = obj.rules       || rules;
+  investments  = (obj.investments||investments).map(inv=>({history:[],...inv}));
+  budgets      = obj.budgets     || budgets;
   if (obj.cats && obj.cats.length) CATS = obj.cats;
-  // Restore mortgage/networth inputs
-  const fields = {
-    'loan-bal':mortgage.bal,'loan-rep':mortgage.rep,'loan-rate':mortgage.rate,
-    'house-val':property.val,'house-buy':property.buy,
-    'nw-savings':networth.savings,'nw-invest':networth.invest
-  };
-  Object.entries(fields).forEach(([id,val])=>{ const el=document.getElementById(id); if(el) el.value=val; });
+  // New mortgages format
+  if (obj.mortgages) mortgages = obj.mortgages;
+  else if (obj.mortgage) {
+    // Migrate old single-mortgage format
+    mortgages[0].history = [{date:new Date().toISOString().slice(0,10),balances:{'Mortgage 1':obj.mortgage.bal,'Mortgage 3':0,'Offset':0},total:obj.mortgage.bal,payment:obj.mortgage.rep}];
+  }
+  // Savings
+  if (obj.savings && typeof obj.savings === 'object' && 'current' in obj.savings) {
+    savings = obj.savings;
+  } else if (obj.networth?.savings) {
+    savings = {current:obj.networth.savings, updatedAt:null, history:[]};
+  }
+  // Property
+  if (obj.property) {
+    property = 'homeVal' in obj.property ? obj.property : {homeVal:obj.property.val||0, beachVal:0};
+  }
 }
 function saveData() {
   const data = getDataObj();
