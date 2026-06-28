@@ -1702,21 +1702,29 @@ function toggleDrive() {
   } else { signIn(); }
 }
 function updateDriveUI() {
-  document.getElementById('drive-status').textContent = driveConnected ? '✓ Connected — data syncs automatically' : 'Not connected';
+  const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+  const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
+  document.getElementById('drive-status').textContent = driveConnected
+    ? ('✓ Connected' + (when ? ' · Local data from ' + when : ''))
+    : 'Not connected';
   document.getElementById('drive-btn').textContent = driveConnected ? 'Disconnect Google Drive' : 'Connect Google Drive';
   document.getElementById('drive-manual-btns').style.display = driveConnected ? 'block' : 'none';
 }
 async function forcePushToDrive() {
   if (!driveConnected) return;
   if (!confirm('Upload this device\'s data to Drive? This will overwrite whatever is currently saved in Drive.')) return;
-  saveData();
+  const data = getDataObj();
+  localStorage.setItem('myfinance_data', JSON.stringify(data));
+  await saveToDrive(data);
 }
 async function forcePullFromDrive() {
   if (!driveConnected) return;
   if (!confirm('Download data from Drive? This will replace all data on this device with whatever is in Drive.')) return;
   await loadFromDrive();
+  const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+  const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'unknown time';
   renderOverview(); renderDebt(); renderAssets();
-  setSyncStatus('synced','Pulled from Drive ✓');
+  setSyncStatus('synced', `Pulled ✓ · Drive data from ${when}`);
 }
 
 function clearData() {
