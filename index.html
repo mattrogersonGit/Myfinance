@@ -394,11 +394,11 @@
       </div>
     </div>
 
-    <!-- MORTGAGE -->
-    <div id="page-mortgage" class="page">
-      <div class="section-header"><div class="section-title">Mortgages</div></div>
+    <!-- DEBT -->
+    <div id="page-debt" class="page">
+      <div class="section-header"><div class="section-title">Debt</div></div>
       <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
-        <div class="metric"><div class="metric-label">Total Owed</div><div class="metric-value neg" style="font-size:17px" id="mort-grand-total">—</div></div>
+        <div class="metric"><div class="metric-label">Total Debt</div><div class="metric-value neg" style="font-size:17px" id="mort-grand-total">—</div></div>
         <div class="metric"><div class="metric-label">Own Home</div><div class="metric-value" style="font-size:17px" id="mort-home-total">—</div></div>
         <div class="metric"><div class="metric-label">Beach House</div><div class="metric-value" style="font-size:17px" id="mort-beach-total">—</div></div>
       </div>
@@ -519,9 +519,9 @@
       <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       P&L
     </button>
-    <button class="nav-item" onclick="navTo('mortgage',this)" aria-label="Mortgage">
+    <button class="nav-item" onclick="navTo('debt',this)" aria-label="Debt">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Mortgage
+      Debt
     </button>
     <button class="nav-item" onclick="navTo('assets',this)" aria-label="Assets">
       <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
@@ -709,7 +709,7 @@ function navTo(page, el) {
   if (page==='overview') renderOverview();
   if (page==='transactions') renderTransactions();
   if (page==='pnl') renderPNL();
-  if (page==='mortgage') renderMortgage();
+  if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
   if (page==='import') { renderCategories(); renderRules(); }
   document.getElementById('page-container').scrollTop = 0;
@@ -975,36 +975,93 @@ function setPeriod(p, el) {
   renderPNL();
 }
 
-// ─── Mortgage ────────────────────────────────────────────────────────────────
-function renderMortgage() {
-  let grandTotal = 0;
+// ─── Debt ─────────────────────────────────────────────────────────────────────
+let mortCharts = {};
+function renderDebt() {
   const cards = document.getElementById('mort-cards');
   cards.innerHTML = mortgages.map(m => {
     const latest = m.history[m.history.length - 1];
     if (!latest) return `<div class="card"><div class="card-title-row"><div class="card-title">${m.name}</div><button class="btn-update" onclick="openUpdateMortgage('${m.id}')">Update</button></div><div style="color:var(--text3);font-size:13px;padding:8px 0">No data yet — tap Update to add balances.</div></div>`;
-    grandTotal += latest.total;
     const dateStr = new Date(latest.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
     const partRows = m.parts.map(p=>`<div class="mort-part-row"><span class="mort-part-name">${p}</span><span class="mort-part-bal">${fmt(latest.balances[p]||0)}</span></div>`).join('');
-    const hist = m.history.slice(-8).reverse();
-    const histRows = hist.length > 1 ? hist.map(h=>{
-      const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'2-digit'});
-      const pay = h.payment ? ` · pmt ${fmt(h.payment)}` : '';
-      return `<div class="mort-hist-row"><span class="mort-hist-date">${d}</span><span class="mort-hist-total">${fmt(h.total)}${pay}</span></div>`;
-    }).join('') : '';
+    const hasHistory = m.history.length > 1;
     return `<div class="card">
-      <div class="card-title-row"><div class="card-title">${m.name}</div><button class="btn-update" onclick="openUpdateMortgage('${m.id}')">Update</button></div>
+      <div class="card-title-row">
+        <div class="card-title">${m.name}</div>
+        <div style="display:flex;gap:6px">
+          ${hasHistory ? `<button class="btn-update" onclick="openDebtHistory('${m.id}')">History</button>` : ''}
+          <button class="btn-update" onclick="openUpdateMortgage('${m.id}')">Update</button>
+        </div>
+      </div>
       <div class="mort-summary">${fmt(latest.total)}</div>
       <div class="mort-updated">Updated ${dateStr}</div>
       <hr class="divider">
       <div class="mort-parts">${partRows}</div>
-      ${histRows ? `<div class="mort-history-label">Balance history</div><div class="mort-history">${histRows}</div>` : ''}
+      ${hasHistory ? `<div class="chart-wrap" style="height:120px;margin-top:14px"><canvas id="mort-chart-${m.id}"></canvas></div>` : ''}
     </div>`;
   }).join('');
+
+  // Draw trend charts after DOM is updated
+  requestAnimationFrame(() => {
+    mortgages.forEach(m => {
+      if (m.history.length < 2) return;
+      const ctx = document.getElementById(`mort-chart-${m.id}`);
+      if (!ctx) return;
+      if (mortCharts[m.id]) { mortCharts[m.id].destroy(); delete mortCharts[m.id]; }
+      const labels = m.history.map(h => {
+        const d = new Date(h.date);
+        return d.toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
+      });
+      mortCharts[m.id] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data: m.history.map(h => h.total),
+            borderColor: '#4a8fe8',
+            backgroundColor: 'rgba(74,143,232,0.12)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: {
+            callbacks: { label: ctx => ' ' + fmt(ctx.parsed.y) }
+          }},
+          scales: {
+            x: { ticks: { maxTicksLimit: 6, color: '#7a7f96', font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { callback: v => '$'+Math.round(v/1000)+'k', color: '#7a7f96', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+          }
+        }
+      });
+    });
+  });
+
   const home = mortgages[0]?.history?.slice(-1)[0]?.total || 0;
   const beach = mortgages[1]?.history?.slice(-1)[0]?.total || 0;
   document.getElementById('mort-grand-total').textContent = fmt(home + beach);
   document.getElementById('mort-home-total').textContent = fmt(home);
   document.getElementById('mort-beach-total').textContent = fmt(beach);
+}
+function openDebtHistory(id) {
+  const m = mortgages.find(x => x.id === id);
+  if (!m) return;
+  const rows = m.history.slice().reverse().map(h => {
+    const d = new Date(h.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+    const partCols = m.parts.map(p => `<td style="padding:6px 8px;text-align:right">${fmt(h.balances[p]||0)}</td>`).join('');
+    const pay = h.payment ? `<td style="padding:6px 8px;text-align:right;color:var(--text3)">${fmt(h.payment)}</td>` : `<td></td>`;
+    return `<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--text3)">${d}</td>${partCols}<td style="padding:6px 8px;text-align:right;font-weight:600">${fmt(h.total)}</td>${id==='home'?pay:''}</tr>`;
+  }).join('');
+  const headers = m.parts.map(p=>`<th style="padding:6px 8px;text-align:right;font-weight:500;color:var(--text3)">${p}</th>`).join('');
+  document.getElementById('modal-title').textContent = m.name + ' — History';
+  document.getElementById('modal-body').innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+    <thead><tr style="border-bottom:0.5px solid var(--border)"><th style="padding:6px 8px;text-align:left;color:var(--text3)">Date</th>${headers}<th style="padding:6px 8px;text-align:right;color:var(--text3)">Total</th>${id==='home'?'<th style="padding:6px 8px;text-align:right;color:var(--text3)">Payment</th>':''}</tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+  document.getElementById('modal-confirm').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
 }
 function openUpdateMortgage(id) {
   const m = mortgages.find(x=>x.id===id);
@@ -1014,6 +1071,7 @@ function openUpdateMortgage(id) {
   const payInput = id==='home' ? `<div class="input-group"><label>Fortnightly payment ($)</label><input type="number" id="mp-payment" value="${latest.payment||0}" min="0"></div>` : '';
   document.getElementById('modal-title').textContent = 'Update ' + m.name;
   document.getElementById('modal-body').innerHTML = partInputs + payInput;
+  document.getElementById('modal-confirm').style.display = '';
   document.getElementById('modal-confirm').onclick = () => {
     const balances = {};
     let total = 0;
@@ -1021,7 +1079,7 @@ function openUpdateMortgage(id) {
     const entry = {date:new Date().toISOString().slice(0,10), balances, total:Math.round(total)};
     if (id==='home') entry.payment = parseFloat(document.getElementById('mp-payment').value)||0;
     m.history.push(entry);
-    closeModal(); renderMortgage(); scheduleSave();
+    closeModal(); renderDebt(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
 }
@@ -1181,7 +1239,7 @@ function deleteInvestment(id) {
   investments = investments.filter(i=>i.id!==id);
   renderInvestments(); scheduleSave();
 }
-function closeModal() { document.getElementById('modal').classList.remove('open'); }
+function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-confirm').style.display=''; }
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 function parseWestpacCSV(text, account) {
