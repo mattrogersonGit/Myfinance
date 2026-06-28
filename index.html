@@ -60,9 +60,9 @@
 
     /* Metric grid */
     .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-    .metric { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .metric { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 14px; min-width: 0; overflow: hidden; }
     .metric-label { font-size: 11px; color: var(--text3); margin-bottom: 5px; }
-    .metric-value { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; }
+    .metric-value { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .metric-sub { font-size: 11px; color: var(--text3); margin-top: 3px; }
     .pos { color: var(--teal); }
     .neg { color: var(--red); }
@@ -662,6 +662,7 @@ const DATA_FILENAME = 'myfinance-data.json';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtM = n => { const abs=Math.abs(n),s=n<0?'-':''; if(abs>=1e6) return s+'$'+(abs/1e6).toFixed(2)+'M'; if(abs>=10000) return s+'$'+Math.round(abs/1000)+'k'; return (n<0?'-':'')+fmt(Math.abs(n)); };
 const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
 const fmtDec = n => '$' + Math.abs(n).toLocaleString('en-NZ', {minimumFractionDigits:2,maximumFractionDigits:2});
 const catEmoji = name => (CATS.find(c=>c.name===name)||{emoji:'📌'}).emoji;
@@ -1030,9 +1031,9 @@ function renderDebt() {
   requestAnimationFrame(drawAllDebtCharts);
   const mortTotal = mortgages.reduce((s,m)=>s+(m.history?.slice(-1)[0]?.total||0),0);
   const otherTotal = otherDebts.reduce((s,d)=>s+d.balance,0);
-  document.getElementById('mort-grand-total').textContent = fmt(mortTotal+otherTotal);
-  document.getElementById('mort-mortgage-total').textContent = fmt(mortTotal);
-  document.getElementById('mort-other-total').textContent = fmt(otherTotal);
+  document.getElementById('mort-grand-total').textContent = fmtM(mortTotal+otherTotal);
+  document.getElementById('mort-mortgage-total').textContent = fmtM(mortTotal);
+  document.getElementById('mort-other-total').textContent = fmtM(otherTotal);
 }
 function drawAllDebtCharts() {
   mortgages.forEach(m => {
@@ -1299,9 +1300,9 @@ function recalcNetWorth() {
   const el = id => document.getElementById(id);
   if (el('prop-combined')) el('prop-combined').textContent = fmt(propTotal);
   if (el('prop-equity')) el('prop-equity').textContent = fmt(propTotal - mortTotal);
-  if (el('nw2-assets')) el('nw2-assets').textContent = fmt(totalAssets);
-  if (el('nw2-debt')) el('nw2-debt').textContent = fmt(totalDebt);
-  if (el('nw2-total')) { el('nw2-total').textContent = fmt(nw); el('nw2-total').className='metric-value '+(nw>=0?'pos':'neg'); }
+  if (el('nw2-assets')) el('nw2-assets').textContent = fmtM(totalAssets);
+  if (el('nw2-debt')) el('nw2-debt').textContent = fmtM(totalDebt);
+  if (el('nw2-total')) { el('nw2-total').textContent = fmtM(nw); el('nw2-total').className='metric-value '+(nw>=0?'pos':'neg'); }
   scheduleSave();
 }
 
