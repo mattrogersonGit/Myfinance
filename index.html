@@ -205,20 +205,20 @@
     .stat-val { font-weight: 600; }
 
     /* Bottom sheet category selector */
-    #cat-sheet { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 0.5px solid var(--border2); border-radius: 20px 20px 0 0; padding: 10px 12px calc(12px + var(--safe-bottom)); z-index: 400; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); max-height: 45vh; overflow-y: auto; }
-    #cat-sheet.open { transform: translateY(0); }
-    #sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 399; display: none; }
+    #cat-sheet { position: fixed; bottom: 0; left: 50%; width: 280px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px 14px 0 0; padding: 10px 12px calc(14px + var(--safe-bottom)); z-index: 400; transform: translateX(-50%) translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); max-height: 55vh; overflow-y: auto; }
+    #cat-sheet.open { transform: translateX(-50%) translateY(0); }
+    #sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 399; display: none; }
     #sheet-overlay.open { display: block; }
-    .sheet-handle { width: 36px; height: 4px; background: var(--border2); border-radius: 2px; margin: 0 auto 8px; }
-    .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .sheet-title { font-size: 15px; font-weight: 600; }
-    .sheet-close { background: none; border: none; color: var(--text2); font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 4px; }
-    #cat-options { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; }
-    .cat-option { display: flex; align-items: center; gap: 5px; padding: 6px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .sheet-handle { width: 32px; height: 4px; background: var(--border2); border-radius: 2px; margin: 0 auto 8px; }
+    .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .sheet-title { font-size: 14px; font-weight: 600; }
+    .sheet-close { background: none; border: none; color: var(--text2); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 4px; }
+    #cat-options { display: flex; flex-direction: column; gap: 1px; }
+    .cat-option { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .cat-option:active { background: var(--bg3); }
-    .cat-check { margin-left: auto; color: var(--teal); font-size: 11px; }
+    .cat-check { margin-left: auto; color: var(--teal); font-size: 12px; }
     .cat-emoji { font-size: 16px; width: 22px; text-align: center; }
-    .cat-name { font-size: 12px; }
+    .cat-name { font-size: 13px; }
     .cat-check { margin-left: auto; color: var(--teal); font-size: 18px; }
 
     /* Rule item */
