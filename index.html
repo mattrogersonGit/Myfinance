@@ -273,6 +273,9 @@
     .cat-name-input { flex: 1; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 10px; outline: none; }
     .cat-name-input:focus, .cat-emoji-input:focus { border-color: var(--teal); }
     .cat-budget-input { width: 72px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 8px; outline: none; text-align: right; }
+    .cat-fixed-btn { font-size: 10px; padding: 3px 6px; border-radius: 4px; border: 0.5px solid var(--border2); cursor: pointer; flex-shrink: 0; }
+    .cat-fixed-btn.is-fixed { background: var(--teal); color: #fff; border-color: var(--teal); }
+    .cat-fixed-btn.is-variable { background: var(--bg3); color: var(--text3); }
     .rules-search { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; padding: 9px 12px; outline: none; margin-bottom: 10px; }
     .rules-search:focus { border-color: var(--teal); }
     .rules-scroll { max-height: 280px; overflow-y: auto; }
@@ -338,7 +341,14 @@
       </div>
 
       <div class="card">
-        <div class="card-title">Budget vs Actual</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          Budget vs Actual
+          <div style="display:flex;gap:4px">
+            <button id="bva-f-all" class="tab active" style="font-size:11px;padding:3px 8px" onclick="setBvaFilter('all',this)">All</button>
+            <button id="bva-f-fixed" class="tab" style="font-size:11px;padding:3px 8px" onclick="setBvaFilter('fixed',this)">Fixed</button>
+            <button id="bva-f-variable" class="tab" style="font-size:11px;padding:3px 8px" onclick="setBvaFilter('variable',this)">Variable</button>
+          </div>
+        </div>
         <div id="bva-list"></div>
       </div>
 
@@ -385,9 +395,14 @@
     <div id="page-pnl" class="page">
       <div class="tabs" style="margin-top:12px">
         <button class="tab active" onclick="setPeriod('month',this)">Month</button>
-        <button class="tab" onclick="setPeriod('quarter',this)">Quarter</button>
         <button class="tab" onclick="setPeriod('ytd',this)">YTD</button>
+        <button class="tab" onclick="setPeriod('year',this)">Year</button>
         <button class="tab" onclick="setPeriod('all',this)">All</button>
+      </div>
+      <div id="pnl-year-nav" class="month-nav" style="display:none">
+        <button onclick="prevPnlYear()">&#8249;</button>
+        <span id="pnl-year-label"></span>
+        <button onclick="nextPnlYear()">&#8250;</button>
       </div>
       <div id="pnl-month-nav" class="month-nav">
         <button onclick="prevMonth()">&#8249;</button>
@@ -584,46 +599,46 @@
 <script>
 // ─── Constants ───────────────────────────────────────────────────────────────
 let CATS = [
-  {name:'Pay',emoji:'💵'},
-  {name:'Food',emoji:'🛒'},
-  {name:'Restaurant',emoji:'🍽️'},
-  {name:'Petrol',emoji:'⛽'},
-  {name:'Power',emoji:'⚡'},
-  {name:'Insurance',emoji:'🛡️'},
-  {name:'Medical',emoji:'💊'},
-  {name:'Health & Beauty',emoji:'💆'},
-  {name:'House',emoji:'🏠'},
-  {name:'Home Maintainance',emoji:'🔧'},
-  {name:'Mortgage',emoji:'🏦'},
-  {name:'Savings',emoji:'💰'},
-  {name:'Clothing',emoji:'👕'},
-  {name:'Entertainment',emoji:'🎬'},
-  {name:'Subscriptions',emoji:'📱'},
-  {name:'Education',emoji:'📚'},
-  {name:'School',emoji:'🎓'},
-  {name:'Car',emoji:'🚗'},
-  {name:'Holiday',emoji:'✈️'},
-  {name:'Gifts',emoji:'🎁'},
-  {name:'Charity',emoji:'❤️'},
-  {name:'Alcohol',emoji:'🍺'},
-  {name:'Hobbies',emoji:'🎣'},
-  {name:'Haircuts',emoji:'✂️'},
-  {name:'Debt',emoji:'💳'},
-  {name:'Fees & Interest',emoji:'💸'},
-  {name:'Rates',emoji:'🏛️'},
-  {name:'Phone',emoji:'📞'},
-  {name:'Investments',emoji:'📈'},
-  {name:'CapEx',emoji:'🔨'},
-  {name:'Beach',emoji:'🏖️'},
-  {name:'Business',emoji:'💼'},
-  {name:'Work',emoji:'👔'},
-  {name:'Reimbursment',emoji:'💱'},
-  {name:'Eggs',emoji:'🥚'},
-  {name:'Chickens',emoji:'🐓'},
-  {name:'Roos',emoji:'🦘'},
-  {name:'Vape',emoji:'💨'},
-  {name:'Misc',emoji:'📌'},
-  {name:'Other',emoji:'📌'},
+  {name:'Pay',emoji:'💵',fixed:true},
+  {name:'Food',emoji:'🛒',fixed:false},
+  {name:'Restaurant',emoji:'🍽️',fixed:false},
+  {name:'Petrol',emoji:'⛽',fixed:false},
+  {name:'Power',emoji:'⚡',fixed:true},
+  {name:'Insurance',emoji:'🛡️',fixed:true},
+  {name:'Medical',emoji:'💊',fixed:false},
+  {name:'Health & Beauty',emoji:'💆',fixed:false},
+  {name:'House',emoji:'🏠',fixed:false},
+  {name:'Home Maintainance',emoji:'🔧',fixed:false},
+  {name:'Mortgage',emoji:'🏦',fixed:true},
+  {name:'Savings',emoji:'💰',fixed:true},
+  {name:'Clothing',emoji:'👕',fixed:false},
+  {name:'Entertainment',emoji:'🎬',fixed:false},
+  {name:'Subscriptions',emoji:'📱',fixed:true},
+  {name:'Education',emoji:'📚',fixed:false},
+  {name:'School',emoji:'🎓',fixed:true},
+  {name:'Car',emoji:'🚗',fixed:false},
+  {name:'Holiday',emoji:'✈️',fixed:false},
+  {name:'Gifts',emoji:'🎁',fixed:false},
+  {name:'Charity',emoji:'❤️',fixed:false},
+  {name:'Alcohol',emoji:'🍺',fixed:false},
+  {name:'Hobbies',emoji:'🎣',fixed:false},
+  {name:'Haircuts',emoji:'✂️',fixed:false},
+  {name:'Debt',emoji:'💳',fixed:true},
+  {name:'Fees & Interest',emoji:'💸',fixed:true},
+  {name:'Rates',emoji:'🏛️',fixed:true},
+  {name:'Phone',emoji:'📞',fixed:true},
+  {name:'Investments',emoji:'📈',fixed:true},
+  {name:'CapEx',emoji:'🔨',fixed:false},
+  {name:'Beach',emoji:'🏖️',fixed:false},
+  {name:'Business',emoji:'💼',fixed:false},
+  {name:'Work',emoji:'👔',fixed:false},
+  {name:'Reimbursment',emoji:'💱',fixed:false},
+  {name:'Eggs',emoji:'🥚',fixed:true},
+  {name:'Chickens',emoji:'🐓',fixed:true},
+  {name:'Roos',emoji:'🦘',fixed:true},
+  {name:'Vape',emoji:'💨',fixed:false},
+  {name:'Misc',emoji:'📌',fixed:false},
+  {name:'Other',emoji:'📌',fixed:false},
 ];
 CATS.sort((a,b) => a.name === 'Pay' ? -1 : b.name === 'Pay' ? 1 : a.name.localeCompare(b.name));
 const CAT_COLORS = [
@@ -672,6 +687,8 @@ let otherDebts = [];
 let debtOrder = [];
 let pendingTxns = [];
 let pnlPeriod = 'month';
+let pnlYear   = new Date().getFullYear();
+let bvaFilter = 'all';
 let activeCatTxnId = null;
 let activeCatFilter = null;
 let flowChart, pnlChart, invChart;
@@ -706,8 +723,8 @@ function getFilteredTxns(period) {
   return transactions.filter(t => {
     if (period==='selmonth') return t.date.getMonth()===selMonth&&t.date.getFullYear()===selYear;
     if (period==='month') return t.date.getMonth()===now.getMonth()&&t.date.getFullYear()===now.getFullYear();
-    if (period==='quarter') { const q=Math.floor(now.getMonth()/3); return Math.floor(t.date.getMonth()/3)===q&&t.date.getFullYear()===now.getFullYear(); }
-    if (period==='ytd') return t.date.getFullYear()===now.getFullYear();
+    if (period==='ytd') { const cutoff = pnlYear===now.getFullYear() ? now : new Date(pnlYear,11,31); return t.date.getFullYear()===pnlYear && t.date<=cutoff; }
+    if (period==='year') return t.date.getFullYear()===pnlYear;
     if (period==='3months') { const cutoff=new Date(now); cutoff.setMonth(cutoff.getMonth()-3); return t.date>=cutoff; }
     return true;
   });
@@ -796,6 +813,13 @@ function renderOverview() {
     </div>`).join('');
 }
 
+function setBvaFilter(f, el) {
+  bvaFilter = f;
+  document.querySelectorAll('#bva-f-all,#bva-f-fixed,#bva-f-variable').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const txns = getFilteredTxns('selmonth');
+  renderBudgetVsActual(txns);
+}
 function renderBudgetVsActual(txns) {
   const el = document.getElementById('bva-list');
   if (!el) return;
@@ -804,9 +828,12 @@ function renderBudgetVsActual(txns) {
   const actuals = {};
   txns.filter(t=>t.amount<0).forEach(t=>{ actuals[t.cat]=(actuals[t.cat]||0)+Math.abs(t.amount); });
 
-  // Collect all categories that have a budget or actual spend
-  const allCats = new Set([...Object.keys(budgets), ...Object.keys(actuals)]);
-  allCats.delete('Pay'); // income shown separately in metrics
+  // Collect all categories that have a budget or actual spend, filtered by fixed/variable
+  const catFixedMap = Object.fromEntries(CATS.map(c=>[c.name, c.fixed===true]));
+  let allCats = new Set([...Object.keys(budgets), ...Object.keys(actuals)]);
+  allCats.delete('Pay');
+  if (bvaFilter==='fixed')    allCats = new Set([...allCats].filter(c=>catFixedMap[c]===true));
+  if (bvaFilter==='variable') allCats = new Set([...allCats].filter(c=>catFixedMap[c]!==true));
 
   if (!allCats.size) { el.innerHTML = '<div class="empty" style="padding:8px 0">No data for this month</div>'; return; }
 
@@ -972,12 +999,33 @@ function editTxnDesc(id) {
 }
 
 // ─── P&L ──────────────────────────────────────────────────────────────────────
+function getBudgetMultiplier(period) {
+  const now = new Date();
+  if (period==='selmonth' || period==='month') return 1;
+  if (period==='ytd') {
+    if (pnlYear < now.getFullYear()) return 12;
+    return now.getMonth() + 1;
+  }
+  if (period==='year') return 12;
+  if (period==='all') {
+    if (!transactions.length) return 12;
+    const min = new Date(Math.min(...transactions.map(t=>t.date)));
+    const max = new Date(Math.max(...transactions.map(t=>t.date)));
+    return Math.max(1, (max.getFullYear()-min.getFullYear())*12 + max.getMonth()-min.getMonth()+1);
+  }
+  return 1;
+}
+function prevPnlYear() { pnlYear--; renderPNL(); }
+function nextPnlYear() { pnlYear++; renderPNL(); }
 function renderPNL() {
-  // Show/hide month nav based on period
-  const navEl = document.getElementById('pnl-month-nav');
-  const lblEl = document.getElementById('pnl-month-label');
-  if (navEl) navEl.style.display = pnlPeriod==='month' ? 'flex' : 'none';
-  if (lblEl) lblEl.textContent = monthLabel();
+  const monthNavEl = document.getElementById('pnl-month-nav');
+  const yearNavEl  = document.getElementById('pnl-year-nav');
+  const lblEl      = document.getElementById('pnl-month-label');
+  const yrLblEl    = document.getElementById('pnl-year-label');
+  if (monthNavEl) monthNavEl.style.display = pnlPeriod==='month' ? 'flex' : 'none';
+  if (yearNavEl)  yearNavEl.style.display  = (pnlPeriod==='ytd'||pnlPeriod==='year') ? 'flex' : 'none';
+  if (lblEl)    lblEl.textContent  = monthLabel();
+  if (yrLblEl)  yrLblEl.textContent = String(pnlYear);
 
   const period = pnlPeriod==='month' ? 'selmonth' : pnlPeriod;
   const txns = getFilteredTxns(period);
@@ -986,7 +1034,6 @@ function renderPNL() {
 
   const income = Object.entries(bycat).filter(([c])=>INCOME_CATS.has(c)).reduce((s,[,v])=>s+Math.max(v,0),0);
 
-  // All expense categories sorted by amount descending
   const expCats = Object.entries(bycat)
     .filter(([c,v]) => !INCOME_CATS.has(c) && v<0)
     .map(([c,v]) => ({cat:c, exp:Math.abs(v)}))
@@ -995,36 +1042,38 @@ function renderPNL() {
   let totalExp = expCats.reduce((s,r)=>s+r.exp, 0);
   const net = income - totalExp;
 
-  const showBudget = pnlPeriod==='month' && Object.keys(budgets).length>0;
+  const showBudget = Object.keys(budgets).length > 0;
+  const mult = getBudgetMultiplier(period);
+  const periodLabel = {selmonth:'Monthly',ytd:'YTD',year:'Annual',all:'All-time'}[period] || 'Monthly';
 
-  const headerBgt = showBudget ? '<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:70px;text-align:right">Budget</div>' : '';
-  const headerVar = showBudget ? '<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:56px;text-align:right">Variance</div>' : '';
+  const headerBgt = showBudget ? `<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:70px;text-align:right">Budget</div>` : '';
+  const headerVar = showBudget ? `<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:56px;text-align:right">Variance</div>` : '';
 
   const rows = expCats.map(({cat,exp}) => {
-    const bgt = showBudget ? (budgets[cat]||0) : 0;
+    const bgt = showBudget ? (budgets[cat]||0) * mult : 0;
     const variance = bgt>0 ? bgt-exp : null;
     const varHtml = showBudget
-      ? `<div class="pnl-amount" style="min-width:56px;text-align:right;font-size:13px">${bgt>0?(variance>=0?`<span class="pos">-${fmt(variance)}</span>`:`<span class="neg">+${fmt(Math.abs(variance))}</span>`):'<span style="color:var(--text3)">—</span>'}</div>`
+      ? `<div class="pnl-amount" style="min-width:56px;text-align:right;font-size:13px">${bgt>0?(variance>=0?`<span class="pos">-${fmtM(variance)}</span>`:`<span class="neg">+${fmtM(Math.abs(variance))}</span>`):'<span style="color:var(--text3)">—</span>'}</div>`
       : '';
     const bgtHtml = showBudget
-      ? `<div class="pnl-amount neg" style="min-width:70px;text-align:right;opacity:0.6">${bgt>0?fmt(bgt):'—'}</div>`
+      ? `<div class="pnl-amount neg" style="min-width:70px;text-align:right;opacity:0.6">${bgt>0?fmtM(bgt):'—'}</div>`
       : '';
     return `<div class="pnl-row" style="cursor:pointer" onclick="jumpToCategory('${cat}')">
       <div class="pnl-label">${catEmoji(cat)} ${cat}</div>
       ${bgtHtml}
-      <div class="pnl-amount neg">${fmt(exp)}</div>
+      <div class="pnl-amount neg">${fmtM(exp)}</div>
       ${varHtml}
     </div>`;
   }).join('');
 
   document.getElementById('pnl-content').innerHTML = `
-    <div class="pnl-row"><div class="pnl-label" style="font-weight:600">Gross income</div><div class="pnl-amount pos">${fmt(income)}</div></div>
+    <div class="pnl-row"><div class="pnl-label" style="font-weight:600">Gross income</div><div class="pnl-amount pos">${fmtM(income)}</div></div>
     <div class="pnl-section-head" style="display:flex;justify-content:space-between">
       <span>Expenses</span>
       <span style="display:flex;gap:12px">${headerBgt}<span style="min-width:70px;text-align:right">Actual</span>${headerVar}</span>
     </div>
     ${rows || '<div class="empty" style="padding:12px 0">No expenses this period</div>'}
-    <div class="pnl-total-row"><div class="pnl-label">Total expenses</div><div class="pnl-amount neg">${fmt(totalExp)}</div></div>
+    <div class="pnl-total-row"><div class="pnl-label">Total expenses</div><div class="pnl-amount neg">${fmtM(totalExp)}</div></div>
     <div class="pnl-total-row" style="margin-top:10px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.15)">
       <div class="pnl-label">Net ${net>=0?'surplus':'deficit'}</div>
       <div class="pnl-amount ${net>=0?'pos':'neg'}">${fmtSigned(net)}</div>
@@ -1693,6 +1742,7 @@ function renderCategories() {
       <input class="cat-emoji-input" value="${c.emoji}" maxlength="2" onchange="updateCatEmoji(${i},this.value)">
       <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
       <input class="cat-budget-input" type="number" min="0" placeholder="0" value="${budgets[c.name]||''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)">
+      <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'Fixed':'Var'}</button>
       <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;flex-shrink:0" onclick="deleteCategory(${i})">✕</button>
     </div>`).join('');
 }
@@ -1715,6 +1765,10 @@ function updateCatBudget(catName, val) {
   if (isNaN(v) || v<=0) { delete budgets[catName]; }
   else { budgets[catName] = Math.round(v*100)/100; }
   scheduleSave();
+}
+function updateCatFixed(i, val) {
+  CATS[i].fixed = val;
+  renderCategories(); scheduleSave();
 }
 function deleteCategory(i) {
   const name = CATS[i].name;
@@ -1778,7 +1832,7 @@ function loadDataObj(obj) {
   rules        = obj.rules       || rules;
   investments  = (obj.investments||investments).map(inv=>({history:[],...inv}));
   budgets      = obj.budgets     || budgets;
-  if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
+  if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.forEach(c=>{ if(c.fixed===undefined) c.fixed=false; }); CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
   // New mortgages format
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
