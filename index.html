@@ -252,15 +252,19 @@
     .month-nav span { font-size: 15px; font-weight: 600; min-width: 140px; text-align: center; }
 
     /* Budget vs Actual rows */
-    .bva-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 0.5px solid var(--border); cursor: pointer; }
+    .bva-row { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 0.5px solid var(--border); cursor: pointer; }
     .bva-row:last-child { border-bottom: none; }
     .bva-row:active { opacity: 0.7; }
-    .bva-label { font-size: 13px; color: var(--text); width: 110px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .bva-amounts { font-size: 11px; color: var(--text3); width: 90px; flex-shrink: 0; text-align: right; }
-    .bva-bar-wrap { flex: 1; position: relative; height: 8px; background: var(--bg3); border-radius: 4px; overflow: visible; }
-    .bva-bar-budget { position: absolute; top: 0; left: 0; height: 100%; background: rgba(255,255,255,0.08); border-radius: 4px; }
-    .bva-bar-actual { position: absolute; top: 0; left: 0; height: 100%; border-radius: 4px; transition: width 0.4s; }
-    .bva-variance { font-size: 11px; font-weight: 600; width: 56px; text-align: right; flex-shrink: 0; }
+    .bva-label { font-size: 13px; color: var(--text); width: 100px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bva-mid { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .bva-bar-wrap { position: relative; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+    .bva-bar-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: 3px; transition: width 0.4s; }
+    .bva-bar-marker { position: absolute; top: -2px; height: 10px; width: 2px; background: rgba(255,255,255,0.35); border-radius: 1px; }
+    .bva-sub { font-size: 10px; color: var(--text3); }
+    .bva-numbers { flex-shrink: 0; text-align: right; }
+    .bva-actual-amt { font-size: 13px; font-weight: 600; color: var(--text); }
+    .bva-budget-amt { font-size: 10px; color: var(--text3); }
+    .bva-variance { font-size: 11px; font-weight: 600; width: 58px; text-align: right; flex-shrink: 0; }
 
     /* Category management */
     .cat-mgmt-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
@@ -460,7 +464,10 @@
       <div id="pending-banner"></div>
 
       <div class="card">
-        <div class="card-title">Import Westpac CSV</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          Import Westpac CSV
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openManualTxn()">+ Manual entry</button>
+        </div>
         <div class="upload-zone" onclick="document.getElementById('file-everyday').click()">
           <div class="upload-icon">🏦</div>
           <div class="upload-title">Everyday account</div>
@@ -618,6 +625,7 @@ let CATS = [
   {name:'Misc',emoji:'📌'},
   {name:'Other',emoji:'📌'},
 ];
+CATS.sort((a,b) => a.name === 'Pay' ? -1 : b.name === 'Pay' ? 1 : a.name.localeCompare(b.name));
 const CAT_COLORS = [
   '#1db88a','#4a8fe8','#e05252','#e0a030','#7b6cf6',
   '#5bc0be','#f4845f','#56cfe1','#c77dff','#4cc9f0',
@@ -819,26 +827,43 @@ function renderBudgetVsActual(txns) {
     return b.actual - a.actual;
   });
 
-  const maxAmt = Math.max(...rows.map(r=>Math.max(r.actual, r.budget)), 1);
+  const maxAmt = Math.max(...rows.filter(r=>!r.budget).map(r=>r.actual), 1);
 
   el.innerHTML = rows.map(r => {
-    const hasBudget  = r.budget > 0;
-    const over       = hasBudget && r.actual > r.budget;
-    const barColor   = !hasBudget ? catColor(r.cat) : over ? 'var(--red)' : 'var(--teal)';
-    const varText    = !hasBudget ? '' : over
-      ? `<span class="neg">+${fmt(Math.abs(r.variance))}</span>`
-      : `<span class="pos">-${fmt(r.variance)}</span>`;
-    const actualPct  = (r.actual/maxAmt*100).toFixed(1);
-    const budgetPct  = hasBudget ? (r.budget/maxAmt*100).toFixed(1) : 0;
-    const amtLabel   = hasBudget ? `${fmt(r.actual)} / ${fmt(r.budget)}` : fmt(r.actual);
+    const hasBudget = r.budget > 0;
+    const over      = hasBudget && r.actual > r.budget;
+    const barColor  = !hasBudget ? catColor(r.cat) : over ? 'var(--red)' : 'var(--teal)';
+    const varText   = !hasBudget ? '' : over
+      ? `<span class="neg">+${fmtM(Math.abs(r.variance))}</span>`
+      : `<span class="pos">-${fmtM(r.variance)}</span>`;
+
+    let barFill, barMarker = '';
+    if (hasBudget) {
+      // Bar width = actual as % of budget (capped at 100%)
+      barFill = Math.min(r.actual / r.budget * 100, 100).toFixed(1);
+      // If over budget, show a faint marker at the budget point (100% = right edge, so marker not needed)
+    } else {
+      barFill = (r.actual / maxAmt * 100).toFixed(1);
+    }
+
+    const numbersHtml = hasBudget
+      ? `<div class="bva-actual-amt">${fmtM(r.actual)}</div><div class="bva-budget-amt">of ${fmtM(r.budget)}</div>`
+      : `<div class="bva-actual-amt">${fmtM(r.actual)}</div>`;
+
+    const subLabel = hasBudget
+      ? (over ? `${Math.round(r.actual/r.budget*100)}% of budget` : `${Math.round(r.actual/r.budget*100)}% of budget`)
+      : '';
+
     return `
       <div class="bva-row" onclick="jumpToCategory('${r.cat}')">
         <div class="bva-label">${catEmoji(r.cat)} ${r.cat}</div>
-        <div class="bva-bar-wrap">
-          ${hasBudget ? `<div class="bva-bar-budget" style="width:${budgetPct}%"></div>` : ''}
-          <div class="bva-bar-actual" style="width:${Math.min(actualPct,100)}%;background:${barColor}"></div>
+        <div class="bva-mid">
+          <div class="bva-bar-wrap">
+            <div class="bva-bar-fill" style="width:${barFill}%;background:${barColor}"></div>
+          </div>
+          ${hasBudget ? `<div class="bva-sub">${subLabel}</div>` : ''}
         </div>
-        <div class="bva-amounts">${amtLabel}</div>
+        <div class="bva-numbers">${numbersHtml}</div>
         <div class="bva-variance">${varText}</div>
       </div>`;
   }).join('');
@@ -1614,6 +1639,51 @@ function acceptAllPending() {
   else if (currentPage==='overview') renderOverview();
 }
 
+function openManualTxn() {
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-title').textContent = 'Add transaction';
+  document.querySelector('.modal-box').classList.remove('modal-wide');
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Date</label>
+      <input type="date" id="mt-date" value="${today}">
+    </div>
+    <div class="input-group"><label>Description</label>
+      <input type="text" id="mt-desc" placeholder="e.g. Countdown groceries">
+    </div>
+    <div class="input-group"><label>Amount (negative = expense, positive = income)</label>
+      <input type="number" id="mt-amount" placeholder="-45.50" step="0.01">
+    </div>
+    <div class="input-group"><label>Account</label>
+      <select id="mt-account" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
+        <option value="everyday">Everyday</option>
+        <option value="creditcard">Credit card</option>
+      </select>
+    </div>
+    <div class="input-group"><label>Category</label>
+      <select id="mt-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
+        ${CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}
+      </select>
+    </div>`;
+  document.getElementById('modal-confirm').textContent = 'Add';
+  document.getElementById('modal-confirm').style.display = '';
+  document.getElementById('modal-confirm').onclick = () => {
+    const dateVal = document.getElementById('mt-date').value;
+    const desc    = document.getElementById('mt-desc').value.trim();
+    const amount  = parseFloat(document.getElementById('mt-amount').value);
+    const account = document.getElementById('mt-account').value;
+    const cat     = document.getElementById('mt-cat').value;
+    if (!dateVal || !desc || isNaN(amount) || amount === 0) return;
+    const t = { id: Date.now(), date: new Date(dateVal + 'T12:00:00'), desc, amount, account, cat };
+    transactions = [t, ...transactions].sort((a,b)=>b.date-a.date);
+    closeModal();
+    scheduleSave();
+    if (currentPage==='transactions') renderTransactions();
+    else if (currentPage==='overview') renderOverview();
+  };
+  document.getElementById('modal').classList.add('open');
+  setTimeout(()=>document.getElementById('mt-desc')?.focus(), 80);
+}
+
 // ─── Categories management ────────────────────────────────────────────────────
 function renderCategories() {
   const el = document.getElementById('cat-mgmt-list');
@@ -1708,7 +1778,7 @@ function loadDataObj(obj) {
   rules        = obj.rules       || rules;
   investments  = (obj.investments||investments).map(inv=>({history:[],...inv}));
   budgets      = obj.budgets     || budgets;
-  if (obj.cats && obj.cats.length) CATS = obj.cats;
+  if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
   // New mortgages format
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
