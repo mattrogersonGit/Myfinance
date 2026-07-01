@@ -382,12 +382,7 @@
         </select>
         <div id="txn-count" style="font-size:12px;color:var(--text3);flex-shrink:0"></div>
       </div>
-      <div style="display:flex;gap:4px;margin-bottom:8px">
-        <button id="txn-acc-all" class="tab active" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('all',this)">All</button>
-        <button id="txn-acc-everyday" class="tab" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('everyday',this)">Everyday</button>
-        <button id="txn-acc-cc" class="tab" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('creditcard',this)">Credit card</button>
-        <div id="txn-acc-total" style="margin-left:auto;font-size:12px;color:var(--text3);align-self:center"></div>
-      </div>
+      <div id="txn-acc-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;align-items:center"></div>
       <div class="search-bar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="search" id="txn-search" placeholder="Search transactions…" oninput="renderTransactions()">
@@ -489,20 +484,26 @@
           Import Westpac CSV
           <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openManualTxn()">+ Manual entry</button>
         </div>
-        <div class="upload-zone" onclick="document.getElementById('file-everyday').click()">
-          <div class="upload-icon">🏦</div>
-          <div class="upload-title">Everyday account</div>
-          <div class="upload-sub">Tap to select Westpac CSV</div>
-          <div class="upload-success" id="everyday-status"></div>
-          <input type="file" id="file-everyday" accept=".csv" style="display:none" onchange="handleCSV(this,'everyday')">
+        <div id="import-zones"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          Accounts
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="addAccount()">+ Add</button>
         </div>
-        <div class="upload-zone" onclick="document.getElementById('file-cc').click()">
-          <div class="upload-icon">💳</div>
-          <div class="upload-title">Credit card</div>
-          <div class="upload-sub">Tap to select Westpac CSV</div>
-          <div class="upload-success" id="cc-status"></div>
-          <input type="file" id="file-cc" accept=".csv" style="display:none" onchange="handleCSV(this,'creditcard')">
+        <div style="display:flex;gap:6px;font-size:11px;color:var(--text3);padding-bottom:6px;border-bottom:0.5px solid var(--border)">
+          <span style="width:36px">Icon</span><span style="flex:1">Name</span><span style="width:34px"></span>
         </div>
+        <div id="accounts-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          Export
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="exportCSV()">⬇ Export to CSV</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3)">All transactions exported as CSV — opens in Excel. Columns: Date, Month, Description, Category, Fixed/Variable, Account, Amount, Type.</div>
       </div>
 
       <div class="card">
@@ -698,6 +699,10 @@ let bvaFilter = 'all';
 let activeCatTxnId = null;
 let activeCatFilter = null;
 let txnAccountFilter = 'all';
+let accounts = [
+  {id:'everyday',   name:'Everyday',    icon:'🏦', fixed:true},
+  {id:'creditcard', name:'Credit card', icon:'💳', fixed:true},
+];
 let flowChart, pnlChart, invChart;
 let driveConnected = false;
 let gapiLoaded = false;
@@ -767,7 +772,7 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderCategories(); renderRules(); renderPendingBanner(); }
+  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -916,10 +921,8 @@ function jumpToCategory(cat) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-function setTxnAccount(acct, el) {
+function setTxnAccount(acct) {
   txnAccountFilter = acct;
-  document.querySelectorAll('#txn-acc-all,#txn-acc-everyday,#txn-acc-cc').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
   renderTransactions();
 }
 function renderTransactions() {
@@ -934,20 +937,24 @@ function renderTransactions() {
     .filter(t => txnAccountFilter==='all' || t.account === txnAccountFilter)
     .sort((a,b) => b.date - a.date);
 
+  // Render dynamic account filter tabs
+  const tabsEl = document.getElementById('txn-acc-tabs');
+  if (tabsEl) {
+    const usedAccts = [...new Set(getFilteredTxns(period).map(t=>t.account))];
+    const accNameMap = Object.fromEntries(accounts.map(a=>[a.id,a.name]));
+    const spent = txns.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
+    const income = txns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+    const totalHtml = txnAccountFilter!=='all'
+      ? `<div style="margin-left:auto;font-size:12px;color:var(--text3)">Spent: ${fmtM(spent)}${income>0?' · In: '+fmtM(income):''}</div>`
+      : '';
+    tabsEl.innerHTML =
+      `<button class="tab ${txnAccountFilter==='all'?'active':''}" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('all')">All</button>` +
+      usedAccts.map(id => `<button class="tab ${txnAccountFilter===id?'active':''}" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('${id}')">${accNameMap[id]||id}</button>`).join('') +
+      totalHtml;
+  }
+
   const countEl = document.getElementById('txn-count');
   if (countEl) countEl.textContent = txns.length + ' transactions';
-
-  // Show account spending total when a specific account is selected
-  const accTotalEl = document.getElementById('txn-acc-total');
-  if (accTotalEl) {
-    if (txnAccountFilter !== 'all') {
-      const spent = txns.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
-      const income = txns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
-      accTotalEl.textContent = `Spent: ${fmtM(spent)}${income>0?' · In: '+fmtM(income):''}`;
-    } else {
-      accTotalEl.textContent = '';
-    }
-  }
 
   // Clear category filter after use so subsequent renders don't re-apply it
   activeCatFilter = null;
@@ -1628,7 +1635,7 @@ function handleCSV(input, account) {
     const added = newTxns.filter(t => { const k=fp(t); const n=existingCounts.get(k)||0; if(n>0){existingCounts.set(k,n-1);return false;} return true; });
     const dupes = newTxns.length - added.length;
     pendingTxns = pendingTxns.concat(added);
-    const statusEl = document.getElementById(account==='everyday'?'everyday-status':'cc-status');
+    const statusEl = document.getElementById('status-' + account);
     statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped`;
     scheduleSave();
     renderPendingBanner();
@@ -1758,6 +1765,71 @@ function openManualTxn() {
   setTimeout(()=>document.getElementById('mt-desc')?.focus(), 80);
 }
 
+// ─── Accounts management ─────────────────────────────────────────────────────
+function renderImportZones() {
+  const el = document.getElementById('import-zones');
+  if (!el) return;
+  el.innerHTML = accounts.map(acc => `
+    <div class="upload-zone" onclick="document.getElementById('file-${acc.id}').click()">
+      <div class="upload-icon">${acc.icon||'🏦'}</div>
+      <div class="upload-title">${acc.name}</div>
+      <div class="upload-sub">Tap to select Westpac CSV</div>
+      <div class="upload-success" id="status-${acc.id}"></div>
+      <input type="file" id="file-${acc.id}" accept=".csv" style="display:none" onchange="handleCSV(this,'${acc.id}')">
+    </div>`).join('');
+}
+function renderAccounts() {
+  const el = document.getElementById('accounts-list');
+  if (!el) return;
+  el.innerHTML = accounts.map((a,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+      <input style="width:32px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:18px;text-align:center;padding:4px;outline:none" value="${a.icon||'🏦'}" maxlength="2" ${a.fixed?'disabled':''} onchange="accounts[${i}].icon=this.value;scheduleSave();renderImportZones()">
+      <input style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none" value="${a.name}" onchange="accounts[${i}].name=this.value;scheduleSave();renderImportZones()">
+      ${!a.fixed ? `<button class="btn btn-danger" style="padding:4px 8px;font-size:12px;flex-shrink:0" onclick="deleteAccount(${i})">✕</button>` : '<span style="width:34px"></span>'}
+    </div>`).join('');
+}
+function addAccount() {
+  const id = 'acct_' + Date.now();
+  accounts.push({id, name:'New account', icon:'🏦', fixed:false});
+  renderAccounts(); renderImportZones(); scheduleSave();
+  const inputs = document.querySelectorAll('#accounts-list input[type=text], #accounts-list input:not([disabled]):not([type=text])');
+  // Focus last name input
+  const nameInputs = [...document.querySelectorAll('#accounts-list input')].filter(i=>i.style.flex==='1');
+  if (nameInputs.length) nameInputs[nameInputs.length-1].select();
+}
+function deleteAccount(i) {
+  if (accounts[i].fixed) return;
+  if (!confirm(`Delete account "${accounts[i].name}"? Transactions already imported will keep their account label.`)) return;
+  accounts.splice(i,1);
+  renderAccounts(); renderImportZones(); scheduleSave();
+}
+
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+function exportCSV() {
+  const accNameMap = Object.fromEntries(accounts.map(a=>[a.id,a.name]));
+  const catFixedMap = Object.fromEntries(CATS.map(c=>[c.name, c.fixed ? 'Fixed' : 'Variable']));
+  const header = 'Date,Month,Description,Category,Fixed/Variable,Account,Amount,Type';
+  const rows = [...transactions]
+    .sort((a,b) => a.date - b.date)
+    .map(t => {
+      const d = t.date;
+      const date  = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      const month = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const desc  = '"' + (t.desc||'').replace(/"/g,'""') + '"';
+      const acct  = accNameMap[t.account] || t.account;
+      const fv    = catFixedMap[t.cat] || 'Variable';
+      const type  = t.amount >= 0 ? 'Income' : 'Expense';
+      return [date, month, desc, t.cat, fv, acct, t.amount.toFixed(2), type].join(',');
+    });
+  const csv = '﻿' + header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `myfinance-${new Date().toISOString().slice(0,7)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Categories management ────────────────────────────────────────────────────
 function renderCategories() {
   const el = document.getElementById('cat-mgmt-list');
@@ -1846,7 +1918,7 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets,
+    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets, accounts,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
@@ -1877,6 +1949,12 @@ function loadDataObj(obj) {
   if (obj.otherDebts) otherDebts = obj.otherDebts;
   if (obj.debtOrder) debtOrder = obj.debtOrder;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
+  if (obj.accounts && obj.accounts.length) {
+    // Merge saved accounts — keep built-in ones, add any custom ones
+    const saved = obj.accounts;
+    accounts = accounts.map(a => { const s=saved.find(x=>x.id===a.id); return s?{...a,...s,fixed:true}:a; });
+    saved.filter(s=>!s.fixed).forEach(s=>{ if(!accounts.find(a=>a.id===s.id)) accounts.push(s); });
+  }
 }
 function saveData() {
   const data = getDataObj();
