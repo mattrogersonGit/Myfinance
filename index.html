@@ -382,6 +382,12 @@
         </select>
         <div id="txn-count" style="font-size:12px;color:var(--text3);flex-shrink:0"></div>
       </div>
+      <div style="display:flex;gap:4px;margin-bottom:8px">
+        <button id="txn-acc-all" class="tab active" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('all',this)">All</button>
+        <button id="txn-acc-everyday" class="tab" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('everyday',this)">Everyday</button>
+        <button id="txn-acc-cc" class="tab" style="font-size:12px;padding:4px 10px" onclick="setTxnAccount('creditcard',this)">Credit card</button>
+        <div id="txn-acc-total" style="margin-left:auto;font-size:12px;color:var(--text3);align-self:center"></div>
+      </div>
       <div class="search-bar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="search" id="txn-search" placeholder="Search transactions…" oninput="renderTransactions()">
@@ -691,6 +697,7 @@ let pnlYear   = new Date().getFullYear();
 let bvaFilter = 'all';
 let activeCatTxnId = null;
 let activeCatFilter = null;
+let txnAccountFilter = 'all';
 let flowChart, pnlChart, invChart;
 let driveConnected = false;
 let gapiLoaded = false;
@@ -909,6 +916,12 @@ function jumpToCategory(cat) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
+function setTxnAccount(acct, el) {
+  txnAccountFilter = acct;
+  document.querySelectorAll('#txn-acc-all,#txn-acc-everyday,#txn-acc-cc').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderTransactions();
+}
 function renderTransactions() {
   const lbl = document.getElementById('txn-month-label');
   if (lbl) lbl.textContent = monthLabel();
@@ -918,10 +931,23 @@ function renderTransactions() {
   let txns = getFilteredTxns(period)
     .filter(t => !search || t.desc.toLowerCase().includes(search) || t.cat.toLowerCase().includes(search))
     .filter(t => !activeCatFilter || t.cat === activeCatFilter)
+    .filter(t => txnAccountFilter==='all' || t.account === txnAccountFilter)
     .sort((a,b) => b.date - a.date);
 
   const countEl = document.getElementById('txn-count');
   if (countEl) countEl.textContent = txns.length + ' transactions';
+
+  // Show account spending total when a specific account is selected
+  const accTotalEl = document.getElementById('txn-acc-total');
+  if (accTotalEl) {
+    if (txnAccountFilter !== 'all') {
+      const spent = txns.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
+      const income = txns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+      accTotalEl.textContent = `Spent: ${fmtM(spent)}${income>0?' · In: '+fmtM(income):''}`;
+    } else {
+      accTotalEl.textContent = '';
+    }
+  }
 
   // Clear category filter after use so subsequent renders don't re-apply it
   activeCatFilter = null;
@@ -1002,11 +1028,10 @@ function editTxnDesc(id) {
 function getBudgetMultiplier(period) {
   const now = new Date();
   if (period==='selmonth' || period==='month') return 1;
-  if (period==='ytd') {
+  if (period==='ytd' || period==='year') {
     if (pnlYear < now.getFullYear()) return 12;
-    return now.getMonth() + 1;
+    return now.getMonth() + 1; // e.g. June = 6
   }
-  if (period==='year') return 12;
   if (period==='all') {
     if (!transactions.length) return 12;
     const min = new Date(Math.min(...transactions.map(t=>t.date)));
