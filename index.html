@@ -787,6 +787,45 @@ const SUPABASE_URL = 'https://cirhguycwvgmqxscbahw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpcmhndXljd3ZnbXF4c2NiYWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5NDY4MzUsImV4cCI6MjA5ODUyMjgzNX0.fDK8v6oHl3rYXxF0kQ_F9Cr-q2ROIHI21_Yd6m2kbvE';
 let sbConn = null, sbUser = null, sbHousehold = null, sbSaving = false;
 
+// ─── Billing ──────────────────────────────────────────────────────────────────
+const STRIPE_MONTHLY_URL   = 'https://buy.stripe.com/test_28E00le6a0zd5BQdGz9ws00';
+const STRIPE_ANNUAL_URL    = 'https://buy.stripe.com/test_aFa8wRaTYeq3aWa5a39ws01';
+const FREE_TXN_LIMIT       = 500;
+const FREE_HISTORY_MONTHS  = 6;
+
+function isPro() {
+  return sbUser != null && sbHousehold?.plan === 'pro';
+}
+function isMonthLocked(month, year) {
+  if (isPro()) return false;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - (FREE_HISTORY_MONTHS - 1));
+  cutoff.setDate(1); cutoff.setHours(0,0,0,0);
+  return new Date(year, month, 1) < cutoff;
+}
+function stripeParams() {
+  if (!sbUser) return '';
+  return `?client_reference_id=${sbUser.id}&prefilled_email=${encodeURIComponent(sbUser.email)}`;
+}
+function paywallHtml(reason) {
+  const p = stripeParams();
+  const signInNote = sbUser ? '' : `<div style="font-size:12px;color:var(--text3);margin-top:8px">
+    <a href="#" onclick="toggleSettings('s-account');return false" style="color:var(--teal)">Sign in</a> first, then subscribe</div>`;
+  return `<div style="text-align:center;padding:28px 20px;border:1px dashed var(--border2);border-radius:var(--radius);margin:4px 0">
+    <div style="font-size:28px;margin-bottom:10px">🔒</div>
+    <div style="font-weight:700;font-size:15px;margin-bottom:6px">Pro feature</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:16px">${reason}</div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <a href="${STRIPE_MONTHLY_URL}${p}" target="_blank" rel="noopener"
+        style="background:var(--teal);color:#fff;padding:9px 18px;border-radius:var(--radius-sm);font-weight:700;font-size:13px;text-decoration:none">$4.99&thinsp;/&thinsp;month</a>
+      <a href="${STRIPE_ANNUAL_URL}${p}" target="_blank" rel="noopener"
+        style="background:var(--bg3);color:var(--text);padding:9px 18px;border-radius:var(--radius-sm);font-weight:600;font-size:13px;text-decoration:none;border:0.5px solid var(--border2)">$39.99&thinsp;/&thinsp;year</a>
+    </div>
+    ${signInNote}
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">Cancel any time · NZD incl. GST</div>
+  </div>`;
+}
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1037,6 +1076,14 @@ function renderTransactions() {
   activeCatFilter = null;
 
   const list = document.getElementById('txn-list');
+
+  // Free tier: gate months older than FREE_HISTORY_MONTHS
+  if (!searchingAll && period === 'selmonth' && isMonthLocked(selMonth, selYear)) {
+    if (countEl) countEl.textContent = '';
+    list.innerHTML = paywallHtml(`Free accounts see the last ${FREE_HISTORY_MONTHS} months. Upgrade to Pro for your full history.`);
+    return;
+  }
+
   if (!txns.length) {
     list.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>No transactions found</div>';
     return;
@@ -1767,6 +1814,15 @@ function handleCSV(input, account) {
   const file = input.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
+    if (!isPro() && transactions.length >= FREE_TXN_LIMIT) {
+      document.getElementById('modal-title').textContent = 'Transaction limit reached';
+      document.getElementById('modal-body').innerHTML = paywallHtml(
+        `You have ${transactions.length} transactions. Free accounts are limited to ${FREE_TXN_LIMIT}. Upgrade to Pro for unlimited history.`
+      );
+      document.getElementById('modal-confirm').style.display = 'none';
+      document.getElementById('modal').classList.add('open');
+      input.value = ''; return;
+    }
     const newTxns = parseCSV(e.target.result, account);
     if (!newTxns.length) return;
     // Deduplicate against committed + already-pending transactions.
@@ -2303,7 +2359,7 @@ function loadDataObj(obj) {
 function saveData() {
   const data = getDataObj();
   localStorage.setItem('myfinance_data', JSON.stringify(data));
-  if (sbConn && sbUser && sbHousehold) sbSaveData(data);
+  if (sbConn && sbUser && sbHousehold && isPro()) sbSaveData(data);
 }
 function loadFromLocal() {
   try {
@@ -2636,6 +2692,13 @@ async function sbRenameHousehold() {
 
 async function sbGenerateInvite() {
   if (!sbHousehold) return;
+  if (!isPro()) {
+    document.getElementById('modal-title').textContent = 'Pro feature';
+    document.getElementById('modal-body').innerHTML = paywallHtml('Household sharing requires a Pro account.');
+    document.getElementById('modal-confirm').style.display = 'none';
+    document.getElementById('modal').classList.add('open');
+    return;
+  }
   const { data: inv, error } = await sbConn
     .from('invites')
     .insert({ household_id: sbHousehold.id, created_by: sbUser.id })
@@ -2668,28 +2731,50 @@ function renderAccountSection() {
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">Sync across devices · Share with family</div>`;
   } else {
+    const planPro = isPro();
+    const planBadge = planPro
+      ? `<span style="background:var(--teal);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700">PRO ✓</span>`
+      : `<span style="background:var(--amber,#f59e0b);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700">FREE</span>`;
+    const upgradeCard = planPro ? '' : `
+      <div style="background:linear-gradient(135deg,#0d9488,#0369a1);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-weight:700;font-size:14px;color:#fff;margin-bottom:4px">Upgrade to Pro</div>
+        <ul style="margin:0 0 10px 0;padding-left:16px;font-size:12px;color:rgba(255,255,255,0.9);line-height:1.7">
+          <li>Cloud sync across all your devices</li>
+          <li>Full transaction history — no limit</li>
+          <li>Household sharing with family</li>
+          <li>Unlimited CSV imports</li>
+        </ul>
+        <div style="display:flex;gap:8px">
+          <a href="${STRIPE_MONTHLY_URL}${stripeParams()}" target="_blank" rel="noopener"
+            style="flex:1;background:#fff;color:#0d9488;text-align:center;padding:9px 8px;border-radius:6px;font-weight:700;font-size:13px;text-decoration:none">$4.99&thinsp;/&thinsp;month</a>
+          <a href="${STRIPE_ANNUAL_URL}${stripeParams()}" target="_blank" rel="noopener"
+            style="flex:1;background:rgba(255,255,255,0.15);color:#fff;text-align:center;padding:9px 8px;border-radius:6px;font-weight:700;font-size:13px;text-decoration:none;border:1px solid rgba(255,255,255,0.3)">$39.99&thinsp;/&thinsp;year</a>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.65);margin-top:7px;text-align:center">Cancel any time · NZD incl. GST · ~33% off annual</div>
+      </div>`;
     el.innerHTML = `
+      ${upgradeCard}
       <div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
         <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border)">
-          <span style="color:var(--text3)">Email</span><span>${sbUser.email}</span>
+          <span style="color:var(--text3)">Email</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${sbUser.email}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border)">
           <span style="color:var(--text3)">Household</span>
           <span style="display:flex;align-items:center;gap:6px">${sbHousehold?.name || '—'}<button onclick="sbRenameHousehold()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0" title="Rename">✏️</button></span>
         </div>
-        <div style="display:flex;justify-content:space-between;padding:4px 0">
-          <span style="color:var(--text3)">Plan</span>
-          <span style="background:var(--teal,#14b8a6);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase">${sbHousehold?.plan || 'free'}</span>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;align-items:center">
+          <span style="color:var(--text3)">Plan</span>${planBadge}
         </div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbGenerateInvite()">Invite family member</button>
         <button class="btn btn-secondary" style="font-size:12px;padding:8px 12px;white-space:nowrap" onclick="sbSignOut()">Sign out</button>
       </div>
+      ${planPro ? `
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPush()" title="Upload local data to cloud">↑ Push to cloud</button>
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPull()" title="Download latest data from cloud">↓ Pull from cloud</button>
-      </div>`;
+      </div>` : ''}`;
   }
 }
 
