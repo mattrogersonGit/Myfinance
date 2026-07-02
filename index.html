@@ -322,6 +322,28 @@
     Continue with Google
   </button>
   <button class="skip-btn" onclick="skipAuth()">Use without Google Drive (data won't be saved)</button>
+
+  <!-- Shown instead of Google button when following an invite link -->
+  <div id="invite-panel" style="display:none;width:100%;max-width:320px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:36px;margin-bottom:10px">🎉</div>
+      <div style="font-size:20px;font-weight:700;margin-bottom:6px">You've been invited!</div>
+      <div style="font-size:14px;color:var(--text3)">Create an account to join the shared household and access your family's finances.</div>
+    </div>
+    <input type="email" id="invite-email" placeholder="Your email address" autocomplete="email"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
+    <input type="password" id="invite-password" placeholder="Choose a password (min 6 chars)" autocomplete="new-password"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:14px">
+    <div id="invite-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
+    <button id="invite-btn" onclick="sbInviteSignup()"
+      style="width:100%;background:var(--teal,#14b8a6);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:600;padding:14px;cursor:pointer;margin-bottom:14px">
+      Create account &amp; join
+    </button>
+    <div style="text-align:center;font-size:13px;color:var(--text3)">
+      Already have an account?
+      <button onclick="sbInviteSignin()" style="background:none;border:none;color:var(--teal,#14b8a6);font-size:13px;cursor:pointer;padding:0;margin-left:4px">Sign in instead</button>
+    </div>
+  </div>
 </div>
 
 <!-- Main app -->
@@ -2249,7 +2271,11 @@ async function initSupabase() {
     const { data: { session } } = await sbConn.auth.getSession();
     if (session) { sbUser = session.user; await sbLoadHousehold(); }
     sbConn.auth.onAuthStateChange(async (event, sess) => {
-      if (event === 'SIGNED_IN') { sbUser = sess.user; await sbLoadHousehold(); }
+      if (event === 'SIGNED_IN') {
+        sbUser = sess.user;
+        await sbLoadHousehold();
+        if (document.getElementById('app').style.display === 'none') showApp();
+      }
       if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; }
       renderAccountSection();
     });
@@ -2383,6 +2409,47 @@ async function sbSignOut() {
   setSyncStatus('', '');
 }
 
+function showInviteAuth() {
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.querySelector('.auth-logo').style.display = 'none';
+  document.querySelector('.auth-title').style.display = 'none';
+  document.querySelector('.auth-sub').style.display = 'none';
+  document.querySelector('.auth-features').style.display = 'none';
+  document.querySelector('.google-btn').style.display = 'none';
+  document.querySelector('.skip-btn').style.display = 'none';
+  document.getElementById('invite-panel').style.display = 'block';
+}
+
+async function sbInviteSignup() {
+  const email = (document.getElementById('invite-email')?.value || '').trim();
+  const pass  = document.getElementById('invite-password')?.value || '';
+  const errEl = document.getElementById('invite-error');
+  const btn   = document.getElementById('invite-btn');
+  if (!email || !pass) { errEl.textContent = 'Enter your email and a password'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  btn.textContent = 'Creating account…'; btn.disabled = true;
+  const { error } = await sbConn.auth.signUp({ email, password: pass });
+  if (error) {
+    errEl.textContent = error.message; errEl.style.display = 'block';
+    btn.textContent = 'Create account & join'; btn.disabled = false;
+  }
+}
+
+async function sbInviteSignin() {
+  const email = (document.getElementById('invite-email')?.value || '').trim();
+  const pass  = document.getElementById('invite-password')?.value || '';
+  const errEl = document.getElementById('invite-error');
+  const btn   = document.getElementById('invite-btn');
+  if (!email || !pass) { errEl.textContent = 'Enter your email and password'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  btn.textContent = 'Signing in…'; btn.disabled = true;
+  const { error } = await sbConn.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    errEl.textContent = error.message; errEl.style.display = 'block';
+    btn.textContent = 'Create account & join'; btn.disabled = false;
+  }
+}
+
 function toggleSettings(id) {
   const body = document.getElementById(id);
   if (!body) return;
@@ -2481,9 +2548,7 @@ window.addEventListener('load', () => {
   } else if (hasLocal) {
     skipAuth();
   } else if (hasInvite) {
-    // Invited user — go straight to app, Account card handles signup
-    skipAuth();
-    setTimeout(() => navTo('settings', document.querySelector('.nav-item:last-child')), 300);
+    showInviteAuth();
   } else {
     document.getElementById('auth-screen').style.display='flex';
   }
