@@ -317,11 +317,18 @@
     <li><span>📈</span><span>Investment portfolio tracker</span></li>
     <li><span>☁️</span><span>Cloud sync — share with your household</span></li>
   </ul>
-  <button class="google-btn" onclick="signIn()">
-    <svg class="google-logo" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-    Continue with Google
-  </button>
-  <button class="skip-btn" onclick="skipAuth()">Use without Google Drive (data won't be saved)</button>
+  <div id="auth-sb-form" style="width:100%;max-width:320px;margin-top:8px">
+    <input type="email" id="auth-email" placeholder="Email address" autocomplete="email"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
+    <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:12px">
+    <div id="auth-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
+    <div style="display:flex;gap:8px">
+      <button onclick="authScreenAction('signin')" style="flex:1;background:var(--teal);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:600;padding:13px;cursor:pointer">Sign in</button>
+      <button onclick="authScreenAction('signup')" style="flex:1;background:rgba(255,255,255,0.1);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;font-weight:500;padding:13px;cursor:pointer">Create account</button>
+    </div>
+  </div>
+  <button class="skip-btn" style="margin-top:20px" onclick="skipAuth()">Use without an account (local only)</button>
 
   <!-- Shown instead of Google button when following an invite link -->
   <div id="invite-panel" style="display:none;width:100%;max-width:320px">
@@ -583,24 +590,6 @@
         </div>
       </div>
 
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-drive')">
-          <span class="s-icon">🔗</span><span class="s-label">Google Drive sync</span><span class="s-meta" id="s-drive-meta">Not connected</span><span class="s-chev" id="s-drive-chev">›</span>
-        </div>
-        <div id="s-drive" class="s-body">
-          <div id="drive-status" style="font-size:14px;color:var(--text2);margin-bottom:12px">Not connected</div>
-          <button class="btn btn-secondary btn-block" id="drive-btn" onclick="toggleDrive()">Connect Google Drive</button>
-          <div id="drive-manual-btns" style="display:none;margin-top:10px">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-              <button class="btn btn-secondary" onclick="forcePushToDrive()">⬆ Push to Drive</button>
-              <button class="btn btn-secondary" onclick="forcePullFromDrive()">⬇ Pull from Drive</button>
-            </div>
-            <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Use Push on the device with the correct data, then Pull on the other device.</div>
-          </div>
-          <div id="data-summary" style="margin-top:12px;font-size:12px;color:var(--text3);line-height:1.8"></div>
-        </div>
-      </div>
-
       <div class="card" style="padding:0 16px" id="storage-card">
         <div class="s-row" onclick="toggleSettings('s-storage')">
           <span class="s-icon">💾</span><span class="s-label">Storage usage</span><span class="s-meta" id="s-storage-meta"></span><span class="s-chev" id="s-storage-chev">›</span>
@@ -774,8 +763,6 @@ let accounts = [
   {id:'creditcard', name:'Credit card', icon:'💳', fixed:true},
 ];
 let flowChart, pnlChart, invChart;
-let driveConnected = false;
-let gapiLoaded = false;
 let currentPage = 'overview';
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
@@ -783,10 +770,6 @@ const SUPABASE_URL = 'https://cirhguycwvgmqxscbahw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpcmhndXljd3ZnbXF4c2NiYWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5NDY4MzUsImV4cCI6MjA5ODUyMjgzNX0.fDK8v6oHl3rYXxF0kQ_F9Cr-q2ROIHI21_Yd6m2kbvE';
 let sbConn = null, sbUser = null, sbHousehold = null, sbSaving = false;
 
-// Google Drive config — user fills in their client ID
-const GDRIVE_CLIENT_ID = '659371449622-s0gc4a5kjnij8lfo5mg6s4l6nu041sua.apps.googleusercontent.com';
-const GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
-const DATA_FILENAME = 'myfinance-data.json';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -2034,7 +2017,6 @@ function loadDataObj(obj) {
 function saveData() {
   const data = getDataObj();
   localStorage.setItem('myfinance_data', JSON.stringify(data));
-  if (driveConnected) saveToDrive(data);
   if (sbConn && sbUser && sbHousehold) sbSaveData(data);
 }
 function loadFromLocal() {
@@ -2044,107 +2026,11 @@ function loadFromLocal() {
   } catch(e) {}
 }
 
-// ─── Google Drive ─────────────────────────────────────────────────────────────
-let driveFileId = null;
 function setSyncStatus(state, text) {
   const el = document.getElementById('sync-status');
   const txt = document.getElementById('sync-text');
   el.className = state;
   txt.textContent = text;
-}
-async function saveToDrive(data) {
-  if (!driveConnected || !window.gapi?.client?.getToken()) return;
-  setSyncStatus('syncing', 'Saving…');
-  try {
-    const body = JSON.stringify(data);
-    const token = gapi.client.getToken().access_token;
-    const boundary = 'myfinance_boundary';
-    const meta = JSON.stringify({name: DATA_FILENAME, mimeType: 'application/json'});
-    const multipart = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
-    const method = driveFileId ? 'PATCH' : 'POST';
-    const base = driveFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart`
-      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-    const res = await fetch(base, {
-      method,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-      body: multipart
-    });
-    if (res.status === 401) {
-      // Token expired — mark disconnected so user knows to reconnect
-      driveConnected = false;
-      updateDriveUI();
-      setSyncStatus('', 'Session expired — reconnect Drive');
-      return;
-    }
-    if (res.status === 404 && driveFileId) {
-      // File was deleted from Drive — clear cached ID and retry as new file
-      driveFileId = null;
-      localStorage.removeItem('myfinance_drive_file_id');
-      await saveToDrive(data);
-      return;
-    }
-    if (!res.ok) throw new Error(`Drive save ${res.status}`);
-    const result = await res.json();
-    driveFileId = result.id;
-    localStorage.setItem('myfinance_drive_file_id', driveFileId);
-    setSyncStatus('synced', 'Saved to Drive');
-    setTimeout(()=>setSyncStatus('synced','Synced ✓'),2000);
-  } catch(e) {
-    setSyncStatus('', 'Save failed — check connection');
-    console.error('Drive save error:', e);
-  }
-}
-async function loadFromDrive() {
-  if (!driveConnected) return;
-  setSyncStatus('syncing', 'Loading from Drive…');
-  try {
-    driveFileId = localStorage.getItem('myfinance_drive_file_id');
-    if (!driveFileId) {
-      const res = await gapi.client.drive.files.list({q:`name='${DATA_FILENAME}' and trashed=false`,fields:'files(id)',orderBy:'modifiedTime desc'});
-      driveFileId = res.result.files?.[0]?.id;
-      if (driveFileId) localStorage.setItem('myfinance_drive_file_id', driveFileId);
-    }
-    if (driveFileId) {
-      const token = gapi.client.getToken().access_token;
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`Drive fetch ${res.status}`);
-      const data = await res.json();
-      loadDataObj(data);
-      localStorage.setItem('myfinance_data', JSON.stringify(data));
-      setSyncStatus('synced','Synced ✓');
-    } else { setSyncStatus('synced','Drive connected'); }
-  } catch(e) { setSyncStatus('','Drive error'); console.error(e); }
-}
-
-function signIn() {
-  if (!gapiLoaded) {
-    alert('Google API is loading. If you set up your Client ID in the app, sign-in will work here. For now, use the app without Drive or see the README for setup instructions.');
-    skipAuth();
-    return;
-  }
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: GDRIVE_CLIENT_ID,
-    scope: GDRIVE_SCOPES,
-    callback: async (resp) => {
-      if (resp.error) return;
-      driveConnected = true;
-      localStorage.setItem('myfinance_drive','1');
-      showApp();
-      // Always pull from Drive first. If no Drive file exists yet, push local data to create it.
-      await loadFromDrive();
-      const driveEmpty = !driveFileId;
-      if (driveEmpty) {
-        const localData = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
-        if ((localData.transactions || []).length > 0) await saveToDrive(localData);
-      }
-      renderOverview();
-      updateDriveUI();
-    }
-  });
-  client.requestAccessToken();
 }
 function skipAuth() {
   showApp();
@@ -2154,37 +2040,6 @@ function skipAuth() {
 function showApp() {
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
-}
-function toggleDrive() {
-  if (driveConnected) {
-    driveConnected = false;
-    localStorage.removeItem('myfinance_drive');
-    updateDriveUI();
-    setSyncStatus('','Local only');
-  } else { signIn(); }
-}
-function updateDriveUI() {
-  const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
-  const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
-  document.getElementById('drive-status').textContent = driveConnected
-    ? ('✓ Connected' + (when ? ' · Local data from ' + when : ''))
-    : 'Not connected';
-  document.getElementById('drive-btn').textContent = driveConnected ? 'Disconnect Google Drive' : 'Connect Google Drive';
-  document.getElementById('drive-manual-btns').style.display = driveConnected ? 'block' : 'none';
-  const driveMeta = document.getElementById('s-drive-meta');
-  if (driveMeta) driveMeta.textContent = driveConnected ? 'Connected' : 'Not connected';
-  renderDataSummary();
-}
-function renderDataSummary() {
-  const el = document.getElementById('data-summary');
-  if (!el) return;
-  const mortSummary = mortgages.map(m => `${m.name.split(' ')[0]} (${m.history?.length||0} entries)`).join(', ');
-  el.innerHTML = `
-    <div>Transactions: <b>${transactions.length}</b></div>
-    <div>Mortgages: <b>${mortSummary||'none'}</b></div>
-    <div>Other debts: <b>${otherDebts.length}</b> (${otherDebts.map(d=>d.name).join(', ')||'none'})</div>
-    <div>Investments: <b>${investments.map(i=>i.name.split(' ')[0]+'('+(i.history?.length||0)+'hist)').join(', ')||'none'}</b></div>`;
-  renderStorageSummary();
 }
 function renderStorageSummary() {
   const el = document.getElementById('storage-summary');
@@ -2231,28 +2086,6 @@ function renderStorageSummary() {
       ${transactions.length} transactions · ${rules.length} rules · ${CATS.length} categories · ${accounts.length} accounts
     </div>`;
 }
-async function forcePushToDrive() {
-  if (!driveConnected) return;
-  if (!confirm('Upload this device\'s data to Drive? This will overwrite whatever is currently saved in Drive.')) return;
-  const data = getDataObj();
-  localStorage.setItem('myfinance_data', JSON.stringify(data));
-  await saveToDrive(data);
-}
-async function forcePullFromDrive() {
-  if (!driveConnected) return;
-  if (!confirm('Download data from Drive? This will replace all data on this device with whatever is in Drive.')) return;
-  // Clear cached file ID so we always search Drive fresh (avoids fetching a stale/wrong file)
-  driveFileId = null;
-  localStorage.removeItem('myfinance_drive_file_id');
-  await loadFromDrive();
-  const raw = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
-  const when = raw.savedAt ? new Date(raw.savedAt).toLocaleString('en-NZ',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'unknown time';
-  renderOverview(); renderDebt(); renderAssets();
-  updateDriveUI();
-  renderDataSummary();
-  setSyncStatus('synced', `Pulled ✓ · Drive data from ${when}`);
-}
-
 function clearData() {
   if (!confirm('Clear all transaction data, investments, and settings? This cannot be undone.')) return;
   transactions=[]; investments=[]; rules=rules.slice(0,20);
@@ -2423,9 +2256,27 @@ function showInviteAuth() {
   document.querySelector('.auth-title').style.display = 'none';
   document.querySelector('.auth-sub').style.display = 'none';
   document.querySelector('.auth-features').style.display = 'none';
-  document.querySelector('.google-btn').style.display = 'none';
+  document.getElementById('auth-sb-form').style.display = 'none';
   document.querySelector('.skip-btn').style.display = 'none';
   document.getElementById('invite-panel').style.display = 'block';
+}
+
+async function authScreenAction(mode) {
+  const email = (document.getElementById('auth-email')?.value || '').trim();
+  const pass  = document.getElementById('auth-password')?.value || '';
+  const errEl = document.getElementById('auth-error');
+  if (!email || !pass) { if(errEl){errEl.textContent='Enter email and password';errEl.style.display='block';} return; }
+  if (errEl) errEl.style.display = 'none';
+  try {
+    if (mode === 'signin') {
+      const { error } = await sbConn.auth.signInWithPassword({ email, password: pass });
+      if (error) throw error;
+    } else {
+      const { error } = await sbConn.auth.signUp({ email, password: pass });
+      if (error) throw error;
+      alert('Account created! Check your email to confirm, then sign in.');
+    }
+  } catch(e) { if(errEl){errEl.textContent=e.message;errEl.style.display='block';} }
 }
 
 async function sbInviteSignup() {
@@ -2543,17 +2394,9 @@ function renderAccountSection() {
 window.addEventListener('load', () => {
   document.getElementById('loading').style.display='none';
   initSupabase();
-  const hadDrive = localStorage.getItem('myfinance_drive');
   const hasLocal = !!localStorage.getItem('myfinance_data');
-
   const hasInvite = !!new URLSearchParams(window.location.search).get('invite');
-  if (hadDrive && GDRIVE_CLIENT_ID !== 'YOUR_GOOGLE_CLIENT_ID') {
-    // Load local data immediately so app is usable, then reconnect Drive in background
-    showApp();
-    loadFromLocal();
-    renderOverview();
-    reconnectDrive();
-  } else if (hasLocal) {
+  if (hasLocal) {
     skipAuth();
   } else if (hasInvite) {
     showInviteAuth();
@@ -2562,38 +2405,7 @@ window.addEventListener('load', () => {
   }
 });
 
-function reconnectDrive() {
-  // Wait for Google API to finish loading, then silently reconnect
-  if (!gapiLoaded) { setTimeout(reconnectDrive, 500); return; }
-  try {
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: GDRIVE_CLIENT_ID,
-      scope: GDRIVE_SCOPES,
-      prompt: '',
-      callback: async (resp) => {
-        if (resp.error) { setSyncStatus('', 'Local only'); return; }
-        driveConnected = true;
-        updateDriveUI();
-        // Always pull from Drive on reconnect — prevents stale device from overwriting good data
-        await loadFromDrive();
-        renderOverview(); renderDebt(); renderAssets();
-      }
-    });
-    client.requestAccessToken({prompt: ''});
-  } catch(e) { setSyncStatus('', 'Local only'); }
-}
 </script>
 
-<!-- Google Identity Services (loads async, only needed for Drive) -->
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>
-  function gapiInit() {
-    gapi.load('client', async () => {
-      await gapi.client.init({discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']});
-      gapiLoaded = true;
-    });
-  }
-</script>
-<script src="https://apis.google.com/js/api.js" onload="gapiInit()" async defer></script>
 </body>
 </html>
