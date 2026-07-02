@@ -401,6 +401,12 @@
         <div class="card-title">Spending by category</div>
         <div id="cat-bars"></div>
       </div>
+
+      <div class="card">
+        <div class="card-title">Net worth trend</div>
+        <div class="chart-wrap" style="height:160px"><canvas id="nwChart" role="img" aria-label="Net worth over time"></canvas></div>
+        <div id="nw-chart-note" style="font-size:11px;color:var(--text3);margin-top:6px;text-align:right">Property at current value · update history via Debt &amp; Assets</div>
+      </div>
     </div>
 
     <!-- TRANSACTIONS -->
@@ -767,11 +773,13 @@ let bvaFilter = 'all';
 let activeCatTxnId = null;
 let activeCatFilter = null;
 let txnAccountFilter = 'all';
+let _splitTxnId = null;
+let _splits = [];
 let accounts = [
   {id:'everyday',   name:'Everyday',    icon:'🏦', fixed:true},
   {id:'creditcard', name:'Credit card', icon:'💳', fixed:true},
 ];
-let flowChart, pnlChart, invChart;
+let flowChart, pnlChart, invChart, nwChart;
 let currentPage = 'overview';
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
@@ -862,6 +870,7 @@ function renderOverview() {
   document.getElementById('ov-rate').textContent = rate + '%';
 
   renderBudgetVsActual(txns);
+  renderNetWorthChart();
 
   // Cash flow chart — always last 6 months regardless of selected month
   const months = getLast6Months();
@@ -1044,7 +1053,10 @@ function renderTransactions() {
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="txn-amount ${t.amount>=0?'pos':'neg'}">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
-        <button onclick="deleteTxn(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;line-height:1">✕ delete</button>
+        <div style="display:flex;gap:8px">
+          <button onclick="openSplitTxn(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;line-height:1">✂ split</button>
+          <button onclick="deleteTxn(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;line-height:1">✕ delete</button>
+        </div>
       </div>
     </div>`).join('');
 
@@ -2044,6 +2056,157 @@ function addRule() {
   renderRules(); scheduleSave();
 }
 function deleteRule(i) { rules.splice(i,1); renderRules(); scheduleSave(); }
+
+// ─── Net worth trend chart ────────────────────────────────────────────────────
+function buildNetWorthSeries() {
+  const allMonths = new Set();
+  mortgages.forEach(m => (m.history||[]).forEach(h => h.date && allMonths.add(h.date.slice(0,7))));
+  (savings.history||[]).forEach(h => h.date && allMonths.add(h.date.slice(0,7)));
+  investments.forEach(inv => (inv.history||[]).forEach(h => h.date && allMonths.add(h.date.slice(0,7))));
+  otherDebts.forEach(d => (d.history||[]).forEach(h => h.date && allMonths.add(h.date.slice(0,7))));
+
+  const months = [...allMonths].sort();
+  if (months.length < 2) return null;
+
+  const latestAt = (history, valKey, month) => {
+    const entries = (history||[]).filter(h => h.date?.slice(0,7) <= month);
+    return entries.length ? entries[entries.length-1][valKey] : null;
+  };
+
+  return months.map(month => {
+    const mortDebt   = mortgages.reduce((s,m)  => s+(latestAt(m.history,'total',month)??0), 0);
+    const otherDebt  = otherDebts.reduce((s,d)  => s+(latestAt(d.history,'value',month)??0), 0);
+    const savVal     = latestAt(savings.history,'value',month) ?? 0;
+    const invVal     = investments.reduce((s,inv)=> s+(latestAt(inv.history,'value',month)??0), 0);
+    const propVal    = (property.homeVal||0) + (property.beachVal||0);
+    return {
+      month,
+      nw: (propVal + savVal + invVal) - (mortDebt + otherDebt),
+      label: new Date(month+'-02').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})
+    };
+  });
+}
+function renderNetWorthChart() {
+  const canvas = document.getElementById('nwChart');
+  if (!canvas) return;
+  const series = buildNetWorthSeries();
+  if (!series) {
+    canvas.style.display='none';
+    const note = document.getElementById('nw-chart-note');
+    if (note) note.textContent = 'Update debt & savings history to see your net worth trend';
+    return;
+  }
+  canvas.style.display='';
+  if (nwChart) nwChart.destroy();
+  const last = series[series.length-1].nw;
+  const col  = last >= 0 ? '#1db88a' : '#e05252';
+  nwChart = new Chart(canvas, {
+    type:'line',
+    data:{
+      labels: series.map(s=>s.label),
+      datasets:[{
+        data: series.map(s=>s.nw),
+        borderColor: col,
+        backgroundColor: col+'1a',
+        fill: true,
+        tension: 0.35,
+        pointRadius: series.length > 18 ? 0 : 3,
+        pointBackgroundColor: col,
+        borderWidth: 2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>' '+fmt(ctx.raw)}}
+      },
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#555a72',font:{size:10},maxTicksLimit:9}},
+        y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#555a72',font:{size:11}}}
+      }
+    }
+  });
+}
+
+// ─── Split transactions ───────────────────────────────────────────────────────
+function openSplitTxn(id) {
+  const t = transactions.find(x=>x.id===id);
+  if (!t) return;
+  _splitTxnId = id;
+  const half  = +(t.amount/2).toFixed(2);
+  const other = +(t.amount - half).toFixed(2);
+  _splits = [{cat:t.cat, amount:half}, {cat:t.cat, amount:other}];
+
+  document.getElementById('modal-title').textContent = 'Split transaction';
+  document.querySelector('.modal-box').classList.remove('modal-wide');
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px">
+      <div style="font-weight:500;margin-bottom:2px">${t.desc}</div>
+      <div style="color:var(--text3)">${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})} · <span class="${t.amount<0?'neg':'pos'}">${t.amount>=0?'+':''}${fmt(t.amount)}</span></div>
+    </div>
+    <div id="split-rows"></div>
+    <button class="btn btn-secondary btn-block" style="margin-bottom:12px;font-size:13px" onclick="addSplitRow()">+ Add split</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:0.5px solid var(--border)">
+      <span style="font-size:13px;color:var(--text3)">Remaining unallocated</span>
+      <span id="split-remaining" style="font-weight:600;font-size:14px"></span>
+    </div>`;
+  document.getElementById('modal-confirm').style.display='';
+  document.getElementById('modal-confirm').textContent='Apply split';
+  document.getElementById('modal-confirm').onclick=()=>commitSplit();
+  renderSplitRows(t.amount);
+  document.getElementById('modal').classList.add('open');
+}
+function renderSplitRows(total) {
+  const el = document.getElementById('split-rows');
+  if (!el) return;
+  const catOpts = CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
+  el.innerHTML = _splits.map((s,i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <select style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:8px 10px;outline:none"
+        onchange="_splits[${i}].cat=this.value">
+        ${catOpts.replace(`value="${s.cat}"`,`value="${s.cat}" selected`)}
+      </select>
+      <input type="number" value="${Math.abs(s.amount).toFixed(2)}" step="0.01" min="0"
+        style="width:86px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:8px 10px;outline:none;text-align:right"
+        oninput="_splits[${i}].amount=${total<0?'-':'+'}(Math.abs(parseFloat(this.value)||0));updateSplitRemaining(${total})">
+      ${_splits.length > 2
+        ? `<button onclick="_splits.splice(${i},1);renderSplitRows(${total})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:0 2px;line-height:1">✕</button>`
+        : `<span style="width:20px"></span>`}
+    </div>`).join('');
+  updateSplitRemaining(total);
+}
+function addSplitRow() {
+  const t = transactions.find(x=>x.id===_splitTxnId);
+  if (!t) return;
+  _splits.push({cat: t.cat, amount: 0});
+  renderSplitRows(t.amount);
+}
+function updateSplitRemaining(total) {
+  const used = _splits.reduce((s,sp)=>s+sp.amount, 0);
+  const rem  = +(total - used).toFixed(2);
+  const el   = document.getElementById('split-remaining');
+  if (el) {
+    el.textContent  = (rem>=0?'+':'')+fmt(rem);
+    el.style.color  = Math.abs(rem)<0.01 ? 'var(--teal)' : 'var(--amber)';
+  }
+  const btn = document.getElementById('modal-confirm');
+  if (btn) btn.disabled = Math.abs(rem)>=0.01;
+}
+function commitSplit() {
+  const t = transactions.find(x=>x.id===_splitTxnId);
+  if (!t || _splits.length < 2) return;
+  const total = _splits.reduce((s,sp)=>s+sp.amount,0);
+  if (Math.abs(total - t.amount) >= 0.01) return;
+  const base = Date.now();
+  const newTxns = _splits.map((sp,i) => ({
+    id: base+i, date: t.date, desc: t.desc, amount: sp.amount, account: t.account, cat: sp.cat
+  }));
+  transactions = transactions.filter(x=>x.id!==_splitTxnId);
+  transactions = [...transactions, ...newTxns].sort((a,b)=>b.date-a.date);
+  _splitTxnId = null; _splits = [];
+  closeModal(); scheduleSave(); renderTransactions();
+}
 
 // ─── Recurring transactions ───────────────────────────────────────────────────
 function renderRecurring() {
