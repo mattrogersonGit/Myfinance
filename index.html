@@ -2273,8 +2273,8 @@ async function initSupabase() {
     sbConn.auth.onAuthStateChange(async (event, sess) => {
       if (event === 'SIGNED_IN') {
         sbUser = sess.user;
-        await sbLoadHousehold();
         if (document.getElementById('app').style.display === 'none') showApp();
+        await sbLoadHousehold();
       }
       if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; }
       renderAccountSection();
@@ -2334,9 +2334,10 @@ async function sbCreateHousehold() {
 
 async function sbAcceptInvite(token) {
   sessionStorage.removeItem('pendingInvite');
+  // Fetch invite without household join — user isn't a member yet so RLS blocks that join
   const { data: inv } = await sbConn
     .from('invites')
-    .select('id, household_id, used_at, expires_at, households(id, name, plan)')
+    .select('id, household_id, used_at, expires_at')
     .eq('token', token)
     .maybeSingle();
   if (!inv || inv.used_at || new Date(inv.expires_at) < new Date()) {
@@ -2344,9 +2345,16 @@ async function sbAcceptInvite(token) {
     await sbCreateHousehold();
     return;
   }
-  await sbConn.from('household_members').insert({ household_id: inv.household_id, user_id: sbUser.id, role: 'member' });
+  const { error: memErr } = await sbConn.from('household_members').insert({
+    household_id: inv.household_id, user_id: sbUser.id, role: 'member'
+  });
+  if (memErr) { alert('Could not join household: ' + memErr.message); return; }
   await sbConn.from('invites').update({ used_at: new Date().toISOString() }).eq('id', inv.id);
-  sbHousehold = inv.households;
+  // Now that user is a member, RLS allows reading the household
+  const { data: hh } = await sbConn
+    .from('households').select('id, name, plan').eq('id', inv.household_id).single();
+  sbHousehold = hh;
+  renderAccountSection();
   await sbLoadData();
 }
 
