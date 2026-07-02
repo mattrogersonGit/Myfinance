@@ -544,6 +544,11 @@
         <div id="data-summary" style="margin-top:12px;font-size:12px;color:var(--text3);line-height:1.8"></div>
       </div>
 
+      <div class="card" id="storage-card">
+        <div class="card-title">Storage usage</div>
+        <div id="storage-summary"></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Data</div>
         <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
@@ -772,7 +777,7 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); }
+  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -1994,13 +1999,30 @@ async function saveToDrive(data) {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
       body: multipart
     });
+    if (res.status === 401) {
+      // Token expired — mark disconnected so user knows to reconnect
+      driveConnected = false;
+      updateDriveUI();
+      setSyncStatus('', 'Session expired — reconnect Drive');
+      return;
+    }
+    if (res.status === 404 && driveFileId) {
+      // File was deleted from Drive — clear cached ID and retry as new file
+      driveFileId = null;
+      localStorage.removeItem('myfinance_drive_file_id');
+      await saveToDrive(data);
+      return;
+    }
     if (!res.ok) throw new Error(`Drive save ${res.status}`);
     const result = await res.json();
     driveFileId = result.id;
     localStorage.setItem('myfinance_drive_file_id', driveFileId);
     setSyncStatus('synced', 'Saved to Drive');
     setTimeout(()=>setSyncStatus('synced','Synced ✓'),2000);
-  } catch(e) { setSyncStatus('','Save failed'); console.error(e); }
+  } catch(e) {
+    setSyncStatus('', 'Save failed — check connection');
+    console.error('Drive save error:', e);
+  }
 }
 async function loadFromDrive() {
   if (!driveConnected) return;
@@ -2088,7 +2110,53 @@ function renderDataSummary() {
     <div>Transactions: <b>${transactions.length}</b></div>
     <div>Mortgages: <b>${mortSummary||'none'}</b></div>
     <div>Other debts: <b>${otherDebts.length}</b> (${otherDebts.map(d=>d.name).join(', ')||'none'})</div>
-    <div>Investments: <b>${investments.map(i=>i.name.split(' ')[0]+'('+( i.history?.length||0)+'hist)').join(', ')||'none'}</b></div>`;
+    <div>Investments: <b>${investments.map(i=>i.name.split(' ')[0]+'('+(i.history?.length||0)+'hist)').join(', ')||'none'}</b></div>`;
+  renderStorageSummary();
+}
+function renderStorageSummary() {
+  const el = document.getElementById('storage-summary');
+  if (!el) return;
+
+  // Measure each section
+  const sections = [
+    { label: 'Transactions', bytes: new Blob([JSON.stringify(transactions)]).size },
+    { label: 'Mortgage history', bytes: new Blob([JSON.stringify(mortgages)]).size },
+    { label: 'Investments', bytes: new Blob([JSON.stringify(investments)]).size },
+    { label: 'Savings history', bytes: new Blob([JSON.stringify(savings)]).size },
+    { label: 'Rules & categories', bytes: new Blob([JSON.stringify({rules, cats:CATS, budgets})]).size },
+    { label: 'Other', bytes: new Blob([JSON.stringify({otherDebts, debtOrder, pendingTxns, accounts, property})]).size },
+  ];
+  const totalBytes = sections.reduce((s,r)=>s+r.bytes, 0);
+  const totalKB = (totalBytes/1024).toFixed(1);
+  const totalMB = (totalBytes/1024/1024).toFixed(3);
+  const limitMB = 500;
+  const pct = Math.min(totalBytes/1024/1024/limitMB*100, 100).toFixed(2);
+
+  const barColor = pct > 80 ? 'var(--red)' : pct > 50 ? '#e0a030' : 'var(--teal)';
+
+  const rows = sections.map(s => {
+    const kb = (s.bytes/1024).toFixed(1);
+    const sPct = (s.bytes/totalBytes*100).toFixed(0);
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+      <span style="color:var(--text2)">${s.label}</span>
+      <span style="color:var(--text3)">${kb} KB <span style="color:var(--text3);opacity:0.6">(${sPct}%)</span></span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text2)">Total: <b style="color:var(--text)">${totalKB} KB</b> (${totalMB} MB)</span>
+        <span style="color:var(--text3)">${pct}% of 500 MB free tier</span>
+      </div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width 0.4s"></div>
+      </div>
+    </div>
+    ${rows}
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">
+      ${transactions.length} transactions · ${rules.length} rules · ${CATS.length} categories · ${accounts.length} accounts
+    </div>`;
 }
 async function forcePushToDrive() {
   if (!driveConnected) return;
