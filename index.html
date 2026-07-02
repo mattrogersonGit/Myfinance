@@ -2240,9 +2240,23 @@ async function sbCreateHousehold() {
     .insert({ name: 'My Finances', owner_id: sbUser.id, plan: 'free' })
     .select()
     .single();
-  if (error || !hh) { console.error('Create household:', error); return; }
-  await sbConn.from('household_members').insert({ household_id: hh.id, user_id: sbUser.id, role: 'owner' });
-  await sbConn.from('household_data').insert({ household_id: hh.id, data: {} });
+  if (error || !hh) {
+    alert('Household setup failed (step 1 — households insert):\n\n' + (error?.message || error?.code || 'unknown'));
+    console.error('Create household:', error);
+    return;
+  }
+  const { error: memErr } = await sbConn.from('household_members').insert({ household_id: hh.id, user_id: sbUser.id, role: 'owner' });
+  if (memErr) {
+    alert('Household setup failed (step 2 — members insert):\n\n' + (memErr?.message || memErr?.code || 'unknown'));
+    console.error('Add member:', memErr);
+    return;
+  }
+  const { error: dataErr } = await sbConn.from('household_data').insert({ household_id: hh.id, data: {} });
+  if (dataErr) {
+    alert('Household setup failed (step 3 — data insert):\n\n' + (dataErr?.message || dataErr?.code || 'unknown'));
+    console.error('Create data row:', dataErr);
+    return;
+  }
   sbHousehold = hh;
   const local = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
   if ((local.transactions || []).length > 0) {
