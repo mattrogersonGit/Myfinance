@@ -175,10 +175,7 @@
     .auth-features { list-style: none; margin-bottom: 36px; width: 100%; max-width: 300px; }
     .auth-features li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text2); margin-bottom: 12px; }
     .auth-features li span:first-child { color: var(--teal); font-size: 16px; }
-    .google-btn { display: flex; align-items: center; gap: 12px; background: #fff; color: #1f1f1f; font-size: 15px; font-weight: 600; padding: 13px 24px; border-radius: var(--radius-sm); border: none; cursor: pointer; width: 100%; max-width: 300px; justify-content: center; transition: opacity 0.15s; }
-    .google-btn:active { opacity: 0.85; }
-    .google-logo { width: 20px; height: 20px; }
-    .skip-btn { margin-top: 14px; font-size: 14px; color: var(--text3); background: none; border: none; cursor: pointer; padding: 8px; }
+.skip-btn { margin-top: 14px; font-size: 14px; color: var(--text3); background: none; border: none; cursor: pointer; padding: 8px; }
 
     /* Sync status */
     #sync-status { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 5px; }
@@ -359,7 +356,7 @@
     <h1>My<span>Finance</span></h1>
     <div id="sync-status">
       <div class="sync-dot"></div>
-      <span id="sync-text">Local only</span>
+      <span id="sync-text"></span>
     </div>
   </div>
 
@@ -524,10 +521,21 @@
         </div>
         <div id="s-import" class="s-body">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em">Westpac CSV</span>
+            <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em">Bank CSV — Westpac · ANZ · BNZ · ASB</span>
             <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openManualTxn()">+ Manual entry</button>
           </div>
           <div id="import-zones"></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-recurring')">
+          <span class="s-icon">🔁</span><span class="s-label">Recurring transactions</span><span class="s-meta" id="s-recurring-meta"></span><span class="s-chev" id="s-recurring-chev">›</span>
+        </div>
+        <div id="s-recurring" class="s-body">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Expected monthly items shown as ghost entries when viewing the current month</div>
+          <div id="recurring-list"></div>
+          <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addRecurring()">+ Add recurring item</button>
         </div>
       </div>
 
@@ -752,6 +760,7 @@ let property = {homeVal:1110000, beachVal:0};
 let otherDebts = [];
 let debtOrder = [];
 let pendingTxns = [];
+let recurring = [];
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
 let bvaFilter = 'all';
@@ -830,7 +839,7 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); }
+  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -989,7 +998,8 @@ function renderTransactions() {
 
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const period = document.getElementById('txn-period')?.value||'selmonth';
-  let txns = getFilteredTxns(period)
+  const searchingAll = !!search;
+  let txns = (searchingAll ? transactions : getFilteredTxns(period))
     .filter(t => !search || t.desc.toLowerCase().includes(search) || t.cat.toLowerCase().includes(search))
     .filter(t => !activeCatFilter || t.cat === activeCatFilter)
     .filter(t => txnAccountFilter==='all' || t.account === txnAccountFilter)
@@ -1012,7 +1022,7 @@ function renderTransactions() {
   }
 
   const countEl = document.getElementById('txn-count');
-  if (countEl) countEl.textContent = txns.length + ' transactions';
+  if (countEl) countEl.textContent = txns.length + (searchingAll ? ' results across all time' : ' transactions');
 
   // Clear category filter after use so subsequent renders don't re-apply it
   activeCatFilter = null;
@@ -1037,6 +1047,26 @@ function renderTransactions() {
         <button onclick="deleteTxn(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;line-height:1">✕ delete</button>
       </div>
     </div>`).join('');
+
+  // Show recurring ghost entries for the selected month (not when searching)
+  if (!searchingAll && period === 'selmonth' && recurring.length) {
+    const ghostHtml = recurring.map(r => {
+      const matched = txns.some(t =>
+        t.cat === r.cat &&
+        r.amount !== 0 &&
+        Math.abs(Math.abs(t.amount) - Math.abs(r.amount)) / Math.abs(r.amount) < 0.35
+      );
+      return `<div class="txn-item" style="opacity:${matched?0.45:0.75};border:1px dashed var(--border2);border-radius:var(--radius-sm);margin-bottom:2px">
+        <div class="txn-icon" style="background:${catColor(r.cat||'Other')}22">${catEmoji(r.cat||'Other')}</div>
+        <div class="txn-info">
+          <div class="txn-name" style="color:var(--text3)">${r.label} <span style="font-size:10px">(expected)</span></div>
+          <div class="txn-meta"><span style="color:${matched?'var(--teal)':'var(--amber)'}">${matched?'✓ received':'⏳ pending'}</span><span class="cat-pill" style="pointer-events:none">${r.cat||'Other'}</span></div>
+        </div>
+        <div class="txn-amount neg" style="color:var(--text3)">${fmt(r.amount)}</div>
+      </div>`;
+    }).join('');
+    list.innerHTML += ghostHtml;
+  }
 }
 
 // ─── Category sheet ───────────────────────────────────────────────────────────
@@ -1652,28 +1682,71 @@ function parseCSVLine(line) {
   cols.push(cur.trim());
   return cols;
 }
-function parseWestpacCSV(text, account) {
+function detectBank(headers) {
+  if (headers.includes('other party') || headers.includes('process date')) return 'westpac';
+  if (headers.includes('unique id') && headers.includes('payee') && headers.includes('memo')) return 'asb';
+  if (headers.includes('payee') && headers.includes('particulars') && headers.includes('account number')) return 'bnz';
+  if (headers.includes('payee') && headers.includes('particulars') && headers.includes('tran type')) return 'bnz';
+  if (headers.includes('details') && headers.includes('amount') && !headers.includes('payee')) return 'anz';
+  if (headers.includes('description') && headers.includes('particulars') && headers.includes('amount')) return 'anz';
+  return 'generic';
+}
+function parseCSVDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
+  if (parts.length !== 3) return null;
+  let date;
+  if (parts[0].length === 4) {
+    // YYYY-MM-DD
+    date = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+  } else {
+    // DD/MM/YYYY
+    date = new Date(parseInt(parts[2]) || new Date().getFullYear(), parseInt(parts[1])-1, parseInt(parts[0]));
+  }
+  return isNaN(date.getTime()) ? null : date;
+}
+function parseCSV(text, account) {
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase());
-  // Detect column positions from headers
-  const dateCol = ['process date','date'].reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
-  const amtCol  = headers.indexOf('amount');
-  const descCol = ['other party','description','narration'].reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
-  if (dateCol < 0 || amtCol < 0 || descCol < 0) {
-    alert(`Unrecognised CSV format. Headers found: ${headers.join(', ')}`);
-    return [];
-  }
-  const txns = []; let idBase = transactions.length + Date.now();
+  const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase().trim());
+  const bank = detectBank(headers);
+  const col = (...names) => names.reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
+  const txns = [];
+  let idBase = transactions.length + Date.now();
+
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i]);
-    const dateStr = cols[dateCol] || '';
-    const amount  = parseFloat(cols[amtCol]);
-    const desc    = (cols[descCol] || 'Unknown').replace(/\s+/g,' ').trim();
-    if (!dateStr || isNaN(amount) || amount === 0) continue;
-    const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
-    const date  = new Date(parseInt(parts[2]) || new Date().getFullYear(), parseInt(parts[1])-1, parseInt(parts[0]));
-    if (isNaN(date.getTime())) continue;
+    let dateStr, amount, desc;
+
+    if (bank === 'westpac') {
+      const dc=col('process date','date'), ac=col('amount'), xc=col('other party','description','narration');
+      if (dc<0||ac<0||xc<0) continue;
+      dateStr=cols[dc]; amount=parseFloat(cols[ac]); desc=cols[xc];
+    } else if (bank === 'asb') {
+      const dc=col('date'), ac=col('amount'), pc=col('payee'), mc=col('memo');
+      dateStr=cols[dc]; amount=parseFloat(cols[ac]);
+      desc=[cols[pc],cols[mc]].filter(Boolean).join(' – ').trim()||'Unknown';
+    } else if (bank === 'bnz') {
+      const dc=col('date'), ac=col('payment amount','amount'), pc=col('payee'), xc=col('particulars');
+      dateStr=cols[dc]; amount=parseFloat(cols[ac]);
+      desc=[cols[pc],cols[xc]].filter(Boolean).join(' ').trim()||'Unknown';
+    } else if (bank === 'anz') {
+      const dc=col('date'), ac=col('amount'), xc=col('details','description','particulars');
+      dateStr=cols[dc]; amount=parseFloat(cols[ac]); desc=cols[xc]||'Unknown';
+    } else {
+      // Generic: find whatever columns we can
+      const dc=col('date','process date'), ac=col('amount','payment amount');
+      const xc=col('description','details','payee','other party','narration','particulars');
+      if (dc<0||ac<0) {
+        if (i===1) alert(`Unrecognised CSV format.\nHeaders: ${headers.join(', ')}\n\nSupported banks: Westpac, ANZ, BNZ, ASB.`);
+        return [];
+      }
+      dateStr=cols[dc]; amount=parseFloat(cols[ac]); desc=xc>=0?cols[xc]:'Unknown';
+    }
+
+    const date = parseCSVDate(dateStr);
+    if (!date || isNaN(amount) || amount === 0) continue;
+    desc = (desc||'Unknown').replace(/\s+/g,' ').trim();
     txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc)});
   }
   return txns;
@@ -1682,7 +1755,7 @@ function handleCSV(input, account) {
   const file = input.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    const newTxns = parseWestpacCSV(e.target.result, account);
+    const newTxns = parseCSV(e.target.result, account);
     if (!newTxns.length) return;
     // Deduplicate against committed + already-pending transactions.
     // Use a count map so two same-day same-amount transactions (e.g. two school care invoices)
@@ -1717,11 +1790,12 @@ function renderPendingBanner() {
 function renderPendingList() {
   return pendingTxns.map(t => {
     const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'});
-    const acct = t.account==='creditcard'?'Credit card':'Everyday';
+    const acct = accounts.find(a=>a.id===t.account)?.name || t.account;
+    const safeDesc = t.desc.replace(/"/g,'&quot;');
     return `<div id="pr-${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="flex:1;min-width:0;overflow:hidden">
-        <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.desc}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${dateStr} · ${acct}</div>
+        <input type="text" value="${safeDesc}" style="font-size:14px;font-weight:500;background:none;border:none;border-bottom:0.5px solid var(--border2);color:var(--text);outline:none;width:100%;padding:0 0 2px 0" oninput="updatePendingDesc(${t.id},this.value)">
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}</div>
       </div>
       <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;flex-shrink:0;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
       <div style="text-align:right;flex-shrink:0">
@@ -1730,6 +1804,10 @@ function renderPendingList() {
       </div>
     </div>`;
   }).join('');
+}
+function updatePendingDesc(id, val) {
+  const t = pendingTxns.find(x=>x.id===id);
+  if (t) { t.desc = val; scheduleSave(); }
 }
 function openPendingReview() {
   if (!pendingTxns.length) return;
@@ -1831,7 +1909,7 @@ function renderImportZones() {
     <div class="upload-zone" onclick="document.getElementById('file-${acc.id}').click()">
       <div class="upload-icon">${acc.icon||'🏦'}</div>
       <div class="upload-title">${acc.name}</div>
-      <div class="upload-sub">Tap to select Westpac CSV</div>
+      <div class="upload-sub">Tap to select bank CSV</div>
       <div class="upload-success" id="status-${acc.id}"></div>
       <input type="file" id="file-${acc.id}" accept=".csv" style="display:none" onchange="handleCSV(this,'${acc.id}')">
     </div>`).join('');
@@ -1967,6 +2045,50 @@ function addRule() {
 }
 function deleteRule(i) { rules.splice(i,1); renderRules(); scheduleSave(); }
 
+// ─── Recurring transactions ───────────────────────────────────────────────────
+function renderRecurring() {
+  const el = document.getElementById('recurring-list');
+  if (!el) return;
+  const meta = document.getElementById('s-recurring-meta');
+  if (meta) meta.textContent = recurring.length ? recurring.length + ' item' + (recurring.length===1?'':'s') : '';
+  const catOpts = CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
+  const acctOpts = accounts.map(a=>`<option value="${a.id}">${a.icon||'🏦'} ${a.name}</option>`).join('');
+  if (!recurring.length) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:4px 0">No recurring transactions yet</div>';
+    return;
+  }
+  el.innerHTML = recurring.map((r,i) => `
+    <div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="text" value="${(r.label||'').replace(/"/g,'&quot;')}" placeholder="Description"
+          style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;padding:6px 8px;outline:none;min-width:0"
+          onchange="recurring[${i}].label=this.value;scheduleSave();renderRecurring()">
+        <input type="number" value="${Math.abs(r.amount||0).toFixed(2)}" step="0.01" placeholder="Amount"
+          style="width:80px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;padding:6px 8px;outline:none;text-align:right"
+          onchange="recurring[${i}].amount=-(Math.abs(parseFloat(this.value)||0));scheduleSave()">
+        <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;flex-shrink:0" onclick="deleteRecurring(${i})">✕</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <select style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none"
+          onchange="recurring[${i}].cat=this.value;scheduleSave()">${catOpts.replace(`value="${r.cat||'Other'}"`,`value="${r.cat||'Other'}" selected`)}</select>
+        <select style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none"
+          onchange="recurring[${i}].account=this.value;scheduleSave()">${acctOpts.replace(`value="${r.account||'everyday'}"`,`value="${r.account||'everyday'}" selected`)}</select>
+      </div>
+    </div>`).join('');
+}
+function addRecurring() {
+  recurring.push({id:'rec_'+Date.now(), label:'New item', cat:'Other', account:'everyday', amount:-100});
+  renderRecurring();
+  scheduleSave();
+  document.querySelectorAll('#recurring-list input[type=text]').last?.focus?.();
+}
+function deleteRecurring(i) {
+  if (!confirm(`Remove "${recurring[i].label}" from recurring list?`)) return;
+  recurring.splice(i,1);
+  renderRecurring();
+  scheduleSave();
+}
+
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
 function scheduleSave() {
@@ -1976,7 +2098,7 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets, accounts,
+    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets, accounts, recurring,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
@@ -2007,6 +2129,7 @@ function loadDataObj(obj) {
   if (obj.otherDebts) otherDebts = obj.otherDebts;
   if (obj.debtOrder) debtOrder = obj.debtOrder;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
+  if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
     // Merge saved accounts — keep built-in ones, add any custom ones
     const saved = obj.accounts;
@@ -2096,6 +2219,7 @@ function clearData() {
 // ─── Supabase ────────────────────────────────────────────────────────────────
 async function initSupabase() {
   if (!window.supabase) return;
+  setSyncStatus('syncing', 'Connecting…');
   try {
     sbConn = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const params = new URLSearchParams(window.location.search);
@@ -2103,17 +2227,18 @@ async function initSupabase() {
     if (tok) sessionStorage.setItem('pendingInvite', tok);
     const { data: { session } } = await sbConn.auth.getSession();
     if (session) { sbUser = session.user; await sbLoadHousehold(); }
+    else setSyncStatus('', 'Local only');
     sbConn.auth.onAuthStateChange(async (event, sess) => {
       if (event === 'SIGNED_IN') {
         sbUser = sess.user;
         if (document.getElementById('app').style.display === 'none') showApp();
         await sbLoadHousehold();
       }
-      if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; }
+      if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; setSyncStatus('', 'Local only'); }
       renderAccountSection();
     });
     renderAccountSection();
-  } catch(e) { console.error('Supabase init:', e); }
+  } catch(e) { console.error('Supabase init:', e); setSyncStatus('', 'Local only'); }
 }
 
 async function sbLoadHousehold() {
@@ -2225,6 +2350,16 @@ async function sbSaveData(data) {
   } finally { sbSaving = false; }
 }
 
+async function sbSyncPush() {
+  if (!sbConn || !sbUser || !sbHousehold) { alert('Not connected to cloud. Sign in first.'); return; }
+  await sbSaveData(getDataObj());
+}
+async function sbSyncPull() {
+  if (!sbConn || !sbUser || !sbHousehold) { alert('Not connected to cloud. Sign in first.'); return; }
+  await sbLoadData();
+  renderOverview(); renderDebt(); renderAssets();
+}
+
 async function sbAuthAction(mode) {
   const email = (document.getElementById('sb-email')?.value || '').trim();
   const pass  = document.getElementById('sb-password')?.value || '';
@@ -2323,6 +2458,7 @@ function toggleSettings(id) {
     const chev = document.getElementById(id + '-chev');
     if (chev) chev.classList.add('open');
     if (id === 's-storage') renderStorageSummary();
+    if (id === 's-recurring') renderRecurring();
   }
 }
 
@@ -2386,6 +2522,10 @@ function renderAccountSection() {
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbGenerateInvite()">Invite family member</button>
         <button class="btn btn-secondary" style="font-size:12px;padding:8px 12px;white-space:nowrap" onclick="sbSignOut()">Sign out</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPush()" title="Upload local data to cloud">↑ Push to cloud</button>
+        <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPull()" title="Download latest data from cloud">↓ Pull from cloud</button>
       </div>`;
   }
 }
