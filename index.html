@@ -2344,6 +2344,15 @@ async function sbSignOut() {
   setSyncStatus('', '');
 }
 
+async function sbRenameHousehold() {
+  const name = prompt('Household name:', sbHousehold?.name || 'My Finances');
+  if (!name || !name.trim() || name.trim() === sbHousehold?.name) return;
+  const { error } = await sbConn.from('households').update({ name: name.trim() }).eq('id', sbHousehold.id);
+  if (error) { alert('Could not rename: ' + error.message); return; }
+  sbHousehold = { ...sbHousehold, name: name.trim() };
+  renderAccountSection();
+}
+
 async function sbGenerateInvite() {
   if (!sbHousehold) return;
   const { data: inv, error } = await sbConn
@@ -2378,7 +2387,8 @@ function renderAccountSection() {
           <span style="color:var(--text3)">Email</span><span>${sbUser.email}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border)">
-          <span style="color:var(--text3)">Household</span><span>${sbHousehold?.name || '—'}</span>
+          <span style="color:var(--text3)">Household</span>
+          <span style="display:flex;align-items:center;gap:6px">${sbHousehold?.name || '—'}<button onclick="sbRenameHousehold()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0" title="Rename">✏️</button></span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:4px 0">
           <span style="color:var(--text3)">Plan</span>
