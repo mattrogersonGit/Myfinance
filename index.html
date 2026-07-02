@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -531,6 +532,11 @@
       </div>
 
       <div class="card">
+        <div class="card-title">Account</div>
+        <div id="account-content"><div style="font-size:13px;color:var(--text3)">Loading…</div></div>
+      </div>
+
+      <div class="card">
         <div class="card-title">Google Drive sync</div>
         <div id="drive-status" style="font-size:14px;color:var(--text2);margin-bottom:12px">Not connected</div>
         <button class="btn btn-secondary btn-block" id="drive-btn" onclick="toggleDrive()">Connect Google Drive</button>
@@ -712,6 +718,11 @@ let flowChart, pnlChart, invChart;
 let driveConnected = false;
 let gapiLoaded = false;
 let currentPage = 'overview';
+
+// ─── Supabase config ──────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://cirhguycwvgmqxscbahw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpcmhndXljd3ZnbXF4c2NiYWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5NDY4MzUsImV4cCI6MjA5ODUyMjgzNX0.fDK8v6oHl3rYXxF0kQ_F9Cr-q2ROIHI21_Yd6m2kbvE';
+let sbConn = null, sbUser = null, sbHousehold = null, sbSaving = false;
 
 // Google Drive config — user fills in their client ID
 const GDRIVE_CLIENT_ID = '659371449622-s0gc4a5kjnij8lfo5mg6s4l6nu041sua.apps.googleusercontent.com';
@@ -1965,6 +1976,7 @@ function saveData() {
   const data = getDataObj();
   localStorage.setItem('myfinance_data', JSON.stringify(data));
   if (driveConnected) saveToDrive(data);
+  if (sbConn && sbUser && sbHousehold) sbSaveData(data);
 }
 function loadFromLocal() {
   try {
@@ -2187,9 +2199,189 @@ function clearData() {
   renderOverview();
 }
 
+// ─── Supabase ────────────────────────────────────────────────────────────────
+async function initSupabase() {
+  if (!window.supabase) return;
+  try {
+    sbConn = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const params = new URLSearchParams(window.location.search);
+    const tok = params.get('invite');
+    if (tok) sessionStorage.setItem('pendingInvite', tok);
+    const { data: { session } } = await sbConn.auth.getSession();
+    if (session) { sbUser = session.user; await sbLoadHousehold(); }
+    sbConn.auth.onAuthStateChange(async (event, sess) => {
+      if (event === 'SIGNED_IN') { sbUser = sess.user; await sbLoadHousehold(); }
+      if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; }
+      renderAccountSection();
+    });
+    renderAccountSection();
+  } catch(e) { console.error('Supabase init:', e); }
+}
+
+async function sbLoadHousehold() {
+  const { data } = await sbConn
+    .from('household_members')
+    .select('role, households(id, name, plan)')
+    .eq('user_id', sbUser.id)
+    .maybeSingle();
+  if (data?.households) {
+    sbHousehold = data.households;
+    await sbLoadData();
+  } else {
+    const tok = sessionStorage.getItem('pendingInvite');
+    if (tok) await sbAcceptInvite(tok);
+    else await sbCreateHousehold();
+  }
+}
+
+async function sbCreateHousehold() {
+  const { data: hh, error } = await sbConn
+    .from('households')
+    .insert({ name: 'My Finances', owner_id: sbUser.id, plan: 'free' })
+    .select()
+    .single();
+  if (error || !hh) { console.error('Create household:', error); return; }
+  await sbConn.from('household_members').insert({ household_id: hh.id, user_id: sbUser.id, role: 'owner' });
+  await sbConn.from('household_data').insert({ household_id: hh.id, data: {} });
+  sbHousehold = hh;
+  const local = JSON.parse(localStorage.getItem('myfinance_data') || '{}');
+  if ((local.transactions || []).length > 0) {
+    if (confirm(`Found ${local.transactions.length} transactions on this device. Upload them to your cloud account?`)) {
+      await sbSaveData(local);
+    }
+  }
+  renderAccountSection();
+}
+
+async function sbAcceptInvite(token) {
+  sessionStorage.removeItem('pendingInvite');
+  const { data: inv } = await sbConn
+    .from('invites')
+    .select('id, household_id, used_at, expires_at, households(id, name, plan)')
+    .eq('token', token)
+    .maybeSingle();
+  if (!inv || inv.used_at || new Date(inv.expires_at) < new Date()) {
+    alert('This invite link has expired or already been used.');
+    await sbCreateHousehold();
+    return;
+  }
+  await sbConn.from('household_members').insert({ household_id: inv.household_id, user_id: sbUser.id, role: 'member' });
+  await sbConn.from('invites').update({ used_at: new Date().toISOString() }).eq('id', inv.id);
+  sbHousehold = inv.households;
+  await sbLoadData();
+}
+
+async function sbLoadData() {
+  if (!sbHousehold) return;
+  setSyncStatus('syncing', 'Loading from cloud…');
+  const { data, error } = await sbConn
+    .from('household_data')
+    .select('data, updated_at')
+    .eq('household_id', sbHousehold.id)
+    .single();
+  if (error) { setSyncStatus('', 'Cloud load failed'); return; }
+  if (data?.data && Object.keys(data.data).length > 0) {
+    loadDataObj(data.data);
+    localStorage.setItem('myfinance_data', JSON.stringify(data.data));
+    renderOverview(); renderDebt(); renderAssets();
+    setSyncStatus('synced', 'Synced ✓');
+  } else {
+    setSyncStatus('synced', 'Cloud connected');
+  }
+}
+
+async function sbSaveData(data) {
+  if (!sbConn || !sbHousehold || sbSaving) return;
+  sbSaving = true;
+  try {
+    const { error } = await sbConn
+      .from('household_data')
+      .upsert({ household_id: sbHousehold.id, data, updated_at: new Date().toISOString() }, { onConflict: 'household_id' });
+    if (error) throw error;
+    setSyncStatus('synced', 'Synced ✓');
+  } catch(e) {
+    setSyncStatus('', 'Cloud save failed');
+    console.error('Supabase save:', e);
+  } finally { sbSaving = false; }
+}
+
+async function sbAuthAction(mode) {
+  const email = (document.getElementById('sb-email')?.value || '').trim();
+  const pass  = document.getElementById('sb-password')?.value || '';
+  const errEl = document.getElementById('sb-auth-error');
+  if (!email || !pass) { if (errEl) { errEl.textContent = 'Enter email and password'; errEl.style.display = 'block'; } return; }
+  try {
+    if (errEl) errEl.style.display = 'none';
+    if (mode === 'signin') {
+      const { error } = await sbConn.auth.signInWithPassword({ email, password: pass });
+      if (error) throw error;
+    } else {
+      const { error } = await sbConn.auth.signUp({ email, password: pass });
+      if (error) throw error;
+      alert('Account created! Check your email to confirm your address, then sign in.');
+    }
+  } catch(e) { if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; } }
+}
+
+async function sbSignOut() {
+  await sbConn.auth.signOut();
+  sbUser = null; sbHousehold = null;
+  renderAccountSection();
+  setSyncStatus('', '');
+}
+
+async function sbGenerateInvite() {
+  if (!sbHousehold) return;
+  const { data: inv, error } = await sbConn
+    .from('invites')
+    .insert({ household_id: sbHousehold.id, created_by: sbUser.id })
+    .select()
+    .single();
+  if (error || !inv) { alert('Could not create invite link.'); return; }
+  const link = `${location.origin}${location.pathname}?invite=${inv.token}`;
+  await navigator.clipboard.writeText(link).catch(() => {});
+  alert(`Invite link copied to clipboard!\n\n${link}\n\nShare this link with your household member. It expires in 7 days.`);
+}
+
+function renderAccountSection() {
+  const el = document.getElementById('account-content');
+  if (!el) return;
+  if (!sbConn) { el.innerHTML = '<div style="font-size:13px;color:var(--text3)">Unavailable</div>'; return; }
+  if (!sbUser) {
+    el.innerHTML = `
+      <input type="email" id="sb-email" placeholder="Email address" autocomplete="email" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
+      <input type="password" id="sb-password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:12px">
+      <div id="sb-auth-error" style="color:var(--red,#ff5f57);font-size:12px;margin-bottom:8px;display:none"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="sbAuthAction('signin')">Sign in</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="sbAuthAction('signup')">Create account</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">Sync across devices · Share with family</div>`;
+  } else {
+    el.innerHTML = `
+      <div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border)">
+          <span style="color:var(--text3)">Email</span><span>${sbUser.email}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border)">
+          <span style="color:var(--text3)">Household</span><span>${sbHousehold?.name || '—'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0">
+          <span style="color:var(--text3)">Plan</span>
+          <span style="background:var(--teal,#14b8a6);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase">${sbHousehold?.plan || 'free'}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbGenerateInvite()">Invite family member</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:8px 12px;white-space:nowrap" onclick="sbSignOut()">Sign out</button>
+      </div>`;
+  }
+}
+
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('loading').style.display='none';
+  initSupabase();
   const hadDrive = localStorage.getItem('myfinance_drive');
   const hasLocal = !!localStorage.getItem('myfinance_data');
 
