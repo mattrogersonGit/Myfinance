@@ -280,6 +280,15 @@
     .rules-search { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; padding: 9px 12px; outline: none; margin-bottom: 10px; }
     .rules-search:focus { border-color: var(--teal); }
     .rules-scroll { max-height: 280px; overflow-y: auto; }
+    .s-row { display:flex; align-items:center; gap:12px; padding:14px 0; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent; }
+    .s-row:active { opacity:0.7; }
+    .s-icon { font-size:18px; width:24px; text-align:center; flex-shrink:0; }
+    .s-label { flex:1; font-size:15px; font-weight:500; }
+    .s-meta { font-size:12px; color:var(--text3); max-width:130px; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .s-chev { color:var(--text3); font-size:20px; font-weight:300; flex-shrink:0; transition:transform 0.2s; }
+    .s-chev.open { transform:rotate(90deg); }
+    .s-body { display:none; padding-bottom:16px; border-top:0.5px solid var(--border); padding-top:12px; }
+    .s-body.open { display:block; }
 
     @media (min-width: 600px) {
       .metrics { grid-template-columns: repeat(4, 1fr); }
@@ -300,13 +309,13 @@
 <div id="auth-screen" style="display:none">
   <div class="auth-logo">💰</div>
   <div class="auth-title">My<span>Finance</span></div>
-  <div class="auth-sub">Your personal NZ finance tracker.<br>Data saved privately to your Google Drive.</div>
+  <div class="auth-sub">Your personal NZ finance tracker.<br>Data saved privately to your device or cloud.</div>
   <ul class="auth-features">
     <li><span>📊</span><span>Import Westpac CSV transactions</span></li>
     <li><span>🏷️</span><span>Auto-categorise & P&L tracking</span></li>
     <li><span>🏠</span><span>Mortgage & net worth dashboard</span></li>
     <li><span>📈</span><span>Investment portfolio tracker</span></li>
-    <li><span>☁️</span><span>Synced to Google Drive — your data only</span></li>
+    <li><span>☁️</span><span>Cloud sync — share with your household</span></li>
   </ul>
   <button class="google-btn" onclick="signIn()">
     <svg class="google-logo" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -480,84 +489,112 @@
       <div class="section-header"><div class="section-title">Import & Settings</div></div>
       <div id="pending-banner"></div>
 
-      <div class="card">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          Import Westpac CSV
-          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openManualTxn()">+ Manual entry</button>
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-import')">
+          <span class="s-icon">📥</span><span class="s-label">Import CSV</span><span class="s-chev" id="s-import-chev">›</span>
         </div>
-        <div id="import-zones"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          Accounts
-          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="addAccount()">+ Add</button>
-        </div>
-        <div style="display:flex;gap:6px;font-size:11px;color:var(--text3);padding-bottom:6px;border-bottom:0.5px solid var(--border)">
-          <span style="width:36px">Icon</span><span style="flex:1">Name</span><span style="width:34px"></span>
-        </div>
-        <div id="accounts-list"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          Export
-          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="exportCSV()">⬇ Export to CSV</button>
-        </div>
-        <div style="font-size:12px;color:var(--text3)">All transactions exported as CSV — opens in Excel. Columns: Date, Month, Description, Category, Fixed/Variable, Account, Amount, Type.</div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Categories &amp; Budgets</div>
-        <div style="display:flex;gap:6px;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
-          <span style="width:44px">Emoji</span>
-          <span style="flex:1">Name</span>
-          <span style="width:72px;text-align:right">$/month</span>
-          <span style="width:32px"></span>
-        </div>
-        <div id="cat-mgmt-list"></div>
-        <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addCategory()">+ Add category</button>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Auto-categorisation rules</div>
-        <input type="text" class="rules-search" id="rules-search" placeholder="Filter rules…" oninput="renderRules()">
-        <div class="rules-scroll" id="rules-list"></div>
-        <hr class="divider">
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input type="text" id="rule-kw" placeholder="Keyword (e.g. Countdown)" style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none">
-          <select id="rule-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none"></select>
-          <button class="btn btn-primary" onclick="addRule()" style="padding:10px 14px">Add</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Account</div>
-        <div id="account-content"><div style="font-size:13px;color:var(--text3)">Loading…</div></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Google Drive sync</div>
-        <div id="drive-status" style="font-size:14px;color:var(--text2);margin-bottom:12px">Not connected</div>
-        <button class="btn btn-secondary btn-block" id="drive-btn" onclick="toggleDrive()">Connect Google Drive</button>
-        <div id="drive-manual-btns" style="display:none;margin-top:10px;display:none">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-            <button class="btn btn-secondary" onclick="forcePushToDrive()" title="Upload this device's data to Drive, overwriting what's there">⬆ Push to Drive</button>
-            <button class="btn btn-secondary" onclick="forcePullFromDrive()" title="Download from Drive, overwriting this device's data">⬇ Pull from Drive</button>
+        <div id="s-import" class="s-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em">Westpac CSV</span>
+            <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openManualTxn()">+ Manual entry</button>
           </div>
-          <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Use Push on the device with the correct data, then Pull on the other device.</div>
+          <div id="import-zones"></div>
         </div>
-        <div id="data-summary" style="margin-top:12px;font-size:12px;color:var(--text3);line-height:1.8"></div>
       </div>
 
-      <div class="card" id="storage-card">
-        <div class="card-title">Storage usage</div>
-        <div id="storage-summary"></div>
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-accounts')">
+          <span class="s-icon">🏦</span><span class="s-label">Accounts</span><span class="s-meta" id="s-accounts-meta"></span><span class="s-chev" id="s-accounts-chev">›</span>
+        </div>
+        <div id="s-accounts" class="s-body">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+            <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="addAccount()">+ Add</button>
+          </div>
+          <div style="display:flex;gap:6px;font-size:11px;color:var(--text3);padding-bottom:6px;border-bottom:0.5px solid var(--border)">
+            <span style="width:36px">Icon</span><span style="flex:1">Name</span><span style="width:34px"></span>
+          </div>
+          <div id="accounts-list"></div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="card-title">Data</div>
-        <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-cats')">
+          <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
+        </div>
+        <div id="s-cats" class="s-body">
+          <div style="display:flex;gap:6px;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+            <span style="width:44px">Emoji</span><span style="flex:1">Name</span><span style="width:72px;text-align:right">$/month</span><span style="width:32px"></span>
+          </div>
+          <div id="cat-mgmt-list"></div>
+          <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addCategory()">+ Add category</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-rules')">
+          <span class="s-icon">📋</span><span class="s-label">Auto-categorisation rules</span><span class="s-chev" id="s-rules-chev">›</span>
+        </div>
+        <div id="s-rules" class="s-body">
+          <input type="text" class="rules-search" id="rules-search" placeholder="Filter rules…" oninput="renderRules()">
+          <div class="rules-scroll" id="rules-list"></div>
+          <hr class="divider">
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <input type="text" id="rule-kw" placeholder="Keyword (e.g. Countdown)" style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none">
+            <select id="rule-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none"></select>
+            <button class="btn btn-primary" onclick="addRule()" style="padding:10px 14px">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="exportCSV()">
+          <span class="s-icon">📤</span><span class="s-label">Export to CSV</span><span class="s-meta">Excel</span><span class="s-chev" style="opacity:0.4">↓</span>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-account')">
+          <span class="s-icon">👤</span><span class="s-label">Account</span><span class="s-meta" id="s-account-meta">Not signed in</span><span class="s-chev" id="s-account-chev">›</span>
+        </div>
+        <div id="s-account" class="s-body">
+          <div id="account-content"><div style="font-size:13px;color:var(--text3)">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-drive')">
+          <span class="s-icon">🔗</span><span class="s-label">Google Drive sync</span><span class="s-meta" id="s-drive-meta">Not connected</span><span class="s-chev" id="s-drive-chev">›</span>
+        </div>
+        <div id="s-drive" class="s-body">
+          <div id="drive-status" style="font-size:14px;color:var(--text2);margin-bottom:12px">Not connected</div>
+          <button class="btn btn-secondary btn-block" id="drive-btn" onclick="toggleDrive()">Connect Google Drive</button>
+          <div id="drive-manual-btns" style="display:none;margin-top:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+              <button class="btn btn-secondary" onclick="forcePushToDrive()">⬆ Push to Drive</button>
+              <button class="btn btn-secondary" onclick="forcePullFromDrive()">⬇ Pull from Drive</button>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Use Push on the device with the correct data, then Pull on the other device.</div>
+          </div>
+          <div id="data-summary" style="margin-top:12px;font-size:12px;color:var(--text3);line-height:1.8"></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px" id="storage-card">
+        <div class="s-row" onclick="toggleSettings('s-storage')">
+          <span class="s-icon">💾</span><span class="s-label">Storage usage</span><span class="s-meta" id="s-storage-meta"></span><span class="s-chev" id="s-storage-chev">›</span>
+        </div>
+        <div id="s-storage" class="s-body">
+          <div id="storage-summary"></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-data')">
+          <span class="s-icon">🗑️</span><span class="s-label">Data</span><span class="s-chev" id="s-data-chev">›</span>
+        </div>
+        <div id="s-data" class="s-body">
+          <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2112,6 +2149,8 @@ function updateDriveUI() {
     : 'Not connected';
   document.getElementById('drive-btn').textContent = driveConnected ? 'Disconnect Google Drive' : 'Connect Google Drive';
   document.getElementById('drive-manual-btns').style.display = driveConnected ? 'block' : 'none';
+  const driveMeta = document.getElementById('s-drive-meta');
+  if (driveMeta) driveMeta.textContent = driveConnected ? 'Connected' : 'Not connected';
   renderDataSummary();
 }
 function renderDataSummary() {
@@ -2344,6 +2383,23 @@ async function sbSignOut() {
   setSyncStatus('', '');
 }
 
+function toggleSettings(id) {
+  const body = document.getElementById(id);
+  if (!body) return;
+  const isOpen = body.classList.contains('open');
+  document.querySelectorAll('.s-body.open').forEach(el => {
+    el.classList.remove('open');
+    const chev = document.getElementById(el.id + '-chev');
+    if (chev) chev.classList.remove('open');
+  });
+  if (!isOpen) {
+    body.classList.add('open');
+    const chev = document.getElementById(id + '-chev');
+    if (chev) chev.classList.add('open');
+    if (id === 's-storage') renderStorageSummary();
+  }
+}
+
 async function sbRenameHousehold() {
   const name = prompt('Household name:', sbHousehold?.name || 'My Finances');
   if (!name || !name.trim() || name.trim() === sbHousehold?.name) return;
@@ -2369,7 +2425,13 @@ async function sbGenerateInvite() {
 function renderAccountSection() {
   const el = document.getElementById('account-content');
   if (!el) return;
-  if (!sbConn) { el.innerHTML = '<div style="font-size:13px;color:var(--text3)">Unavailable</div>'; return; }
+  const meta = document.getElementById('s-account-meta');
+  if (!sbConn) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text3)">Unavailable</div>';
+    if (meta) meta.textContent = 'Unavailable';
+    return;
+  }
+  if (meta) meta.textContent = sbUser ? (sbUser.email.split('@')[0]) : 'Not signed in';
   if (!sbUser) {
     el.innerHTML = `
       <input type="email" id="sb-email" placeholder="Email address" autocomplete="email" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
@@ -2409,6 +2471,7 @@ window.addEventListener('load', () => {
   const hadDrive = localStorage.getItem('myfinance_drive');
   const hasLocal = !!localStorage.getItem('myfinance_data');
 
+  const hasInvite = !!new URLSearchParams(window.location.search).get('invite');
   if (hadDrive && GDRIVE_CLIENT_ID !== 'YOUR_GOOGLE_CLIENT_ID') {
     // Load local data immediately so app is usable, then reconnect Drive in background
     showApp();
@@ -2417,6 +2480,10 @@ window.addEventListener('load', () => {
     reconnectDrive();
   } else if (hasLocal) {
     skipAuth();
+  } else if (hasInvite) {
+    // Invited user — go straight to app, Account card handles signup
+    skipAuth();
+    setTimeout(() => navTo('settings', document.querySelector('.nav-item:last-child')), 300);
   } else {
     document.getElementById('auth-screen').style.display='flex';
   }
