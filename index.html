@@ -265,13 +265,13 @@
     .bva-variance { font-size: 11px; font-weight: 600; width: 58px; text-align: right; flex-shrink: 0; }
 
     /* Category management */
-    .cat-mgmt-row { display: flex; align-items: center; gap: 6px; padding: 7px 0; border-bottom: 0.5px solid var(--border); }
+    .cat-mgmt-row { display: grid; grid-template-columns: 36px 1fr 62px 28px 28px; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 0.5px solid var(--border); }
     .cat-mgmt-row:last-child { border-bottom: none; }
-    .cat-emoji-input { width: 34px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 16px; text-align: center; padding: 5px 2px; outline: none; flex-shrink: 0; }
-    .cat-name-input { flex: 1; min-width: 0; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 8px; outline: none; }
+    .cat-emoji-input { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 16px; text-align: center; padding: 5px 2px; outline: none; }
+    .cat-name-input { width: 100%; min-width: 0; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 8px; outline: none; }
     .cat-name-input:focus, .cat-emoji-input:focus { border-color: var(--teal); }
-    .cat-budget-input { width: 58px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 6px; outline: none; text-align: right; flex-shrink: 0; }
-    .cat-fixed-btn { font-size: 10px; width: 24px; text-align: center; padding: 5px 0; border-radius: 4px; border: 0.5px solid var(--border2); cursor: pointer; flex-shrink: 0; }
+    .cat-budget-input { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 6px; outline: none; text-align: right; }
+    .cat-fixed-btn { width: 100%; font-size: 10px; text-align: center; padding: 5px 0; border-radius: 4px; border: 0.5px solid var(--border2); cursor: pointer; }
     .cat-fixed-btn.is-fixed { background: var(--teal); color: #fff; border-color: var(--teal); }
     .cat-fixed-btn.is-variable { background: var(--bg3); color: var(--text3); }
     .rules-search { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; padding: 9px 12px; outline: none; margin-bottom: 10px; }
@@ -573,8 +573,8 @@
               <button onclick="nextBudgetYear()" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&#8250;</button>
             </div>
           </div>
-          <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
-            <span style="width:34px"></span><span style="flex:1;min-width:0">Name</span><span style="width:58px;text-align:right">$/mo</span><span style="width:24px"></span><span style="width:24px"></span>
+          <div style="display:grid;grid-template-columns:36px 1fr 62px 28px 28px;gap:6px;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+            <span></span><span>Name</span><span style="text-align:right">$/mo</span><span></span><span></span>
           </div>
           <div id="cat-mgmt-list"></div>
           <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addCategory()">+ Add category</button>
@@ -873,9 +873,13 @@ function monthLabel() {
 // ─── Budget helpers ────────────────────────────────────────────────────────────
 function getBudgetsForYear(year) {
   const y = Number(year);
+  // Handle old flat format that wasn't migrated
+  const firstVal = Object.values(budgets)[0];
+  if (firstVal !== undefined && typeof firstVal !== 'object') return budgets;
+  // Normal year-keyed lookup
   if (budgets[y] && Object.keys(budgets[y]).length) return budgets[y];
-  const prev = Object.keys(budgets).map(Number).filter(k => k < y).sort((a,b)=>b-a);
-  return prev.length ? budgets[prev[0]] : {};
+  const prev = Object.keys(budgets).map(Number).filter(k => !isNaN(k) && k < y).sort((a,b)=>b-a);
+  return prev.length ? (budgets[prev[0]] || {}) : {};
 }
 function prevBudgetYear() { budgetYear--; renderCategories(); }
 function nextBudgetYear() { budgetYear++; renderCategories(); }
@@ -2094,7 +2098,7 @@ function renderCategories() {
       <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
       <input class="cat-budget-input" type="number" min="0" step="1" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" ${!hasOwnBudget&&yb[c.name]?'style="color:var(--text3)"':''}>
       <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'F':'V'}</button>
-      <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:24px;flex-shrink:0" onclick="deleteCategory(${i})">✕</button>
+      <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:100%" onclick="deleteCategory(${i})">✕</button>
     </div>`).join('');
 }
 function updateCatEmoji(i, val) {
