@@ -265,13 +265,13 @@
     .bva-variance { font-size: 11px; font-weight: 600; width: 58px; text-align: right; flex-shrink: 0; }
 
     /* Category management */
-    .cat-mgmt-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+    .cat-mgmt-row { display: flex; align-items: center; gap: 6px; padding: 7px 0; border-bottom: 0.5px solid var(--border); }
     .cat-mgmt-row:last-child { border-bottom: none; }
-    .cat-emoji-input { width: 44px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 18px; text-align: center; padding: 6px 4px; outline: none; }
-    .cat-name-input { flex: 1; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 10px; outline: none; }
+    .cat-emoji-input { width: 34px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 16px; text-align: center; padding: 5px 2px; outline: none; flex-shrink: 0; }
+    .cat-name-input { flex: 1; min-width: 0; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 8px; outline: none; }
     .cat-name-input:focus, .cat-emoji-input:focus { border-color: var(--teal); }
-    .cat-budget-input { width: 62px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 6px; outline: none; text-align: right; }
-    .cat-fixed-btn { font-size: 10px; width: 40px; text-align: center; padding: 4px 0; border-radius: 4px; border: 0.5px solid var(--border2); cursor: pointer; flex-shrink: 0; }
+    .cat-budget-input { width: 58px; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 6px; outline: none; text-align: right; flex-shrink: 0; }
+    .cat-fixed-btn { font-size: 10px; width: 24px; text-align: center; padding: 5px 0; border-radius: 4px; border: 0.5px solid var(--border2); cursor: pointer; flex-shrink: 0; }
     .cat-fixed-btn.is-fixed { background: var(--teal); color: #fff; border-color: var(--teal); }
     .cat-fixed-btn.is-variable { background: var(--bg3); color: var(--text3); }
     .rules-search { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; padding: 9px 12px; outline: none; margin-bottom: 10px; }
@@ -565,8 +565,16 @@
           <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
         </div>
         <div id="s-cats" class="s-body">
-          <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
-            <span style="width:44px;text-align:center">Emoji</span><span style="flex:1;min-width:0">Name</span><span style="width:62px;text-align:right">$/month</span><span style="width:40px;text-align:center">Type</span><span style="width:28px"></span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:12px;color:var(--text3)">Budget year</span>
+            <div style="display:flex;align-items:center;gap:12px">
+              <button onclick="prevBudgetYear()" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&#8249;</button>
+              <span id="cat-budget-year-label" style="font-size:15px;font-weight:600;min-width:40px;text-align:center"></span>
+              <button onclick="nextBudgetYear()" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&#8250;</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+            <span style="width:34px"></span><span style="flex:1;min-width:0">Name</span><span style="width:58px;text-align:right">$/mo</span><span style="width:24px"></span><span style="width:24px"></span>
           </div>
           <div id="cat-mgmt-list"></div>
           <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addCategory()">+ Add category</button>
@@ -737,7 +745,8 @@ const INCOME_CATS = new Set(['Pay']);
 // ─── State ───────────────────────────────────────────────────────────────────
 let selMonth = new Date().getMonth();
 let selYear  = new Date().getFullYear();
-let budgets  = {};
+let budgets    = {};
+let budgetYear = new Date().getFullYear();
 let transactions = [];
 let rules = [
   {kw:'salary',cat:'Pay'},{kw:'payroll',cat:'Pay'},{kw:'wages',cat:'Pay'},
@@ -860,6 +869,16 @@ function getFilteredTxns(period) {
 function monthLabel() {
   return new Date(selYear, selMonth, 1).toLocaleString('default', {month:'long', year:'numeric'});
 }
+
+// ─── Budget helpers ────────────────────────────────────────────────────────────
+function getBudgetsForYear(year) {
+  const y = Number(year);
+  if (budgets[y] && Object.keys(budgets[y]).length) return budgets[y];
+  const prev = Object.keys(budgets).map(Number).filter(k => k < y).sort((a,b)=>b-a);
+  return prev.length ? budgets[prev[0]] : {};
+}
+function prevBudgetYear() { budgetYear--; renderCategories(); }
+function nextBudgetYear() { budgetYear++; renderCategories(); }
 function prevMonth() {
   selMonth--; if (selMonth<0) { selMonth=11; selYear--; }
   rerenderPage();
@@ -956,8 +975,9 @@ function renderBudgetVsActual(txns) {
   txns.filter(t=>t.amount<0).forEach(t=>{ actuals[t.cat]=(actuals[t.cat]||0)+Math.abs(t.amount); });
 
   // Collect all categories that have a budget or actual spend, filtered by fixed/variable
+  const yearBudgets = getBudgetsForYear(selYear);
   const catFixedMap = Object.fromEntries(CATS.map(c=>[c.name, c.fixed===true]));
-  let allCats = new Set([...Object.keys(budgets), ...Object.keys(actuals)]);
+  let allCats = new Set([...Object.keys(yearBudgets), ...Object.keys(actuals)]);
   allCats.delete('Pay');
   if (bvaFilter==='fixed')    allCats = new Set([...allCats].filter(c=>catFixedMap[c]===true));
   if (bvaFilter==='variable') allCats = new Set([...allCats].filter(c=>catFixedMap[c]!==true));
@@ -966,7 +986,7 @@ function renderBudgetVsActual(txns) {
 
   const rows = [...allCats].map(cat => {
     const actual = actuals[cat] || 0;
-    const budget = budgets[cat] || 0;
+    const budget = yearBudgets[cat] || 0;
     const variance = budget > 0 ? budget - actual : 0; // positive = under, negative = over
     return {cat, actual, budget, variance};
   });
@@ -1246,7 +1266,8 @@ function renderPNL() {
   let totalExp = expCats.reduce((s,r)=>s+r.exp, 0);
   const net = income - totalExp;
 
-  const showBudget = Object.keys(budgets).length > 0;
+  const pnlYearBudgets = getBudgetsForYear(pnlPeriod==='month' ? selYear : pnlYear);
+  const showBudget = Object.keys(pnlYearBudgets).length > 0;
   const mult = getBudgetMultiplier(period);
   const periodLabel = {selmonth:'Monthly',ytd:'YTD',year:'Annual',all:'All-time'}[period] || 'Monthly';
 
@@ -1254,7 +1275,7 @@ function renderPNL() {
   const headerVar = showBudget ? `<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:56px;text-align:right">Variance</div>` : '';
 
   const rows = expCats.map(({cat,exp}) => {
-    const bgt = showBudget ? (budgets[cat]||0) * mult : 0;
+    const bgt = showBudget ? (pnlYearBudgets[cat]||0) * mult : 0;
     const variance = bgt>0 ? bgt-exp : null;
     const varHtml = showBudget
       ? `<div class="pnl-amount" style="min-width:56px;text-align:right;font-size:13px">${bgt>0?(variance>=0?`<span class="pos">-${fmtM(variance)}</span>`:`<span class="neg">+${fmtM(Math.abs(variance))}</span>`):'<span style="color:var(--text3)">—</span>'}</div>`
@@ -2062,14 +2083,18 @@ function exportCSV() {
 // ─── Categories management ────────────────────────────────────────────────────
 function renderCategories() {
   const el = document.getElementById('cat-mgmt-list');
+  const yrEl = document.getElementById('cat-budget-year-label');
+  if (yrEl) yrEl.textContent = budgetYear;
   if (!el) return;
+  const yb = getBudgetsForYear(budgetYear);
+  const hasOwnBudget = !!budgets[budgetYear];
   el.innerHTML = CATS.map((c,i) => `
     <div class="cat-mgmt-row">
       <input class="cat-emoji-input" value="${c.emoji}" maxlength="2" onchange="updateCatEmoji(${i},this.value)">
       <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
-      <input class="cat-budget-input" type="number" min="0" placeholder="0" value="${budgets[c.name]||''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)">
-      <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'Fixed':'Var'}</button>
-      <button class="btn btn-danger" style="padding:4px 0;font-size:12px;width:28px;flex-shrink:0" onclick="deleteCategory(${i})">✕</button>
+      <input class="cat-budget-input" type="number" min="0" step="1" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" ${!hasOwnBudget&&yb[c.name]?'style="color:var(--text3)"':''}>
+      <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'F':'V'}</button>
+      <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:24px;flex-shrink:0" onclick="deleteCategory(${i})">✕</button>
     </div>`).join('');
 }
 function updateCatEmoji(i, val) {
@@ -2080,16 +2105,17 @@ function updateCatName(i, val) {
   const oldName = CATS[i].name;
   const newName = val.trim();
   if (!newName || newName===oldName) return;
-  if (budgets[oldName] !== undefined) { budgets[newName]=budgets[oldName]; delete budgets[oldName]; }
+  Object.keys(budgets).forEach(yr => { if (budgets[yr][oldName]!==undefined) { budgets[yr][newName]=budgets[yr][oldName]; delete budgets[yr][oldName]; } });
   transactions.forEach(t=>{ if(t.cat===oldName) t.cat=newName; });
   rules.forEach(r=>{ if(r.cat===oldName) r.cat=newName; });
   CATS[i].name = newName;
   renderCategories(); scheduleSave();
 }
 function updateCatBudget(catName, val) {
+  if (!budgets[budgetYear]) budgets[budgetYear] = {};
   const v = parseFloat(val);
-  if (isNaN(v) || v<=0) { delete budgets[catName]; }
-  else { budgets[catName] = Math.round(v*100)/100; }
+  if (isNaN(v) || v<=0) { delete budgets[budgetYear][catName]; }
+  else { budgets[budgetYear][catName] = Math.round(v); }
   scheduleSave();
 }
 function updateCatFixed(i, val) {
@@ -2100,7 +2126,7 @@ function deleteCategory(i) {
   const name = CATS[i].name;
   if (!confirm(`Delete category "${name}"? Transactions will be set to Other.`)) return;
   transactions.forEach(t=>{ if(t.cat===name) t.cat='Other'; });
-  delete budgets[name];
+  Object.keys(budgets).forEach(yr => { delete budgets[yr][name]; });
   CATS.splice(i,1);
   renderCategories(); scheduleSave();
 }
@@ -2352,7 +2378,15 @@ function loadDataObj(obj) {
   transactions = (obj.transactions||[]).map(t=>({...t,date:new Date(t.date)}));
   rules        = obj.rules       || rules;
   investments  = (obj.investments||investments).map(inv=>({history:[],...inv}));
-  budgets      = obj.budgets     || budgets;
+  if (obj.budgets) {
+    const b = obj.budgets;
+    const firstVal = Object.values(b)[0];
+    if (firstVal !== undefined && typeof firstVal === 'number') {
+      budgets = { [new Date().getFullYear()]: b };
+    } else {
+      budgets = b;
+    }
+  }
   if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.forEach(c=>{ if(c.fixed===undefined) c.fixed=false; }); CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
   // New mortgages format
   if (obj.mortgages) mortgages = obj.mortgages;
