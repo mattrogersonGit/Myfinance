@@ -2096,7 +2096,7 @@ function renderCategories() {
     <div class="cat-mgmt-row">
       <input class="cat-emoji-input" value="${c.emoji}" maxlength="2" onchange="updateCatEmoji(${i},this.value)">
       <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
-      <input class="cat-budget-input" type="number" min="0" step="1" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" ${!hasOwnBudget&&yb[c.name]?'style="color:var(--text3)"':''}>
+      <input class="cat-budget-input" type="number" min="0" step="1" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" style="text-align:right${!hasOwnBudget&&yb[c.name]?';color:var(--text3)':''}">
       <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'F':'V'}</button>
       <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:100%" onclick="deleteCategory(${i})">✕</button>
     </div>`).join('');
