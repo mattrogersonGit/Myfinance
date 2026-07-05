@@ -265,8 +265,12 @@
     .bva-variance { font-size: 11px; font-weight: 600; width: 58px; text-align: right; flex-shrink: 0; }
 
     /* Category management */
-    .cat-mgmt-row { display: grid; grid-template-columns: 36px 1fr 62px 28px 28px; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 0.5px solid var(--border); }
-    .cat-mgmt-row:last-child { border-bottom: none; }
+    .cat-row-wrap { border-bottom: 0.5px solid var(--border); }
+    .cat-row-wrap:last-child { border-bottom: none; }
+    .cat-mgmt-row { display: grid; grid-template-columns: 36px 1fr 62px 36px 28px; gap: 6px; align-items: center; padding: 7px 0; }
+    .cat-spend-drop { background: var(--bg2); border-radius: 6px; padding: 6px 10px; margin: 0 0 6px; font-size: 12px; border: 0.5px solid var(--border2); }
+    .cat-spend-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; gap: 8px; color: var(--text2); }
+    .cat-spend-row:not(:last-child) { border-bottom: 0.5px solid var(--border); }
     .cat-emoji-input { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 16px; text-align: center; padding: 5px 2px; outline: none; }
     .cat-name-input { width: 100%; min-width: 0; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); font-size: 13px; padding: 7px 8px; outline: none; }
     .cat-name-input:focus, .cat-emoji-input:focus { border-color: var(--teal); }
@@ -573,7 +577,7 @@
               <button onclick="nextBudgetYear()" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&#8250;</button>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:36px 1fr 62px 28px 28px;gap:6px;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+          <div style="display:grid;grid-template-columns:36px 1fr 62px 36px 28px;gap:6px;font-size:11px;color:var(--text3);padding-bottom:8px;border-bottom:0.5px solid var(--border)">
             <span></span><span>Name</span><span style="text-align:right">$/mo</span><span></span><span></span>
           </div>
           <div id="cat-mgmt-list"></div>
@@ -747,6 +751,7 @@ let selMonth = new Date().getMonth();
 let selYear  = new Date().getFullYear();
 let budgets    = {};
 let budgetYear = new Date().getFullYear();
+let spendOpenCat = null;
 let transactions = [];
 let rules = [
   {kw:'salary',cat:'Pay'},{kw:'payroll',cat:'Pay'},{kw:'wages',cat:'Pay'},
@@ -2085,6 +2090,24 @@ function exportCSV() {
 }
 
 // ─── Categories management ────────────────────────────────────────────────────
+function calcAvgSpend(catName, months) {
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear(), now.getMonth() - months, 1);
+  const end    = new Date(now.getFullYear(), now.getMonth(), 1);
+  const total  = transactions
+    .filter(t => t.cat === catName && t.amount < 0 && t.date >= cutoff && t.date < end)
+    .reduce((s, t) => s + Math.abs(t.amount), 0);
+  return Math.round(total / months);
+}
+function toggleSpendDrop(catName) {
+  spendOpenCat = spendOpenCat === catName ? null : catName;
+  renderCategories();
+}
+function useSpendAvg(catName, val) {
+  updateCatBudget(catName, val);
+  spendOpenCat = null;
+  renderCategories();
+}
 function renderCategories() {
   const el = document.getElementById('cat-mgmt-list');
   const yrEl = document.getElementById('cat-budget-year-label');
@@ -2092,14 +2115,29 @@ function renderCategories() {
   if (!el) return;
   const yb = getBudgetsForYear(budgetYear);
   const hasOwnBudget = !!budgets[budgetYear];
-  el.innerHTML = CATS.map((c,i) => `
-    <div class="cat-mgmt-row">
-      <input class="cat-emoji-input" value="${c.emoji}" maxlength="2" onchange="updateCatEmoji(${i},this.value)">
-      <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
-      <input class="cat-budget-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" style="${!hasOwnBudget&&yb[c.name]?'color:var(--text3)':''}">
-      <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'F':'V'}</button>
-      <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:100%" onclick="deleteCategory(${i})">✕</button>
-    </div>`).join('');
+  el.innerHTML = CATS.map((c,i) => {
+    const drop = spendOpenCat === c.name ? (() => {
+      const rows = [3, 6, 12].map(m => {
+        const avg = calcAvgSpend(c.name, m);
+        return `<div class="cat-spend-row">
+          <span>${m}-month avg</span>
+          <span style="font-weight:600;color:var(--text)">$${avg.toLocaleString('en-NZ')}/mo</span>
+          <button onclick="useSpendAvg('${c.name}',${avg})" style="background:var(--teal);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">Use</button>
+        </div>`;
+      }).join('');
+      return `<div class="cat-spend-drop">${rows}</div>`;
+    })() : '';
+    return `<div class="cat-row-wrap">
+      <div class="cat-mgmt-row">
+        <input class="cat-emoji-input" value="${c.emoji}" maxlength="2" onclick="toggleSpendDrop('${c.name}')" onchange="updateCatEmoji(${i},this.value)" title="Tap to see spend history" style="cursor:pointer">
+        <input class="cat-name-input" value="${c.name}" onchange="updateCatName(${i},this.value)">
+        <input class="cat-budget-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${yb[c.name]?Math.round(yb[c.name]):''}" onchange="updateCatBudget('${c.name}',this.value)" title="Monthly budget ($)" style="${!hasOwnBudget&&yb[c.name]?'color:var(--text3)':''}">
+        <button class="cat-fixed-btn ${c.fixed?'is-fixed':'is-variable'}" onclick="updateCatFixed(${i},${!c.fixed})">${c.fixed?'Fix':'Var'}</button>
+        <button class="btn btn-danger" style="padding:4px 0;font-size:11px;width:100%" onclick="deleteCategory(${i})">✕</button>
+      </div>
+      ${drop}
+    </div>`;
+  }).join('');
 }
 function updateCatEmoji(i, val) {
   CATS[i].emoji = val.trim()||'📌';
