@@ -373,6 +373,7 @@
         <button onclick="nextMonth()">&#8250;</button>
       </div>
 
+      <div id="ov-hidden-banner"></div>
       <div class="metrics">
         <div class="metric"><div class="metric-label">Income</div><div class="metric-value pos" id="ov-income">$0</div></div>
         <div class="metric"><div class="metric-label">Spending</div><div class="metric-value neu" id="ov-spend">$0</div></div>
@@ -858,9 +859,20 @@ function getLast6Months() {
   for (let i=5;i>=0;i--) { const d=new Date(now.getFullYear(),now.getMonth()-i,1); res.push({month:d.getMonth(),year:d.getFullYear(),label:d.toLocaleString('default',{month:'short'})}); }
   return res;
 }
+function freeCutoff() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - (FREE_HISTORY_MONTHS - 1));
+  d.setDate(1); d.setHours(0,0,0,0);
+  return d;
+}
+function visibleTxns() {
+  if (isPro()) return transactions;
+  const cut = freeCutoff();
+  return transactions.filter(t => t.date >= cut);
+}
 function getFilteredTxns(period) {
   const now = new Date();
-  return transactions.filter(t => {
+  return visibleTxns().filter(t => {
     if (period==='selmonth') return t.date.getMonth()===selMonth&&t.date.getFullYear()===selYear;
     if (period==='month') return t.date.getMonth()===now.getMonth()&&t.date.getFullYear()===now.getFullYear();
     if (period==='ytd') { const cutoff = pnlYear===now.getFullYear() ? now : new Date(pnlYear,11,31); return t.date.getFullYear()===pnlYear && t.date<=cutoff; }
@@ -919,9 +931,32 @@ function navTo(page, el) {
 }
 
 // ─── Overview ────────────────────────────────────────────────────────────────
+function renderHiddenBanner() {
+  const el = document.getElementById('ov-hidden-banner');
+  if (!el) return;
+  if (isPro()) { el.innerHTML = ''; return; }
+  const cut = freeCutoff();
+  const hiddenCount = transactions.filter(t => t.date < cut).length;
+  if (!hiddenCount) { el.innerHTML = ''; return; }
+  const oldest = transactions.filter(t => t.date < cut).reduce((min,t) => t.date < min ? t.date : min, cut);
+  const hiddenMonths = Math.ceil((cut - oldest) / (1000*60*60*24*30.5));
+  const p = stripeParams();
+  el.innerHTML = `<div style="background:var(--bg3);border:0.5px solid var(--teal);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px">
+    <span style="color:var(--text2)">🔒 <strong style="color:var(--text)">${hiddenMonths} month${hiddenMonths!==1?'s':''}</strong> of history hidden</span>
+    <a href="${STRIPE_MONTHLY_URL}${p}" target="_blank" rel="noopener" style="background:var(--teal);color:#fff;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap">Upgrade</a>
+  </div>`;
+}
 function renderOverview() {
   const lbl = document.getElementById('ov-month-label');
   if (lbl) lbl.textContent = monthLabel();
+  renderHiddenBanner();
+
+  if (isMonthLocked(selMonth, selYear)) {
+    ['ov-income','ov-spend','ov-net','ov-rate'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
+    const bva = document.getElementById('bva-list');
+    if (bva) bva.innerHTML = paywallHtml(`Free accounts see the last ${FREE_HISTORY_MONTHS} months. Upgrade to Pro for your full history.`);
+    return;
+  }
 
   const txns = getFilteredTxns('selmonth');
   const income = txns.filter(t=>t.amount>0&&INCOME_CATS.has(t.cat)).reduce((s,t)=>s+t.amount,0);
@@ -1076,7 +1111,7 @@ function renderTransactions() {
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const period = document.getElementById('txn-period')?.value||'selmonth';
   const searchingAll = !!search;
-  let txns = (searchingAll ? transactions : getFilteredTxns(period))
+  let txns = (searchingAll ? visibleTxns() : getFilteredTxns(period))
     .filter(t => !search || t.desc.toLowerCase().includes(search) || t.cat.toLowerCase().includes(search))
     .filter(t => !activeCatFilter || t.cat === activeCatFilter)
     .filter(t => txnAccountFilter==='all' || t.account === txnAccountFilter)
