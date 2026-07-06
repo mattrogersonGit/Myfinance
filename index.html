@@ -633,6 +633,95 @@
         <div id="s-data" class="s-body">
           <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
         </div>
+
+        <div class="s-row" onclick="toggleSettings('s-help')">
+          <span class="s-icon">❓</span><span class="s-label">Help &amp; Guide</span><span class="s-chev" id="s-help-chev">›</span>
+        </div>
+        <div id="s-help" class="s-body">
+
+          <!-- Free vs Pro -->
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">Free vs Pro</div>
+          <div style="border:0.5px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;font-size:12px">
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;background:var(--bg3);padding:7px 12px;font-weight:600;color:var(--text3)">
+              <span>Feature</span><span style="text-align:center">Free</span><span style="text-align:center">Pro</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px;background:var(--bg2)">
+              <span style="color:var(--text2)">Import &amp; categorise</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px">
+              <span style="color:var(--text2)">Budget tracking</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px;background:var(--bg2)">
+              <span style="color:var(--text2)">P&amp;L reports</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px">
+              <span style="color:var(--text2)">6 months history</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px;background:var(--bg2)">
+              <span style="color:var(--text2)">Unlimited history</span>
+              <span style="text-align:center;color:var(--text3);font-weight:600">—</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 60px 60px;padding:7px 12px">
+              <span style="color:var(--text2)">Shared household</span>
+              <span style="text-align:center;color:var(--text3);font-weight:600">—</span>
+              <span style="text-align:center;color:var(--teal);font-weight:600">✓</span>
+            </div>
+            <div id="s-help-upgrade" style="padding:10px 12px;background:var(--bg3);display:flex;align-items:center;justify-content:space-between">
+              <span style="color:var(--text3);font-size:11px">NZD incl. GST · cancel any time</span>
+              <div style="display:flex;gap:6px" id="s-help-upgrade-btns"></div>
+            </div>
+          </div>
+
+          <!-- Tips -->
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">Tips &amp; tricks</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">📥</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Importing transactions</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">Export a CSV from your bank's internet banking and import it here. Duplicates are detected automatically.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">🏷️</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Categorising</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">Tap the category pill on any transaction to change it. A rule is automatically saved so future transactions from the same place are categorised for you.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">📊</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Setting budgets</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">In Categories &amp; Budgets, tap a category's emoji icon to see your average monthly spend over 3, 6 and 12 months. Hit Use to set it as your budget.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">📅</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Browsing past months</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">Use the ‹ › arrows at the top of Overview and Transactions to navigate between months.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">✏️</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Editing transactions</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">Tap a transaction description to rename it. This also lets you clean up messy bank reference text.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">📋</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Auto-rules</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">Rules automatically categorise transactions matching a keyword. You can view, edit or delete them under Auto-categorisation rules in Settings.</div></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--border)">
+              <span style="font-size:20px;flex-shrink:0">💾</span>
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">Your data</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">All data is securely stored in the cloud and private to your account. Sign in on any device to access it.</div></div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   </div>
@@ -2519,6 +2608,17 @@ function showApp() {
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
 }
+function renderHelpUpgradeBtns() {
+  const el = document.getElementById('s-help-upgrade-btns');
+  if (!el) return;
+  if (isPro()) {
+    el.innerHTML = '<span style="color:var(--teal);font-weight:600;font-size:12px">✓ You\'re on Pro</span>';
+    return;
+  }
+  const p = stripeParams();
+  el.innerHTML = `<a href="${STRIPE_MONTHLY_URL}${p}" target="_blank" rel="noopener" style="background:var(--teal);color:#fff;padding:5px 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:700;text-decoration:none">$4.99/mo</a>
+    <a href="${STRIPE_ANNUAL_URL}${p}" target="_blank" rel="noopener" style="background:var(--bg2);color:var(--text);padding:5px 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;text-decoration:none;border:0.5px solid var(--border2)">$39.99/yr</a>`;
+}
 function renderStorageSummary() {
   const el = document.getElementById('storage-summary');
   if (!el) return;
@@ -2814,6 +2914,7 @@ function toggleSettings(id) {
     if (chev) chev.classList.add('open');
     if (id === 's-storage') renderStorageSummary();
     if (id === 's-recurring') renderRecurring();
+    if (id === 's-help') renderHelpUpgradeBtns();
   }
 }
 
