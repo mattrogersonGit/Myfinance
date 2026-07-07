@@ -1,10 +1,10 @@
-const CACHE = 'myfinance-v43';
+const CACHE = 'myfinance-v44';
 const ASSETS = [
-  '/Myfinance/',
-  '/Myfinance/index.html',
-  '/Myfinance/manifest.json',
-  '/Myfinance/icons/icon-192.png',
-  '/Myfinance/icons/icon-512.png',
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
 ];
 
 self.addEventListener('install', e => {

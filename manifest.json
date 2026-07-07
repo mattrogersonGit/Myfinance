@@ -1,8 +1,9 @@
 {
   "name": "MyFinance",
   "short_name": "MyFinance",
-  "description": "Personal NZ finance tracker with Westpac CSV import and Google Drive sync",
-  "start_url": "/Myfinance/",
+  "description": "Personal finance tracker for New Zealand",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
