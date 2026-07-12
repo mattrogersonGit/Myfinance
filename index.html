@@ -91,12 +91,14 @@
     .cat-bar-amt { font-size: 13px; font-weight: 500; color: var(--text); width: 70px; text-align: right; flex-shrink: 0; }
 
     /* P&L rows */
-    .pnl-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 0.5px solid var(--border); }
+    .pnl-row { display: grid; grid-template-columns: 1fr 66px 66px 70px; gap: 4px; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+    .pnl-row.pnl-no-budget { grid-template-columns: 1fr 80px; }
     .pnl-row:last-child { border-bottom: none; }
-    .pnl-label { font-size: 14px; color: var(--text); }
+    .pnl-label { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .pnl-col { font-size: 13px; font-weight: 600; text-align: right; white-space: nowrap; }
     .pnl-sub { font-size: 12px; color: var(--text3); }
-    .pnl-amount { font-size: 14px; font-weight: 600; }
-    .pnl-section-head { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 0 6px; }
+    .pnl-amount { font-size: 14px; font-weight: 600; text-align: right; }
+    .pnl-section-head { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
     .pnl-total-row { display: flex; justify-content: space-between; padding: 14px 0 0; border-top: 0.5px solid var(--border2); margin-top: 4px; }
     .pnl-total-row .pnl-label { font-size: 15px; font-weight: 600; }
     .pnl-total-row .pnl-amount { font-size: 15px; font-weight: 700; }
@@ -935,6 +937,8 @@ function paywallHtml(reason) {
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtM = n => { const abs=Math.abs(n),s=n<0?'-':''; if(abs>=1e6) return s+'$'+(abs/1e6).toFixed(2)+'M'; if(abs>=10000) return s+'$'+Math.round(abs/1000)+'k'; return (n<0?'-':'')+fmt(Math.abs(n)); };
 const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
+const fmtWhole  = n => '$' + Math.round(Math.abs(n)).toLocaleString('en-NZ');
+const fmtWholeSigned = n => (n >= 0 ? '+' : '−') + fmtWhole(n);
 const fmtDec = n => '$' + Math.abs(n).toLocaleString('en-NZ', {minimumFractionDigits:2,maximumFractionDigits:2});
 const catEmoji = name => (CATS.find(c=>c.name===name)||{emoji:'📌'}).emoji;
 const catColor = name => { const i=CATS.findIndex(c=>c.name===name); return i>=0?CAT_COLORS[i]:'#8b90a7'; };
@@ -1404,37 +1408,41 @@ function renderPNL() {
   const mult = getBudgetMultiplier(period);
   const periodLabel = {selmonth:'Monthly',ytd:'YTD',year:'Annual',all:'All-time'}[period] || 'Monthly';
 
-  const headerBgt = showBudget ? `<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:70px;text-align:right">Budget</div>` : '';
-  const headerVar = showBudget ? `<div class="pnl-amount" style="color:var(--text3);font-size:12px;min-width:56px;text-align:right">Variance</div>` : '';
+  const noB = !showBudget;
+  const rowClass = noB ? 'pnl-row pnl-no-budget' : 'pnl-row';
 
   const rows = expCats.map(({cat,exp}) => {
     const bgt = showBudget ? (pnlYearBudgets[cat]||0) * mult : 0;
-    const variance = bgt>0 ? bgt-exp : null;
-    const varHtml = showBudget
-      ? `<div class="pnl-amount" style="min-width:56px;text-align:right;font-size:13px">${bgt>0?(variance>=0?`<span class="pos">-${fmtM(variance)}</span>`:`<span class="neg">+${fmtM(Math.abs(variance))}</span>`):'<span style="color:var(--text3)">—</span>'}</div>`
-      : '';
-    const bgtHtml = showBudget
-      ? `<div class="pnl-amount neg" style="min-width:70px;text-align:right;opacity:0.6">${bgt>0?fmtM(bgt):'—'}</div>`
-      : '';
-    return `<div class="pnl-row" style="cursor:pointer" onclick="jumpToCategory('${cat}')">
+    const variance = bgt > 0 ? bgt - exp : null;
+    const bgtHtml  = showBudget ? `<div class="pnl-col" style="color:var(--text3)">${bgt>0?fmtWhole(bgt):'—'}</div>` : '';
+    const varHtml  = showBudget ? `<div class="pnl-col">${bgt>0?(variance>=0?`<span class="pos">${fmtWhole(variance)}</span>`:`<span class="neg">-${fmtWhole(Math.abs(variance))}</span>`):'<span style="color:var(--text3)">—</span>'}</div>` : '';
+    return `<div class="${rowClass}" style="cursor:pointer" onclick="jumpToCategory('${cat}')">
       <div class="pnl-label">${catEmoji(cat)} ${cat}</div>
       ${bgtHtml}
-      <div class="pnl-amount neg">${fmtM(exp)}</div>
+      <div class="pnl-col neg">${fmtWhole(exp)}</div>
       ${varHtml}
     </div>`;
   }).join('');
 
+  const headBgt = showBudget ? `<div class="pnl-col pnl-section-head">Budget</div>` : '';
+  const headVar = showBudget ? `<div class="pnl-col pnl-section-head">Variance</div>` : '';
+
   document.getElementById('pnl-content').innerHTML = `
-    <div class="pnl-row"><div class="pnl-label" style="font-weight:600">Gross income</div><div class="pnl-amount pos">${fmtM(income)}</div></div>
-    <div class="pnl-section-head" style="display:flex;justify-content:space-between">
+    <div class="pnl-row pnl-no-budget" style="padding-bottom:10px">
+      <div class="pnl-label" style="font-weight:600">Gross income</div>
+      <div class="pnl-amount pos">${fmtWhole(income)}</div>
+    </div>
+    <div class="${rowClass} pnl-section-head" style="padding-top:14px;padding-bottom:6px;border-bottom:0.5px solid var(--border)">
       <span>Expenses</span>
-      <span style="display:flex;gap:12px">${headerBgt}<span style="min-width:70px;text-align:right">Actual</span>${headerVar}</span>
+      ${headBgt}
+      <div class="pnl-col pnl-section-head">Actual</div>
+      ${headVar}
     </div>
     ${rows || '<div class="empty" style="padding:12px 0">No expenses this period</div>'}
-    <div class="pnl-total-row"><div class="pnl-label">Total expenses</div><div class="pnl-amount neg">${fmtM(totalExp)}</div></div>
+    <div class="pnl-total-row"><div class="pnl-label">Total expenses</div><div class="pnl-amount neg">${fmtWhole(totalExp)}</div></div>
     <div class="pnl-total-row" style="margin-top:10px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.15)">
       <div class="pnl-label">Net ${net>=0?'surplus':'deficit'}</div>
-      <div class="pnl-amount ${net>=0?'pos':'neg'}">${fmtSigned(net)}</div>
+      <div class="pnl-amount ${net>=0?'pos':'neg'}">${fmtWhole(net)}</div>
     </div>
   `;
 
