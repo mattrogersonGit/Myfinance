@@ -1,0 +1,33 @@
+{
+  "name": "MyFinance",
+  "short_name": "MyFinance",
+  "description": "Personal finance tracker for New Zealand",
+  "id": "app.getmyfinance",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "productivity"],
+  "screenshots": [
+    { "src": "screenshots/overview.jpg", "sizes": "1079x1990", "type": "image/jpeg", "form_factor": "narrow", "label": "Overview" },
+    { "src": "screenshots/transactions.jpg", "sizes": "1079x1994", "type": "image/jpeg", "form_factor": "narrow", "label": "Transactions" },
+    { "src": "screenshots/pnl.jpg", "sizes": "1079x2013", "type": "image/jpeg", "form_factor": "narrow", "label": "Profit & Loss" },
+    { "src": "screenshots/settings.jpg", "sizes": "1079x2006", "type": "image/jpeg", "form_factor": "narrow", "label": "Settings" }
+  ]
+}
