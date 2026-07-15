@@ -1,0 +1,4 @@
+# Real financial data - never upload to GitHub. Supabase is the data store now.
+myfinance-data.json
+*.csv
+*.xlsm
