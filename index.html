@@ -2755,26 +2755,15 @@ async function sbCreateHousehold() {
 
 async function sbAcceptInvite(token) {
   sessionStorage.removeItem('pendingInvite');
-  // Fetch invite without household join — user isn't a member yet so RLS blocks that join
-  const { data: inv } = await sbConn
-    .from('invites')
-    .select('id, household_id, used_at, expires_at')
-    .eq('token', token)
-    .maybeSingle();
-  if (!inv || inv.used_at || new Date(inv.expires_at) < new Date()) {
-    alert('This invite link has expired or already been used.');
+  // Token validity + membership insert both happen inside accept_household_invite()
+  // in the database, so an invite's token/expiry can never be checked (or bypassed) client-side.
+  const { data, error } = await sbConn.rpc('accept_household_invite', { p_token: token });
+  if (error || !data || !data[0]) {
+    alert(error?.message || 'This invite link has expired or already been used.');
     await sbCreateHousehold();
     return;
   }
-  const { error: memErr } = await sbConn.from('household_members').insert({
-    household_id: inv.household_id, user_id: sbUser.id, role: 'member'
-  });
-  if (memErr) { alert('Could not join household: ' + memErr.message); return; }
-  await sbConn.from('invites').update({ used_at: new Date().toISOString() }).eq('id', inv.id);
-  // Now that user is a member, RLS allows reading the household
-  const { data: hh } = await sbConn
-    .from('households').select('id, name, plan').eq('id', inv.household_id).single();
-  sbHousehold = hh;
+  sbHousehold = data[0];
   renderAccountSection();
   await sbLoadData();
 }

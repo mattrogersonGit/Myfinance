@@ -1,12 +1,12 @@
 # MyFinance — Personal NZ Finance Tracker
 
-A mobile-first PWA for tracking Westpac transactions, P&L, mortgage, net worth and investments. Data syncs privately to your account via Supabase.
+A mobile-first PWA for tracking bank transactions, P&L, mortgage, net worth and investments. Data syncs privately to your account via Supabase.
 
 ---
 
 ## Features
 
-- Import Westpac CSV exports (everyday + credit card)
+- Import bank CSV exports (everyday + credit card)
 - Auto-categorise transactions with keyword rules
 - Monthly P&L statement
 - Cash flow charts (last 6 months)
@@ -23,7 +23,7 @@ A mobile-first PWA for tracking Westpac transactions, P&L, mortgage, net worth a
 1. Open `index.html` in any browser
 2. Tap "Use without an account"
 3. Go to Settings → "Load sample data" to explore
-4. Import your Westpac CSVs when ready
+4. Import your bank CSVs when ready
 
 Data saves to your browser's local storage. Works offline.
 
@@ -39,7 +39,7 @@ Data saves to your browser's local storage. Works offline.
 
 Takes about 5 minutes. Free forever.
 
-**Don't upload:** `myfinance-data.json`, Westpac CSV exports, or the budget `.xlsm` file. These contain real transaction data and aren't used by the app — they're local working files only. See `.gitignore`.
+**Don't upload:** `myfinance-data.json`, bank CSV exports, or the budget `.xlsm` file. These contain real transaction data and aren't used by the app — they're local working files only. See `.gitignore`.
 
 ---
 
@@ -70,14 +70,14 @@ The app will appear on your home screen and open full-screen, just like a native
 
 ---
 
-## Westpac CSV format
+## Bank CSV format
 
-Download from Westpac Online Banking:
+Download from your bank's online banking:
 - Log in → Accounts → select account → "Export transactions" → CSV
 - Do this for your Everyday account and Credit Card separately
 - Import both in the app under Settings → Import
 
-The app expects the standard Westpac CSV format:
+The app expects the standard bank CSV format:
 ```
 Date,Description,Amount
 01/06/2025,Countdown Supermarket,-89.50
