@@ -1498,7 +1498,7 @@ function renderTransactions() {
       <div class="txn-info">
         <div class="txn-name" onclick="editTxnDesc(${t.id})" style="cursor:pointer" title="Tap to edit">${t.desc} <span style="font-size:10px;color:var(--text3)">✏</span></div>
         <div class="txn-meta">
-          <span>${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</span>
+          <span>${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})}</span>
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
           ${otherIncomeStreams.length ? `<span class="cat-pill" onclick="openStreamSheet(${t.id})" style="cursor:pointer">${streamName(t.stream)} ▾</span>` : ''}
         </div>
@@ -2422,7 +2422,7 @@ function renderPendingBanner() {
 }
 function renderPendingList() {
   return pendingTxns.map(t => {
-    const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'});
+    const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
     const acct = accounts.find(a=>a.id===t.account)?.name || t.account;
     const safeDesc = t.desc.replace(/"/g,'&quot;');
     return `<div id="pr-${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
