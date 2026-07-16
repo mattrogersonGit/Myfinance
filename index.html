@@ -1072,6 +1072,10 @@ function categorise(desc, stream) {
   for (const r of rules) if ((r.stream||'personal')===want && d.includes(r.kw.toLowerCase())) return r.cat;
   return 'Other';
 }
+// What a rule keyword actually matches against — the visible description plus
+// any CSV detail (Particulars/Analysis Code) captured at import time, so a rule
+// can key off a loan-part or purpose code even though it isn't shown as the label.
+const txnSearchText = t => (t.desc + (t.detail ? ' ' + t.detail : '')).toLowerCase();
 function getLast6Months() {
   const now = new Date(); const res = [];
   for (let i=5;i>=0;i--) { const d=new Date(now.getFullYear(),now.getMonth()-i,1); res.push({month:d.getMonth(),year:d.getFullYear(),label:d.toLocaleString('default',{month:'short'})}); }
@@ -1502,6 +1506,7 @@ function renderTransactions() {
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
           ${otherIncomeStreams.length ? `<span class="cat-pill" onclick="openStreamSheet(${t.id})" style="cursor:pointer">${streamName(t.stream)} ▾</span>` : ''}
         </div>
+        ${t.detail ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.detail}</div>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="txn-amount ${t.amount>=0?'pos':'neg'}">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
@@ -2371,7 +2376,16 @@ function parseCSV(text, account) {
     const date = parseCSVDate(dateStr);
     if (!date || isNaN(amount) || amount === 0) continue;
     desc = (desc||'Unknown').replace(/\s+/g,' ').trim();
-    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc, stream), stream});
+    // Westpac (and similar) exports carry extra columns beyond the description --
+    // Particulars/Analysis Code often identify *which* loan part or purpose a
+    // generic line like "Interest" belongs to. Not shown as the main label (too
+    // cryptic), but folded into what auto-categorisation rules can match against.
+    const prtCol = col('particulars'), anCol = col('analysis code','analysis');
+    const detail = [prtCol>=0?cols[prtCol]:'', anCol>=0?cols[anCol]:''].map(s=>(s||'').trim()).filter(Boolean).join(' · ');
+    const t = {id:idBase++, date, desc, amount, account, stream};
+    if (detail) t.detail = detail;
+    t.cat = categorise(txnSearchText(t), stream);
+    txns.push(t);
   }
   return txns;
 }
@@ -2428,7 +2442,7 @@ function renderPendingList() {
     return `<div id="pr-${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="flex:1;min-width:0;overflow:hidden">
         <input type="text" value="${safeDesc}" style="font-size:14px;font-weight:500;background:none;border:none;border-bottom:0.5px solid var(--border2);color:var(--text);outline:none;width:100%;padding:0 0 2px 0" oninput="updatePendingDesc(${t.id},this.value)">
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}${t.detail?' · '+t.detail:''}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
         <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
@@ -2453,8 +2467,8 @@ function addRuleFromPending(id) {
   rules.unshift({kw, cat:t.cat, stream});
   // Apply immediately to every other pending/committed transaction in the same
   // stream that matches, so you don't have to leave this review screen to do it.
-  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && p.desc.toLowerCase().includes(kw.toLowerCase())) p.cat = t.cat; });
-  transactions.forEach(tx => { if ((tx.stream||'personal')===stream && tx.desc.toLowerCase().includes(kw.toLowerCase())) tx.cat = t.cat; });
+  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && txnSearchText(p).includes(kw.toLowerCase())) p.cat = t.cat; });
+  transactions.forEach(tx => { if ((tx.stream||'personal')===stream && txnSearchText(tx).includes(kw.toLowerCase())) tx.cat = t.cat; });
   document.getElementById('modal-body').innerHTML = renderPendingList();
   showToast(`Rule added: "${kw}" → ${t.cat}`);
   scheduleSave();
@@ -2771,7 +2785,7 @@ function addRule() {
   if (!kw) return;
   const stream = catMgmtTarget;
   rules.unshift({kw, cat, stream});
-  transactions.forEach(t=>{ if((t.stream||'personal')===stream && t.desc.toLowerCase().includes(kw.toLowerCase())) t.cat=cat; });
+  transactions.forEach(t=>{ if((t.stream||'personal')===stream && txnSearchText(t).includes(kw.toLowerCase())) t.cat=cat; });
   document.getElementById('rule-kw').value='';
   renderRules(); scheduleSave();
 }
