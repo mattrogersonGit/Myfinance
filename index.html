@@ -423,13 +423,14 @@
           </div>
         </div>
         <div class="nw-bar" id="ov-donut-bar"></div>
-        <div class="chart-wrap" style="height:260px;margin:14px 0">
+        <div class="chart-wrap" style="height:220px;max-width:220px;margin:14px auto">
           <canvas id="donutChart" role="img" aria-label="Category breakdown donut chart"></canvas>
           <div id="ov-donut-center" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center;padding:0 20px">
             <div id="ov-donut-total" style="font-size:24px;font-weight:700"></div>
             <div id="ov-donut-count" style="font-size:12px;color:var(--text2);margin-top:2px"></div>
           </div>
         </div>
+        <div id="ov-donut-hover" style="text-align:center;font-size:13px;font-weight:600;min-height:20px;margin-top:2px"></div>
         <div class="nw-legend" id="ov-donut-legend" style="margin-top:8px"></div>
       </div>
 
@@ -1265,44 +1266,17 @@ function setDonutMode(mode, el) {
   el.classList.add('active');
   renderOverviewDonut(getFilteredTxns('selmonth'));
 }
-// Direct labels for only the handful of slices big enough to carry one (leader
-// line out to the label) — smaller slices stay legend-only rather than cluttering
-// the ring with a label on every segment.
-function donutOutsideLabelsPlugin(maxLabels, minShare) {
-  return {
-    id: 'donutOutsideLabels',
-    afterDraw(chart) {
-      const meta = chart.getDatasetMeta(0);
-      const values = chart.data.datasets[0].data;
-      const total = values.reduce((s,v)=>s+v,0);
-      if (!total) return;
-      const ranked = values.map((v,i)=>({i,v})).sort((a,b)=>b.v-a.v).filter(r=>r.v/total>=minShare).slice(0,maxLabels);
-      const ctx = chart.ctx;
-      const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim();
-      ctx.save();
-      ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      ctx.strokeStyle = textColor;
-      ctx.fillStyle = textColor;
-      ctx.lineWidth = 1;
-      ranked.forEach(({i}) => {
-        const arc = meta.data[i];
-        if (!arc) return;
-        const angle = (arc.startAngle + arc.endAngle) / 2;
-        const cx = arc.x, cy = arc.y, outerR = arc.outerRadius;
-        const p1 = { x: cx + Math.cos(angle)*(outerR+4),  y: cy + Math.sin(angle)*(outerR+4) };
-        const p2 = { x: cx + Math.cos(angle)*(outerR+16), y: cy + Math.sin(angle)*(outerR+16) };
-        const isRight = Math.cos(angle) >= 0;
-        const p3 = { x: p2.x + (isRight ? 16 : -16), y: p2.y };
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.stroke();
-        ctx.textAlign = isRight ? 'left' : 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(chart.data.labels[i], p3.x + (isRight?4:-4), p3.y);
-      });
-      ctx.restore();
-    }
-  };
+// Renders the hover tooltip into a fixed spot below the ring instead of the
+// default Chart.js floating tooltip, which tracks the cursor and can sit on
+// top of the segment it's describing.
+function donutExternalTooltip(context) {
+  const el = document.getElementById('ov-donut-hover');
+  if (!el) return;
+  const tooltip = context.tooltip;
+  const dp = tooltip && tooltip.opacity !== 0 && tooltip.dataPoints && tooltip.dataPoints[0];
+  if (!dp) { el.innerHTML = ''; return; }
+  const color = dp.dataset.backgroundColor[dp.dataIndex];
+  el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:${color};display:inline-block;flex-shrink:0"></span>${dp.label}: ${fmt(dp.raw)}</span>`;
 }
 function renderOverviewDonut(txns) {
   const {top, rest, total, count} = getDonutData(txns, ovDonutMode);
@@ -1331,16 +1305,16 @@ function renderOverviewDonut(txns) {
   barEl.innerHTML = labels.map((cat,i) => `<div class="nw-seg" style="width:${(data[i]/total*100).toFixed(2)}%;background:${colors[i]}"></div>`).join('');
 
   if (donutChart) donutChart.destroy();
+  document.getElementById('ov-donut-hover').innerHTML = '';
   donutChart = new Chart(document.getElementById('donutChart'), {
     type:'doughnut',
     data:{labels, datasets:[{data, backgroundColor:colors, borderWidth:0}]},
     options:{
-      responsive:true, maintainAspectRatio:false, cutout:'68%', radius:'55%',
-      plugins:{legend:{display:false}},
+      responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins:{legend:{display:false}, tooltip:{enabled:false, external:donutExternalTooltip}},
       onHover:(evt,elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
       onClick:(evt,elements)=>{ if (elements.length) { const cat = labels[elements[0].index]; if (cat!=='Other') jumpToCategory(cat); } }
-    },
-    plugins:[donutOutsideLabelsPlugin(4, 0.08)]
+    }
   });
 
   legendEl.innerHTML = labels.map((cat,i) => `<div class="nw-legend-item" ${cat!=='Other'?`style="cursor:pointer" onclick="jumpToCategory('${cat}')"`:''}><div class="nw-dot" style="background:${colors[i]}"></div>${cat}: ${fmt(data[i])}</div>`).join('');
