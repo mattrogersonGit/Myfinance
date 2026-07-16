@@ -2435,7 +2435,8 @@ function renderPendingBanner() {
   </div>`;
 }
 function renderPendingList() {
-  return pendingTxns.map(t => {
+  const clearAllRow = pendingTxns.length ? `<div style="text-align:right;margin-bottom:6px"><button onclick="clearAllPending()" style="font-size:12px;color:var(--red);background:none;border:none;cursor:pointer;padding:0">Clear all</button></div>` : '';
+  return clearAllRow + pendingTxns.map(t => {
     const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
     const acct = accounts.find(a=>a.id===t.account)?.name || t.account;
     const safeDesc = t.desc.replace(/"/g,'&quot;');
@@ -2482,6 +2483,14 @@ function openPendingReview() {
   document.getElementById('modal-confirm').style.display = '';
   document.getElementById('modal-confirm').onclick = acceptAllPending;
   document.getElementById('modal').classList.add('open');
+}
+function clearAllPending() {
+  if (!pendingTxns.length) return;
+  if (!confirm(`Remove all ${pendingTxns.length} pending transactions from review? This doesn't affect anything already committed -- use this if you want to re-import the CSV from scratch.`)) return;
+  pendingTxns = [];
+  closeModal();
+  renderPendingBanner();
+  scheduleSave();
 }
 function openPendingCatSheet(id) {
   const t = pendingTxns.find(x=>x.id===id);
