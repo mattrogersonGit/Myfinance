@@ -8,11 +8,14 @@ A mobile-first PWA for tracking bank transactions, P&L, mortgage, net worth and 
 
 - Import bank CSV exports (everyday + credit card)
 - Auto-categorise transactions with keyword rules
+- Interactive spending/earning breakdown (donut chart with drill-down) on the Overview page
 - Monthly P&L statement
 - Cash flow charts (last 6 months)
 - Mortgage calculator (interest/principal split, payoff timeline)
 - Net worth tracker (property, savings, investments)
 - Investment portfolio (shares, ETFs, KiwiSaver)
+- Other Income streams — track a rental property, business, or other income source separately from (or combined with) your personal finances, each with its own categories and budgets
+- Light and dark theme, following your system setting or set manually
 - Account sync via Supabase — sign in, your household's data follows you across devices
 - Installable PWA — add to home screen on iPhone or Android
 
@@ -22,8 +25,7 @@ A mobile-first PWA for tracking bank transactions, P&L, mortgage, net worth and 
 
 1. Open `index.html` in any browser
 2. Tap "Use without an account"
-3. Go to Settings → "Load sample data" to explore
-4. Import your bank CSVs when ready
+3. Import your bank CSVs, or add a transaction manually, to get started
 
 Data saves to your browser's local storage. Works offline.
 
@@ -50,6 +52,17 @@ Signing in creates a "household" — your data is tied to your account, not the 
 - Households can invite additional members (e.g. a partner) to share the same data
 - Billing (free/pro plans) is handled via Stripe, tied to the household
 - The Supabase URL and anon key in `index.html` are not secrets — they're meant to be public in client-side apps. Access control is enforced server-side by Postgres Row Level Security (RLS) policies, scoped per household
+
+---
+
+## Other Income streams
+
+If you have income/expenses beyond your personal finances — a rental property, a side business — add an "Other Income" stream under Settings → Other Income. Each stream has its own name, a type (Investment Property, Business, or Other), and optionally links to an existing debt (e.g. a rental property's mortgage) for reference.
+
+- Other Income has its own set of categories and budgets, separate from Personal, but shares the same auto-categorisation keyword rules
+- On the Overview page, switch between All / Personal / a specific stream to see KPIs, the spending donut, and Budget vs Actual scoped to just that view
+- Transactions default to Personal; reassign one to a stream by tapping its stream pill in the Transactions list
+- Deleting a stream reassigns its transactions back to Personal rather than deleting them
 
 ---
 
