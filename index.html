@@ -6,11 +6,19 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="MyFinance">
-  <meta name="theme-color" content="#0f1117">
+  <meta name="theme-color" content="#0f1117" id="meta-theme-color">
   <title>MyFinance</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <script>
+    // Resolve theme before first paint so there's no flash of the wrong theme.
+    (function () {
+      var pref = localStorage.getItem('myfinance_theme') || 'system';
+      var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -33,6 +41,18 @@
       --radius-sm: 8px;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --safe-top: env(safe-area-inset-top, 0px);
+      --chart-grid: rgba(255,255,255,0.05);
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f6f8;
+      --bg2: #ffffff;
+      --bg3: #eef0f4;
+      --border: rgba(0,0,0,0.08);
+      --border2: rgba(0,0,0,0.14);
+      --text: #14161f;
+      --text2: #565b70;
+      --text3: #8489a0;
+      --chart-grid: rgba(0,0,0,0.06);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
@@ -82,13 +102,6 @@
     .txn-meta { font-size: 12px; color: var(--text2); margin-top: 2px; display: flex; gap: 6px; align-items: center; }
     .txn-amount { font-size: 15px; font-weight: 600; flex-shrink: 0; }
     .cat-pill { font-size: 11px; background: var(--bg3); color: var(--text2); padding: 2px 7px; border-radius: 100px; }
-
-    /* Category bar */
-    .cat-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .cat-bar-label { font-size: 13px; color: var(--text); width: 90px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cat-bar-track { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
-    .cat-bar-fill { height: 100%; border-radius: 3px; }
-    .cat-bar-amt { font-size: 13px; font-weight: 500; color: var(--text); width: 70px; text-align: right; flex-shrink: 0; }
 
     /* P&L rows */
     .pnl-row { display: grid; grid-template-columns: 1fr 66px 66px 70px; gap: 4px; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
@@ -375,6 +388,8 @@
         <button onclick="nextMonth()">&#8250;</button>
       </div>
 
+      <div id="ov-stream-tabs" style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center"></div>
+
       <div id="ov-hidden-banner"></div>
       <div class="metrics">
         <div class="metric"><div class="metric-label">Income</div><div class="metric-value pos" id="ov-income">$0</div></div>
@@ -382,6 +397,8 @@
         <div class="metric"><div class="metric-label">Net surplus</div><div class="metric-value" id="ov-net">$0</div></div>
         <div class="metric"><div class="metric-label">Savings rate</div><div class="metric-value neu" id="ov-rate">0%</div></div>
       </div>
+
+      <div id="ov-stream-debt-note"></div>
 
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -396,17 +413,31 @@
       </div>
 
       <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span id="ov-donut-title">Spending by category</span>
+          <div class="tabs" style="margin-bottom:0">
+            <button id="ov-donut-expense" class="tab active" style="padding:5px 12px" onclick="setDonutMode('expense',this)">Expense</button>
+            <button id="ov-donut-earn" class="tab" style="padding:5px 12px" onclick="setDonutMode('earn',this)">Earn</button>
+          </div>
+        </div>
+        <div class="nw-bar" id="ov-donut-bar"></div>
+        <div class="chart-wrap" style="height:220px;max-width:220px;margin:14px auto">
+          <canvas id="donutChart" role="img" aria-label="Category breakdown donut chart"></canvas>
+          <div id="ov-donut-center" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center;padding:0 20px">
+            <div id="ov-donut-total" style="font-size:24px;font-weight:700"></div>
+            <div id="ov-donut-count" style="font-size:12px;color:var(--text2);margin-top:2px"></div>
+          </div>
+        </div>
+        <div class="nw-legend" id="ov-donut-legend" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
         <div class="card-title">Cash flow — last 6 months</div>
-        <div class="chart-wrap" style="height:180px"><canvas id="flowChart" role="img" aria-label="Monthly income vs spending bar chart"></canvas></div>
+        <div class="chart-wrap" style="height:120px"><canvas id="flowChart" role="img" aria-label="Monthly income vs spending bar chart"></canvas></div>
         <div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--text2)">
           <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:var(--teal)"></span>Income</span>
           <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:var(--red)"></span>Spending</span>
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Spending by category</div>
-        <div id="cat-bars"></div>
       </div>
 
       <div class="card">
@@ -568,6 +599,18 @@
       </div>
 
       <div class="card" style="padding:0 16px">
+        <div class="s-row" onclick="toggleSettings('s-income')">
+          <span class="s-icon">💼</span><span class="s-label">Other Income</span><span class="s-meta" id="s-income-meta"></span><span class="s-chev" id="s-income-chev">›</span>
+        </div>
+        <div id="s-income" class="s-body">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+            <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openAddIncomeStream()">+ Add</button>
+          </div>
+          <div id="income-streams-list"></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0 16px">
         <div class="s-row" onclick="toggleSettings('s-cats')">
           <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
         </div>
@@ -607,6 +650,17 @@
       <div class="card" style="padding:0 16px">
         <div class="s-row" onclick="exportCSV()">
           <span class="s-icon">📤</span><span class="s-label">Export to CSV</span><span class="s-meta">Excel</span><span class="s-chev" style="opacity:0.4">↓</span>
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <span class="s-icon">🌓</span><span class="s-label">Appearance</span>
+        </div>
+        <div class="tabs" style="margin-bottom:0">
+          <button id="theme-tab-system" class="tab" onclick="setTheme('system')">System</button>
+          <button id="theme-tab-light" class="tab" onclick="setTheme('light')">Light</button>
+          <button id="theme-tab-dark" class="tab" onclick="setTheme('dark')">Dark</button>
         </div>
       </div>
 
@@ -762,7 +816,7 @@
 <div id="cat-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
-    <div class="sheet-title">Choose category</div>
+    <div class="sheet-title" id="sheet-title">Choose category</div>
     <button class="sheet-close" onclick="closeCatSheet()">✕</button>
   </div>
   <div id="cat-options"></div>
@@ -838,6 +892,50 @@ const CAT_COLORS = [
 const INV_COLORS = ['#7b6cf6','#1db88a','#4a8fe8','#e0a030','#e05252','#56cfe1'];
 const INCOME_CATS = new Set(['Pay']);
 
+// Categorical palette for the Overview donut, validated (validate_palette.js) against
+// both this app's real card surfaces, not a generic default. Fixed order — never cycled.
+const DONUT_COLORS = {
+  dark:  ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926','#9085e9'],
+  light: ['#2a78d6','#008300','#e87ba4','#eda100','#1baf7a','#eb6834','#4a3aa7'],
+};
+const DONUT_OTHER_COLOR = '#898781';
+
+// ─── Theme ───────────────────────────────────────────────────────────────────
+function getTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+function chartGridColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim();
+}
+function chartTickColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--text3').trim();
+}
+function setTheme(pref) {
+  localStorage.setItem('myfinance_theme', pref);
+  applyTheme();
+}
+function applyTheme() {
+  const pref = localStorage.getItem('myfinance_theme') || 'system';
+  const dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.getElementById('meta-theme-color').content = dark ? '#0f1117' : '#f5f6f8';
+  renderThemeControl();
+  rerenderCurrentPage();
+}
+function renderThemeControl() {
+  const pref = localStorage.getItem('myfinance_theme') || 'system';
+  ['system','light','dark'].forEach(p => {
+    const el = document.getElementById('theme-tab-'+p);
+    if (el) el.classList.toggle('active', p===pref);
+  });
+}
+function rerenderCurrentPage() {
+  ({overview:renderOverview, transactions:renderTransactions, pnl:renderPNL, debt:renderDebt, assets:renderAssets}[currentPage] || (()=>{}))();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if ((localStorage.getItem('myfinance_theme') || 'system') === 'system') applyTheme();
+});
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let selMonth = new Date().getMonth();
 let selYear  = new Date().getFullYear();
@@ -870,6 +968,7 @@ let mortgages = [
 let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:1110000, beachVal:0};
 let otherDebts = [];
+let otherIncomeStreams = []; // {id, name, type, linkedDebtId}
 let debtOrder = [];
 let pendingTxns = [];
 let recurring = [];
@@ -879,13 +978,15 @@ let bvaFilter = 'all';
 let activeCatTxnId = null;
 let activeCatFilter = null;
 let txnAccountFilter = 'all';
+let streamFilter = 'all'; // 'all' | 'personal' | <otherIncomeStreams id>
 let _splitTxnId = null;
 let _splits = [];
 let accounts = [
   {id:'everyday',   name:'Everyday',    icon:'🏦', fixed:true},
   {id:'creditcard', name:'Credit card', icon:'💳', fixed:true},
 ];
-let flowChart, pnlChart, invChart, nwChart;
+let flowChart, pnlChart, invChart, nwChart, donutChart;
+let ovDonutMode = 'expense';
 let currentPage = 'overview';
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
@@ -966,6 +1067,7 @@ function visibleTxns() {
 function getFilteredTxns(period) {
   const now = new Date();
   return visibleTxns().filter(t => {
+    if (streamFilter!=='all' && (t.stream||'personal')!==streamFilter) return false;
     if (period==='selmonth') return t.date.getMonth()===selMonth&&t.date.getFullYear()===selYear;
     if (period==='month') return t.date.getMonth()===now.getMonth()&&t.date.getFullYear()===now.getFullYear();
     if (period==='ytd') { const cutoff = pnlYear===now.getFullYear() ? now : new Date(pnlYear,11,31); return t.date.getFullYear()===pnlYear && t.date<=cutoff; }
@@ -973,6 +1075,9 @@ function getFilteredTxns(period) {
     if (period==='3months') { const cutoff=new Date(now); cutoff.setMonth(cutoff.getMonth()-3); return t.date>=cutoff; }
     return true;
   });
+}
+function isIncomeTxn(t) {
+  return t.amount>0 && ((t.stream && t.stream!=='personal') || INCOME_CATS.has(t.cat));
 }
 
 // ─── Month navigation ─────────────────────────────────────────────────────────
@@ -1019,7 +1124,7 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderImportZones(); renderAccounts(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
+  if (page==='import') { renderImportZones(); renderAccounts(); renderIncomeStreams(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); renderThemeControl(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -1043,6 +1148,8 @@ function renderOverview() {
   const lbl = document.getElementById('ov-month-label');
   if (lbl) lbl.textContent = monthLabel();
   renderHiddenBanner();
+  renderStreamTabs();
+  renderStreamDebtNote();
 
   if (isMonthLocked(selMonth, selYear)) {
     ['ov-income','ov-spend','ov-net','ov-rate'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
@@ -1052,7 +1159,7 @@ function renderOverview() {
   }
 
   const txns = getFilteredTxns('selmonth');
-  const income = txns.filter(t=>t.amount>0&&INCOME_CATS.has(t.cat)).reduce((s,t)=>s+t.amount,0);
+  const income = txns.filter(isIncomeTxn).reduce((s,t)=>s+t.amount,0);
   const spend  = txns.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
   const net    = income - spend;
   const rate   = income > 0 ? Math.round((net/income)*100) : 0;
@@ -1066,11 +1173,13 @@ function renderOverview() {
 
   renderBudgetVsActual(txns);
   renderNetWorthChart();
+  renderOverviewDonut(txns);
 
   // Cash flow chart — always last 6 months regardless of selected month
   const months = getLast6Months();
-  const incData = months.map(m=>transactions.filter(t=>t.amount>0&&INCOME_CATS.has(t.cat)&&t.date.getMonth()===m.month&&t.date.getFullYear()===m.year).reduce((s,t)=>s+t.amount,0));
-  const spData  = months.map(m=>transactions.filter(t=>t.amount<0&&t.date.getMonth()===m.month&&t.date.getFullYear()===m.year).reduce((s,t)=>s+Math.abs(t.amount),0));
+  const streamTxns = transactions.filter(t => streamFilter==='all' || (t.stream||'personal')===streamFilter);
+  const incData = months.map(m=>streamTxns.filter(t=>isIncomeTxn(t)&&t.date.getMonth()===m.month&&t.date.getFullYear()===m.year).reduce((s,t)=>s+t.amount,0));
+  const spData  = months.map(m=>streamTxns.filter(t=>t.amount<0&&t.date.getMonth()===m.month&&t.date.getFullYear()===m.year).reduce((s,t)=>s+Math.abs(t.amount),0));
   if (flowChart) flowChart.destroy();
   flowChart = new Chart(document.getElementById('flowChart'), {
     type:'bar',
@@ -1078,22 +1187,84 @@ function renderOverview() {
       {label:'Income', data:incData,backgroundColor:'#1db88a',borderRadius:4},
       {label:'Spending',data:spData, backgroundColor:'#e05252',borderRadius:4}
     ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#555a72',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#555a72',font:{size:11}}}}}
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:chartTickColor(),font:{size:11}}},y:{grid:{color:chartGridColor()},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:11}}}}}
+  });
+}
+
+// ─── Overview: stream switcher ───────────────────────────────────────────────
+function renderStreamTabs() {
+  const el = document.getElementById('ov-stream-tabs');
+  if (!el) return;
+  const tabs = [{id:'all',name:'All'},{id:'personal',name:'Personal'}, ...otherIncomeStreams.map(s=>({id:s.id,name:s.name}))];
+  el.innerHTML = tabs.map(t => `<button class="tab ${streamFilter===t.id?'active':''}" style="font-size:12px;padding:4px 10px" onclick="setStreamFilter('${t.id}')">${t.name}</button>`).join('');
+}
+function setStreamFilter(id) {
+  streamFilter = (id==='all'||id==='personal') ? id : Number(id);
+  renderOverview();
+}
+function renderStreamDebtNote() {
+  const el = document.getElementById('ov-stream-debt-note');
+  if (!el) return;
+  const stream = (streamFilter!=='all' && streamFilter!=='personal') ? otherIncomeStreams.find(s=>s.id===streamFilter) : null;
+  const debt = stream && stream.linkedDebtId ? otherDebts.find(d=>d.id===stream.linkedDebtId) : null;
+  el.innerHTML = debt ? `<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--text2)">Linked debt: <strong style="color:var(--text)">${debt.name}</strong> — ${fmt(debt.balance)} owing</div>` : '';
+}
+
+// ─── Overview: donut analytics ───────────────────────────────────────────────
+function getDonutData(txns, mode) {
+  const bycat = {};
+  txns.filter(t => mode==='expense' ? t.amount<0 : t.amount>0).forEach(t=>{ bycat[t.cat]=(bycat[t.cat]||0)+Math.abs(t.amount); });
+  const all = Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
+  const top = all.slice(0,7);
+  const rest = all.slice(7).reduce((s,[,v])=>s+v,0);
+  const total = all.reduce((s,[,v])=>s+v,0);
+  return {top, rest, total, count:all.length};
+}
+function setDonutMode(mode, el) {
+  ovDonutMode = mode;
+  document.querySelectorAll('#ov-donut-expense,#ov-donut-earn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderOverviewDonut(getFilteredTxns('selmonth'));
+}
+function renderOverviewDonut(txns) {
+  const {top, rest, total, count} = getDonutData(txns, ovDonutMode);
+  document.getElementById('ov-donut-title').textContent = ovDonutMode==='expense' ? 'Spending by category' : 'Earning by category';
+  const totalEl = document.getElementById('ov-donut-total');
+  const countEl = document.getElementById('ov-donut-count');
+  const barEl = document.getElementById('ov-donut-bar');
+  const legendEl = document.getElementById('ov-donut-legend');
+  if (!count) {
+    totalEl.textContent = fmt(0);
+    countEl.textContent = 'No transactions this month';
+    barEl.innerHTML = '';
+    legendEl.innerHTML = '';
+    if (donutChart) { donutChart.destroy(); donutChart = null; }
+    return;
+  }
+  totalEl.textContent = fmt(total);
+  countEl.textContent = `in ${count} categor${count===1?'y':'ies'}`;
+
+  const palette = DONUT_COLORS[getTheme()];
+  const labels = top.map(([cat])=>cat);
+  const data   = top.map(([,amt])=>amt);
+  const colors = top.map((_,i)=>palette[i % palette.length]);
+  if (rest > 0) { labels.push('Other'); data.push(rest); colors.push(DONUT_OTHER_COLOR); }
+
+  barEl.innerHTML = labels.map((cat,i) => `<div class="nw-seg" style="width:${(data[i]/total*100).toFixed(2)}%;background:${colors[i]}"></div>`).join('');
+
+  if (donutChart) donutChart.destroy();
+  donutChart = new Chart(document.getElementById('donutChart'), {
+    type:'doughnut',
+    data:{labels, datasets:[{data, backgroundColor:colors, borderWidth:0}]},
+    options:{
+      responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins:{legend:{display:false}},
+      onHover:(evt,elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+      onClick:(evt,elements)=>{ if (elements.length) { const cat = labels[elements[0].index]; if (cat!=='Other') jumpToCategory(cat); } }
+    }
   });
 
-  // Category bars
-  const bycat = {};
-  txns.filter(t=>t.amount<0).forEach(t=>{ bycat[t.cat]=(bycat[t.cat]||0)+Math.abs(t.amount); });
-  const cats = Object.entries(bycat).sort((a,b)=>b[1]-a[1]).slice(0,7);
-  const max  = cats[0]?.[1] || 1;
-  const bars = document.getElementById('cat-bars');
-  if (!cats.length) { bars.innerHTML = '<div class="empty"><div class="empty-icon">📊</div>No transactions this month</div>'; return; }
-  bars.innerHTML = cats.map(([cat,amt]) => `
-    <div class="cat-bar-row" style="cursor:pointer" onclick="jumpToCategory('${cat}')">
-      <div class="cat-bar-label">${catEmoji(cat)} ${cat}</div>
-      <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${(amt/max*100).toFixed(1)}%;background:${catColor(cat)}"></div></div>
-      <div class="cat-bar-amt">${fmt(amt)}</div>
-    </div>`).join('');
+  legendEl.innerHTML = labels.map((cat,i) => `<div class="nw-legend-item" ${cat!=='Other'?`style="cursor:pointer" onclick="jumpToCategory('${cat}')"`:''}><div class="nw-dot" style="background:${colors[i]}"></div>${cat}: ${fmt(data[i])}</div>`).join('');
 }
 
 function setBvaFilter(f, el) {
@@ -1253,6 +1424,7 @@ function renderTransactions() {
         <div class="txn-meta">
           <span>${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</span>
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
+          ${otherIncomeStreams.length ? `<span class="cat-pill" onclick="openStreamSheet(${t.id})" style="cursor:pointer">${streamName(t.stream)} ▾</span>` : ''}
         </div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
@@ -1289,6 +1461,7 @@ function renderTransactions() {
 function openCatSheet(txnId) {
   activeCatTxnId = txnId;
   const t = transactions.find(x=>x.id===txnId);
+  document.getElementById('sheet-title').textContent = 'Choose category';
   const opts = document.getElementById('cat-options');
   opts.innerHTML = CATS.map(c => `
     <div class="cat-option" onclick="setCat(${txnId},'${c.name}')">
@@ -1302,6 +1475,32 @@ function openCatSheet(txnId) {
 function closeCatSheet() {
   document.getElementById('cat-sheet').classList.remove('open');
   document.getElementById('sheet-overlay').classList.remove('open');
+}
+function streamName(streamVal) {
+  if (!streamVal || streamVal==='personal') return 'Personal';
+  const s = otherIncomeStreams.find(x=>x.id===streamVal);
+  return s ? s.name : 'Personal';
+}
+function openStreamSheet(txnId) {
+  activeCatTxnId = txnId;
+  const t = transactions.find(x=>x.id===txnId);
+  document.getElementById('sheet-title').textContent = 'Choose stream';
+  const choices = [{id:'personal', name:'Personal'}, ...otherIncomeStreams];
+  const opts = document.getElementById('cat-options');
+  opts.innerHTML = choices.map(c => `
+    <div class="cat-option" onclick="setTxnStream(${txnId},'${c.id}')">
+      <span class="cat-name">${c.name}</span>
+      ${t && (t.stream||'personal')===c.id ? '<span class="cat-check">✓</span>' : ''}
+    </div>`).join('');
+  document.getElementById('cat-sheet').classList.add('open');
+  document.getElementById('sheet-overlay').classList.add('open');
+}
+function setTxnStream(id, streamVal) {
+  const t = transactions.find(x=>x.id===id);
+  if (t) t.stream = streamVal==='personal' ? 'personal' : Number(streamVal);
+  closeCatSheet();
+  scheduleSave();
+  rerenderCurrentPage();
 }
 function showToast(msg, duration=3000) {
   let el = document.getElementById('toast');
@@ -1390,14 +1589,19 @@ function renderPNL() {
 
   const period = pnlPeriod==='month' ? 'selmonth' : pnlPeriod;
   const txns = getFilteredTxns(period);
-  const bycat = {};
-  txns.forEach(t => { bycat[t.cat]=(bycat[t.cat]||0)+t.amount; });
+  // Bucketed per-transaction (not per-category) so income recognition is stream-aware:
+  // a stream's positive transactions always count as that stream's income (isIncomeTxn),
+  // independent of whether the category name happens to also exist under Personal.
+  const incomeByCat = {}, expenseByCat = {};
+  txns.forEach(t => {
+    if (isIncomeTxn(t)) incomeByCat[t.cat] = (incomeByCat[t.cat]||0) + t.amount;
+    else if (t.amount<0) expenseByCat[t.cat] = (expenseByCat[t.cat]||0) + Math.abs(t.amount);
+  });
 
-  const income = Object.entries(bycat).filter(([c])=>INCOME_CATS.has(c)).reduce((s,[,v])=>s+Math.max(v,0),0);
+  const income = Object.values(incomeByCat).reduce((s,v)=>s+v,0);
 
-  const expCats = Object.entries(bycat)
-    .filter(([c,v]) => !INCOME_CATS.has(c) && v<0)
-    .map(([c,v]) => ({cat:c, exp:Math.abs(v)}))
+  const expCats = Object.entries(expenseByCat)
+    .map(([c,v]) => ({cat:c, exp:v}))
     .sort((a,b) => b.exp-a.exp);
 
   let totalExp = expCats.reduce((s,r)=>s+r.exp, 0);
@@ -1447,9 +1651,10 @@ function renderPNL() {
   `;
 
   const months = getLast6Months();
+  const streamTxns = transactions.filter(t => streamFilter==='all' || (t.stream||'personal')===streamFilter);
   const netData = months.map(m => {
-    const mt = transactions.filter(t=>t.date.getMonth()===m.month&&t.date.getFullYear()===m.year);
-    const inc = mt.filter(t=>INCOME_CATS.has(t.cat)&&t.amount>0).reduce((s,t)=>s+t.amount,0);
+    const mt = streamTxns.filter(t=>t.date.getMonth()===m.month&&t.date.getFullYear()===m.year);
+    const inc = mt.filter(isIncomeTxn).reduce((s,t)=>s+t.amount,0);
     const exp = mt.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
     return inc - exp;
   });
@@ -1457,7 +1662,7 @@ function renderPNL() {
   pnlChart = new Chart(document.getElementById('pnlChart'), {
     type:'line',
     data:{labels:months.map(m=>m.label),datasets:[{data:netData,borderColor:'#1db88a',backgroundColor:'rgba(29,184,138,0.1)',fill:true,tension:0.3,pointRadius:4,pointBackgroundColor:'#1db88a'}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#555a72',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#555a72',font:{size:11}}}}}
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:chartTickColor(),font:{size:11}}},y:{grid:{color:chartGridColor()},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:11}}}}}
   });
 }
 function setPeriod(p, el) {
@@ -1524,13 +1729,13 @@ function drawAllDebtCharts() {
     if (m.history.length<2) return;
     const ctx=document.getElementById(`mort-chart-${m.id}`); if(!ctx) return;
     if (mortCharts[m.id]) { mortCharts[m.id].destroy(); delete mortCharts[m.id]; }
-    mortCharts[m.id]=new Chart(ctx,{type:'line',data:{labels:m.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),datasets:[{data:m.history.map(h=>h.total),borderColor:'#4a8fe8',backgroundColor:'rgba(74,143,232,0.12)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},scales:{x:{ticks:{maxTicksLimit:6,color:'#7a7f96',font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#7a7f96',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}}}});
+    mortCharts[m.id]=new Chart(ctx,{type:'line',data:{labels:m.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),datasets:[{data:m.history.map(h=>h.total),borderColor:'#4a8fe8',backgroundColor:'rgba(74,143,232,0.12)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},scales:{x:{ticks:{maxTicksLimit:6,color:chartTickColor(),font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:10}},grid:{color:chartGridColor()}}}}});
   });
   otherDebts.forEach(d => {
     if (!d.history||d.history.length<2) return;
     const ctx=document.getElementById(`debt-chart-${d.id}`); if(!ctx) return;
     if (debtItemCharts[d.id]) { debtItemCharts[d.id].destroy(); delete debtItemCharts[d.id]; }
-    debtItemCharts[d.id]=new Chart(ctx,{type:'line',data:{labels:d.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),datasets:[{data:d.history.map(h=>h.value),borderColor:'#e05c5c',backgroundColor:'rgba(224,92,92,0.10)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},scales:{x:{ticks:{maxTicksLimit:5,color:'#7a7f96',font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#7a7f96',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}}}});
+    debtItemCharts[d.id]=new Chart(ctx,{type:'line',data:{labels:d.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),datasets:[{data:d.history.map(h=>h.value),borderColor:'#e05c5c',backgroundColor:'rgba(224,92,92,0.10)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},scales:{x:{ticks:{maxTicksLimit:5,color:chartTickColor(),font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:10}},grid:{color:chartGridColor()}}}}});
   });
 }
 let debtItemCharts = {};
@@ -1680,6 +1885,76 @@ function deleteOtherDebt(id) {
   otherDebts = otherDebts.filter(x=>x.id!==id);
   if (debtItemCharts[id]) { debtItemCharts[id].destroy(); delete debtItemCharts[id]; }
   renderDebt(); scheduleSave();
+}
+
+// ─── Other Income streams ────────────────────────────────────────────────────
+function incomeStreamFormHtml(s) {
+  const v = (k, def='') => s ? (s[k] ?? def) : def;
+  const typeOpts = ['Investment Property','Business','Other'].map(t=>`<option ${v('type')===t?'selected':''}>${t}</option>`).join('');
+  const debtOpts = `<option value="">— None —</option>` + otherDebts.map(d=>`<option value="${d.id}" ${v('linkedDebtId')===d.id?'selected':''}>${d.name} (${fmt(d.balance)} owing)</option>`).join('');
+  return `
+    <div class="input-group"><label>Name</label><input type="text" id="is-name" value="${v('name')}" placeholder="e.g. 123 Beach Rd"></div>
+    <div class="input-group"><label>Type</label><select id="is-type">${typeOpts}</select></div>
+    <div class="input-group"><label>Linked debt (optional)</label><select id="is-debt">${debtOpts}</select></div>`;
+}
+function readIncomeStreamForm() {
+  const debtVal = document.getElementById('is-debt').value;
+  return {
+    name: document.getElementById('is-name').value.trim(),
+    type: document.getElementById('is-type').value,
+    linkedDebtId: debtVal ? Number(debtVal) : null,
+  };
+}
+function openAddIncomeStream() {
+  document.getElementById('modal-title').textContent = 'Add Other Income';
+  document.getElementById('modal-body').innerHTML = incomeStreamFormHtml(null);
+  document.getElementById('modal-confirm').textContent = 'Add';
+  document.getElementById('modal-confirm').onclick = () => {
+    const f = readIncomeStreamForm();
+    if (!f.name) return;
+    otherIncomeStreams.push({id:Date.now(), ...f});
+    closeModal(); renderIncomeStreams(); renderOverview(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function openUpdateIncomeStream(id) {
+  const s = otherIncomeStreams.find(x=>x.id===id);
+  if (!s) return;
+  document.getElementById('modal-title').textContent = 'Edit ' + s.name;
+  document.getElementById('modal-body').innerHTML = incomeStreamFormHtml(s);
+  document.getElementById('modal-confirm').textContent = 'Save';
+  document.getElementById('modal-confirm').onclick = () => {
+    const f = readIncomeStreamForm();
+    if (!f.name) return;
+    Object.assign(s, f);
+    closeModal(); renderIncomeStreams(); renderOverview(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function deleteIncomeStream(id) {
+  const s = otherIncomeStreams.find(x=>x.id===id);
+  if (!s) return;
+  if (!confirm(`Delete "${s.name}"? Its transactions will be reassigned to Personal.`)) return;
+  transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
+  otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
+  if (streamFilter===id) streamFilter='all';
+  renderIncomeStreams(); renderOverview(); scheduleSave();
+}
+function renderIncomeStreams() {
+  const el = document.getElementById('income-streams-list');
+  if (!el) return;
+  if (!otherIncomeStreams.length) { el.innerHTML = '<div class="empty" style="padding:8px 0">No other income streams yet</div>'; return; }
+  el.innerHTML = otherIncomeStreams.map(s => {
+    const debt = s.linkedDebtId ? otherDebts.find(d=>d.id===s.linkedDebtId) : null;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:0.5px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:500">${s.name}</div>
+        <div style="font-size:12px;color:var(--text2)">${s.type}${debt ? ' · Linked: '+debt.name+' ('+fmt(debt.balance)+')' : ''}</div>
+      </div>
+      <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openUpdateIncomeStream(${s.id})">Edit</button>
+      <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
+    </div>`;
+  }).join('');
 }
 function openDebtHistory(id) {
   const m = mortgages.find(x => x.id === id);
@@ -1906,8 +2181,8 @@ function openInvestmentHistory(id) {
       labels:inv.history.map(h=>new Date(h.date).toLocaleDateString('en-NZ',{month:'short',year:'2-digit'})),
       datasets:[{data:inv.history.map(h=>h.value),borderColor:'#4a8fe8',backgroundColor:'rgba(74,143,232,0.12)',fill:true,tension:0.3,pointRadius:2,borderWidth:2}]
     },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},
-      scales:{x:{ticks:{maxTicksLimit:8,color:'#7a7f96',font:{size:10}},grid:{display:false}},
-        y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#7a7f96',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}}}});
+      scales:{x:{ticks:{maxTicksLimit:8,color:chartTickColor(),font:{size:10}},grid:{display:false}},
+        y:{ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:10}},grid:{color:chartGridColor()}}}}});
   });
 }
 function deleteInvestment(id) {
@@ -1993,7 +2268,7 @@ function parseCSV(text, account) {
     const date = parseCSVDate(dateStr);
     if (!date || isNaN(amount) || amount === 0) continue;
     desc = (desc||'Unknown').replace(/\s+/g,' ').trim();
-    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc)});
+    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc), stream:'personal'});
   }
   return txns;
 }
@@ -2135,7 +2410,13 @@ function openManualTxn() {
       <select id="mt-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
         ${CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}
       </select>
-    </div>`;
+    </div>
+    ${otherIncomeStreams.length ? `<div class="input-group"><label>Stream</label>
+      <select id="mt-stream" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
+        <option value="personal">Personal</option>
+        ${otherIncomeStreams.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+      </select>
+    </div>` : ''}`;
   document.getElementById('modal-confirm').textContent = 'Add';
   document.getElementById('modal-confirm').style.display = '';
   document.getElementById('modal-confirm').onclick = () => {
@@ -2144,8 +2425,10 @@ function openManualTxn() {
     const amount  = parseFloat(document.getElementById('mt-amount').value);
     const account = document.getElementById('mt-account').value;
     const cat     = document.getElementById('mt-cat').value;
+    const streamEl = document.getElementById('mt-stream');
+    const stream  = streamEl ? (streamEl.value==='personal' ? 'personal' : Number(streamEl.value)) : 'personal';
     if (!dateVal || !desc || isNaN(amount) || amount === 0) return;
-    const t = { id: Date.now(), date: new Date(dateVal + 'T12:00:00'), desc, amount, account, cat };
+    const t = { id: Date.now(), date: new Date(dateVal + 'T12:00:00'), desc, amount, account, cat, stream };
     transactions = [t, ...transactions].sort((a,b)=>b.date-a.date);
     closeModal();
     scheduleSave();
@@ -2403,8 +2686,8 @@ function renderNetWorthChart() {
         tooltip:{callbacks:{label:ctx=>' '+fmt(ctx.raw)}}
       },
       scales:{
-        x:{grid:{display:false},ticks:{color:'#555a72',font:{size:10},maxTicksLimit:9}},
-        y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:'#555a72',font:{size:11}}}
+        x:{grid:{display:false},ticks:{color:chartTickColor(),font:{size:10},maxTicksLimit:9}},
+        y:{grid:{color:chartGridColor()},ticks:{callback:v=>'$'+Math.round(v/1000)+'k',color:chartTickColor(),font:{size:11}}}
       }
     }
   });
@@ -2542,14 +2825,14 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, debtOrder, pendingTxns, budgets, accounts, recurring,
+    rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
     cats: CATS,
     savedAt: new Date().toISOString()
   };
 }
 function loadDataObj(obj) {
   if (!obj) return;
-  transactions = (obj.transactions||[]).map(t=>({...t,date:new Date(t.date)}));
+  transactions = (obj.transactions||[]).map(t=>({...t,date:new Date(t.date),stream:t.stream||'personal'}));
   rules        = obj.rules       || rules;
   investments  = (obj.investments||investments).map(inv=>({history:[],...inv}));
   if (obj.budgets) {
@@ -2579,6 +2862,7 @@ function loadDataObj(obj) {
     property = 'homeVal' in obj.property ? obj.property : {homeVal:obj.property.val||0, beachVal:0};
   }
   if (obj.otherDebts) otherDebts = obj.otherDebts;
+  if (obj.otherIncomeStreams) otherIncomeStreams = obj.otherIncomeStreams;
   if (obj.debtOrder) debtOrder = obj.debtOrder;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
