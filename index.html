@@ -2690,6 +2690,13 @@ function updateCatName(i, val) {
   transactions.forEach(t=>{ if(t.cat===oldName) t.cat=newName; });
   rules.forEach(r=>{ if(r.cat===oldName) r.cat=newName; });
   cats[i].name = newName;
+  // A freshly-added category still has the generic pin icon — if the new name
+  // matches a category that already has a proper icon elsewhere (Personal, or
+  // another stream), adopt it instead of leaving the placeholder.
+  if (cats[i].emoji === '📌') {
+    const match = CATS.find(c=>c.name===newName) || allStreamCats().find(c=>c.name===newName);
+    if (match) cats[i].emoji = match.emoji;
+  }
   renderCategories(); scheduleSave();
 }
 function updateCatBudget(catName, val) {
