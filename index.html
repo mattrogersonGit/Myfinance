@@ -1535,6 +1535,12 @@ function streamName(streamVal) {
   const s = otherIncomeStreams.find(x=>x.id===streamVal);
   return s ? s.name : 'Personal';
 }
+// The stream a bank account defaults new transactions to — 'personal' unless
+// the account has been assigned to one of the Other Income streams.
+function accountStream(accountId) {
+  const acc = accounts.find(a=>a.id===accountId);
+  return (acc && acc.stream) || 'personal';
+}
 function openStreamSheet(txnId) {
   activeCatTxnId = txnId;
   const t = transactions.find(x=>x.id===txnId);
@@ -2339,7 +2345,7 @@ function parseCSV(text, account) {
     const date = parseCSVDate(dateStr);
     if (!date || isNaN(amount) || amount === 0) continue;
     desc = (desc||'Unknown').replace(/\s+/g,' ').trim();
-    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc), stream:'personal'});
+    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc), stream:accountStream(account)});
   }
   return txns;
 }
@@ -2472,9 +2478,8 @@ function openManualTxn() {
       <input type="number" id="mt-amount" placeholder="-45.50" step="0.01">
     </div>
     <div class="input-group"><label>Account</label>
-      <select id="mt-account" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
-        <option value="everyday">Everyday</option>
-        <option value="creditcard">Credit card</option>
+      <select id="mt-account" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%" onchange="onMtAccountChange()">
+        ${accounts.map(a=>`<option value="${a.id}">${a.icon||'🏦'} ${a.name}</option>`).join('')}
       </select>
     </div>
     <div class="input-group"><label>Category</label>
@@ -2485,8 +2490,8 @@ function openManualTxn() {
     </div>
     ${otherIncomeStreams.length ? `<div class="input-group"><label>Stream</label>
       <select id="mt-stream" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
-        <option value="personal">Personal</option>
-        ${otherIncomeStreams.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+        <option value="personal" ${accountStream(accounts[0]?.id)==='personal'?'selected':''}>Personal</option>
+        ${otherIncomeStreams.map(s=>`<option value="${s.id}" ${accountStream(accounts[0]?.id)===s.id?'selected':''}>${s.name}</option>`).join('')}
       </select>
     </div>` : ''}`;
   document.getElementById('modal-confirm').textContent = 'Add';
@@ -2510,6 +2515,12 @@ function openManualTxn() {
   document.getElementById('modal').classList.add('open');
   setTimeout(()=>document.getElementById('mt-desc')?.focus(), 80);
 }
+function onMtAccountChange() {
+  const streamEl = document.getElementById('mt-stream');
+  if (!streamEl) return;
+  const stream = accountStream(document.getElementById('mt-account').value);
+  streamEl.value = stream==='personal' ? 'personal' : String(stream);
+}
 
 // ─── Accounts management ─────────────────────────────────────────────────────
 function renderImportZones() {
@@ -2527,10 +2538,13 @@ function renderImportZones() {
 function renderAccounts() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
+  const streamOpts = (a) => `<option value="personal" ${!a.stream||a.stream==='personal'?'selected':''}>Personal</option>` +
+    otherIncomeStreams.map(s=>`<option value="${s.id}" ${a.stream===s.id?'selected':''}>${s.name}</option>`).join('');
   el.innerHTML = accounts.map((a,i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
       <input style="width:32px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:18px;text-align:center;padding:4px;outline:none" value="${a.icon||'🏦'}" maxlength="2" ${a.fixed?'disabled':''} onchange="accounts[${i}].icon=this.value;scheduleSave();renderImportZones()">
-      <input style="flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none" value="${a.name}" onchange="accounts[${i}].name=this.value;scheduleSave();renderImportZones()">
+      <input style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none" value="${a.name}" onchange="accounts[${i}].name=this.value;scheduleSave();renderImportZones()">
+      ${otherIncomeStreams.length ? `<select style="flex-shrink:0;max-width:100px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:11px;padding:6px 4px;outline:none" title="Which stream this account's imports default to" onchange="accounts[${i}].stream=this.value==='personal'?'personal':Number(this.value);scheduleSave()">${streamOpts(a)}</select>` : ''}
       ${!a.fixed ? `<button class="btn btn-danger" style="padding:4px 8px;font-size:12px;flex-shrink:0" onclick="deleteAccount(${i})">✕</button>` : '<span style="width:34px"></span>'}
     </div>`).join('');
 }
