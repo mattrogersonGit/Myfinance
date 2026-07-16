@@ -617,6 +617,10 @@
           <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
         </div>
         <div id="s-cats" class="s-body">
+          <div class="tabs" id="cat-mgmt-tabs">
+            <button class="tab active" onclick="setCatMgmtTarget('personal',this)">Personal</button>
+            <button class="tab" onclick="setCatMgmtTarget('other',this)">Other Income</button>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <span style="font-size:12px;color:var(--text3)">Budget year</span>
             <div style="display:flex;align-items:center;gap:12px">
@@ -971,6 +975,18 @@ let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:1110000, beachVal:0};
 let otherDebts = [];
 let otherIncomeStreams = []; // {id, name, type, linkedDebtId}
+// Other Income has its own category list + budgets (shared across every stream —
+// not one set per stream), reusing the same auto-categorisation `rules` as Personal.
+let otherCats = [
+  {name:'Income',              emoji:'💰', fixed:true},
+  {name:'Mortgage',             emoji:'🏦', fixed:true},
+  {name:'Rates & Insurance',    emoji:'🏛️', fixed:true},
+  {name:'Repairs & Maintenance',emoji:'🔧', fixed:false},
+  {name:'Property Management', emoji:'🧾', fixed:true},
+  {name:'Other',                emoji:'📌', fixed:false},
+];
+let otherBudgets = {};
+let catMgmtTarget = 'personal'; // which category/budget set the Settings screen is editing
 let debtOrder = [];
 let pendingTxns = [];
 let recurring = [];
@@ -1043,8 +1059,8 @@ const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
 const fmtWhole  = n => '$' + Math.round(Math.abs(n)).toLocaleString('en-NZ');
 const fmtWholeSigned = n => (n >= 0 ? '+' : '−') + fmtWhole(n);
 const fmtDec = n => '$' + Math.abs(n).toLocaleString('en-NZ', {minimumFractionDigits:2,maximumFractionDigits:2});
-const catEmoji = name => (CATS.find(c=>c.name===name)||{emoji:'📌'}).emoji;
-const catColor = name => { const i=CATS.findIndex(c=>c.name===name); return i>=0?CAT_COLORS[i]:'#8b90a7'; };
+const catEmoji = name => (CATS.find(c=>c.name===name)||otherCats.find(c=>c.name===name)||{emoji:'📌'}).emoji;
+const catColor = name => { const i=CATS.findIndex(c=>c.name===name); if (i>=0) return CAT_COLORS[i]; const j=otherCats.findIndex(c=>c.name===name); return j>=0?CAT_COLORS[j%CAT_COLORS.length]:'#8b90a7'; };
 function categorise(desc) {
   const d = desc.toLowerCase();
   for (const r of rules) if (d.includes(r.kw.toLowerCase())) return r.cat;
@@ -1088,18 +1104,39 @@ function monthLabel() {
 }
 
 // ─── Budget helpers ────────────────────────────────────────────────────────────
-function getBudgetsForYear(year) {
+function getBudgetsForYear(year, budgetsObj) {
+  budgetsObj = budgetsObj || budgets;
   const y = Number(year);
   // Handle old flat format that wasn't migrated
-  const firstVal = Object.values(budgets)[0];
-  if (firstVal !== undefined && typeof firstVal !== 'object') return budgets;
+  const firstVal = Object.values(budgetsObj)[0];
+  if (firstVal !== undefined && typeof firstVal !== 'object') return budgetsObj;
   // Normal year-keyed lookup
-  if (budgets[y] && Object.keys(budgets[y]).length) return budgets[y];
-  const prev = Object.keys(budgets).map(Number).filter(k => !isNaN(k) && k < y).sort((a,b)=>b-a);
-  return prev.length ? (budgets[prev[0]] || {}) : {};
+  if (budgetsObj[y] && Object.keys(budgetsObj[y]).length) return budgetsObj[y];
+  const prev = Object.keys(budgetsObj).map(Number).filter(k => !isNaN(k) && k < y).sort((a,b)=>b-a);
+  return prev.length ? (budgetsObj[prev[0]] || {}) : {};
 }
 function prevBudgetYear() { budgetYear--; renderCategories(); }
 function nextBudgetYear() { budgetYear++; renderCategories(); }
+// ─── Category management context (Personal vs Other Income, in Settings) ────
+function mgmtCatsArr() { return catMgmtTarget==='other' ? otherCats : CATS; }
+function mgmtBudgetsObj() { return catMgmtTarget==='other' ? otherBudgets : budgets; }
+function setCatMgmtTarget(t, el) {
+  catMgmtTarget = t;
+  document.querySelectorAll('#cat-mgmt-tabs .tab').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderCategories();
+}
+// ─── Live-view category/budget context (Overview/P&L, driven by the stream filter) ──
+function viewCatsForFilter() {
+  if (streamFilter==='personal') return CATS;
+  if (streamFilter==='all') return [...CATS, ...otherCats];
+  return otherCats;
+}
+function viewBudgetsForYear(year) {
+  if (streamFilter==='personal') return getBudgetsForYear(year, budgets);
+  if (streamFilter==='all') return {...getBudgetsForYear(year, budgets), ...getBudgetsForYear(year, otherBudgets)};
+  return getBudgetsForYear(year, otherBudgets);
+}
 function prevMonth() {
   selMonth--; if (selMonth<0) { selMonth=11; selYear--; }
   rerenderPage();
@@ -1208,7 +1245,7 @@ function renderStreamDebtNote() {
   const el = document.getElementById('ov-stream-debt-note');
   if (!el) return;
   const stream = (streamFilter!=='all' && streamFilter!=='personal') ? otherIncomeStreams.find(s=>s.id===streamFilter) : null;
-  const debt = stream && stream.linkedDebtId ? otherDebts.find(d=>d.id===stream.linkedDebtId) : null;
+  const debt = stream ? resolveLinkedDebt(stream.linkedDebtId) : null;
   el.innerHTML = debt ? `<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--text2)">Linked debt: <strong style="color:var(--text)">${debt.name}</strong> — ${fmt(debt.balance)} owing</div>` : '';
 }
 
@@ -1285,8 +1322,8 @@ function renderBudgetVsActual(txns) {
   txns.filter(t=>t.amount<0).forEach(t=>{ actuals[t.cat]=(actuals[t.cat]||0)+Math.abs(t.amount); });
 
   // Collect all categories that have a budget or actual spend, filtered by fixed/variable
-  const yearBudgets = getBudgetsForYear(selYear);
-  const catFixedMap = Object.fromEntries(CATS.map(c=>[c.name, c.fixed===true]));
+  const yearBudgets = viewBudgetsForYear(selYear);
+  const catFixedMap = Object.fromEntries(viewCatsForFilter().map(c=>[c.name, c.fixed===true]));
   let allCats = new Set([...Object.keys(yearBudgets), ...Object.keys(actuals)]);
   allCats.delete('Pay');
   if (bvaFilter==='fixed')    allCats = new Set([...allCats].filter(c=>catFixedMap[c]===true));
@@ -1465,7 +1502,8 @@ function openCatSheet(txnId) {
   const t = transactions.find(x=>x.id===txnId);
   document.getElementById('sheet-title').textContent = 'Choose category';
   const opts = document.getElementById('cat-options');
-  opts.innerHTML = CATS.map(c => `
+  const cats = (t && t.stream && t.stream!=='personal') ? otherCats : CATS;
+  opts.innerHTML = cats.map(c => `
     <div class="cat-option" onclick="setCat(${txnId},'${c.name}')">
       <span class="cat-emoji">${c.emoji}</span>
       <span class="cat-name">${c.name}</span>
@@ -1609,7 +1647,7 @@ function renderPNL() {
   let totalExp = expCats.reduce((s,r)=>s+r.exp, 0);
   const net = income - totalExp;
 
-  const pnlYearBudgets = getBudgetsForYear(pnlPeriod==='month' ? selYear : pnlYear);
+  const pnlYearBudgets = viewBudgetsForYear(pnlPeriod==='month' ? selYear : pnlYear);
   const showBudget = Object.keys(pnlYearBudgets).length > 0;
   const mult = getBudgetMultiplier(period);
   const periodLabel = {selmonth:'Monthly',ytd:'YTD',year:'Annual',all:'All-time'}[period] || 'Monthly';
@@ -1890,21 +1928,38 @@ function deleteOtherDebt(id) {
 }
 
 // ─── Other Income streams ────────────────────────────────────────────────────
+// linkedDebtId references either a mortgage ('m:<id>') or an otherDebts entry
+// ('d:<id>') — they're two separate arrays with two separate id shapes (mortgages
+// use fixed string ids, otherDebts use Date.now() numbers), so the prefix disambiguates.
+function resolveLinkedDebt(linkedDebtId) {
+  if (!linkedDebtId) return null;
+  if (linkedDebtId.startsWith('m:')) {
+    const m = mortgages.find(x=>x.id===linkedDebtId.slice(2));
+    return m ? {name:m.name, balance:m.history?.slice(-1)[0]?.total||0} : null;
+  }
+  if (linkedDebtId.startsWith('d:')) {
+    const d = otherDebts.find(x=>x.id===Number(linkedDebtId.slice(2)));
+    return d ? {name:d.name, balance:d.balance} : null;
+  }
+  return null;
+}
 function incomeStreamFormHtml(s) {
   const v = (k, def='') => s ? (s[k] ?? def) : def;
   const typeOpts = ['Investment Property','Business','Other'].map(t=>`<option ${v('type')===t?'selected':''}>${t}</option>`).join('');
-  const debtOpts = `<option value="">— None —</option>` + otherDebts.map(d=>`<option value="${d.id}" ${v('linkedDebtId')===d.id?'selected':''}>${d.name} (${fmt(d.balance)} owing)</option>`).join('');
+  const cur = v('linkedDebtId');
+  const mortOpts = mortgages.map(m=>`<option value="m:${m.id}" ${cur==='m:'+m.id?'selected':''}>${m.name} (${fmt(m.history?.slice(-1)[0]?.total||0)} owing)</option>`).join('');
+  const debtOpts = otherDebts.map(d=>`<option value="d:${d.id}" ${cur==='d:'+d.id?'selected':''}>${d.name} (${fmt(d.balance)} owing)</option>`).join('');
   return `
     <div class="input-group"><label>Name</label><input type="text" id="is-name" value="${v('name')}" placeholder="e.g. 123 Beach Rd"></div>
     <div class="input-group"><label>Type</label><select id="is-type">${typeOpts}</select></div>
-    <div class="input-group"><label>Linked debt (optional)</label><select id="is-debt">${debtOpts}</select></div>`;
+    <div class="input-group"><label>Linked debt (optional)</label><select id="is-debt"><option value="">— None —</option>${mortOpts}${debtOpts}</select></div>`;
 }
 function readIncomeStreamForm() {
   const debtVal = document.getElementById('is-debt').value;
   return {
     name: document.getElementById('is-name').value.trim(),
     type: document.getElementById('is-type').value,
-    linkedDebtId: debtVal ? Number(debtVal) : null,
+    linkedDebtId: debtVal || null,
   };
 }
 function openAddIncomeStream() {
@@ -1947,7 +2002,7 @@ function renderIncomeStreams() {
   if (!el) return;
   if (!otherIncomeStreams.length) { el.innerHTML = '<div class="empty" style="padding:8px 0">No other income streams yet</div>'; return; }
   el.innerHTML = otherIncomeStreams.map(s => {
-    const debt = s.linkedDebtId ? otherDebts.find(d=>d.id===s.linkedDebtId) : null;
+    const debt = resolveLinkedDebt(s.linkedDebtId);
     return `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:500">${s.name}</div>
@@ -2411,6 +2466,7 @@ function openManualTxn() {
     <div class="input-group"><label>Category</label>
       <select id="mt-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
         ${CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}
+        ${otherCats.length ? `<optgroup label="Other Income">${otherCats.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}</optgroup>` : ''}
       </select>
     </div>
     ${otherIncomeStreams.length ? `<div class="input-group"><label>Stream</label>
@@ -2483,7 +2539,7 @@ function deleteAccount(i) {
 // ─── Export CSV ───────────────────────────────────────────────────────────────
 function exportCSV() {
   const accNameMap = Object.fromEntries(accounts.map(a=>[a.id,a.name]));
-  const catFixedMap = Object.fromEntries(CATS.map(c=>[c.name, c.fixed ? 'Fixed' : 'Variable']));
+  const catFixedMap = Object.fromEntries([...CATS, ...otherCats].map(c=>[c.name, c.fixed ? 'Fixed' : 'Variable']));
   const header = 'Date,Month,Description,Category,Fixed/Variable,Account,Amount,Type';
   const rows = [...transactions]
     .sort((a,b) => a.date - b.date)
@@ -2530,9 +2586,11 @@ function renderCategories() {
   const yrEl = document.getElementById('cat-budget-year-label');
   if (yrEl) yrEl.textContent = budgetYear;
   if (!el) return;
-  const yb = getBudgetsForYear(budgetYear);
-  const hasOwnBudget = !!budgets[budgetYear];
-  el.innerHTML = CATS.map((c,i) => {
+  const cats = mgmtCatsArr();
+  const budgetsObj = mgmtBudgetsObj();
+  const yb = getBudgetsForYear(budgetYear, budgetsObj);
+  const hasOwnBudget = !!budgetsObj[budgetYear];
+  el.innerHTML = cats.map((c,i) => {
     const drop = spendOpenCat === c.name ? (() => {
       const rows = [3, 6, 12].map(m => {
         const avg = calcAvgSpend(c.name, m);
@@ -2557,40 +2615,43 @@ function renderCategories() {
   }).join('');
 }
 function updateCatEmoji(i, val) {
-  CATS[i].emoji = val.trim()||'📌';
+  mgmtCatsArr()[i].emoji = val.trim()||'📌';
   scheduleSave();
 }
 function updateCatName(i, val) {
-  const oldName = CATS[i].name;
+  const cats = mgmtCatsArr(), budgetsObj = mgmtBudgetsObj();
+  const oldName = cats[i].name;
   const newName = val.trim();
   if (!newName || newName===oldName) return;
-  Object.keys(budgets).forEach(yr => { if (budgets[yr][oldName]!==undefined) { budgets[yr][newName]=budgets[yr][oldName]; delete budgets[yr][oldName]; } });
+  Object.keys(budgetsObj).forEach(yr => { if (budgetsObj[yr][oldName]!==undefined) { budgetsObj[yr][newName]=budgetsObj[yr][oldName]; delete budgetsObj[yr][oldName]; } });
   transactions.forEach(t=>{ if(t.cat===oldName) t.cat=newName; });
   rules.forEach(r=>{ if(r.cat===oldName) r.cat=newName; });
-  CATS[i].name = newName;
+  cats[i].name = newName;
   renderCategories(); scheduleSave();
 }
 function updateCatBudget(catName, val) {
-  if (!budgets[budgetYear]) budgets[budgetYear] = {};
+  const budgetsObj = mgmtBudgetsObj();
+  if (!budgetsObj[budgetYear]) budgetsObj[budgetYear] = {};
   const v = parseFloat(val);
-  if (isNaN(v) || v<=0) { delete budgets[budgetYear][catName]; }
-  else { budgets[budgetYear][catName] = Math.round(v); }
+  if (isNaN(v) || v<=0) { delete budgetsObj[budgetYear][catName]; }
+  else { budgetsObj[budgetYear][catName] = Math.round(v); }
   scheduleSave();
 }
 function updateCatFixed(i, val) {
-  CATS[i].fixed = val;
+  mgmtCatsArr()[i].fixed = val;
   renderCategories(); scheduleSave();
 }
 function deleteCategory(i) {
-  const name = CATS[i].name;
+  const cats = mgmtCatsArr(), budgetsObj = mgmtBudgetsObj();
+  const name = cats[i].name;
   if (!confirm(`Delete category "${name}"? Transactions will be set to Other.`)) return;
   transactions.forEach(t=>{ if(t.cat===name) t.cat='Other'; });
-  Object.keys(budgets).forEach(yr => { delete budgets[yr][name]; });
-  CATS.splice(i,1);
+  Object.keys(budgetsObj).forEach(yr => { delete budgetsObj[yr][name]; });
+  cats.splice(i,1);
   renderCategories(); scheduleSave();
 }
 function addCategory() {
-  CATS.push({name:'New Category',emoji:'📌'});
+  mgmtCatsArr().push({name:'New Category',emoji:'📌'});
   renderCategories();
   // Focus the new name input
   const inputs = document.querySelectorAll('.cat-name-input');
@@ -2600,7 +2661,7 @@ function addCategory() {
 // ─── Rules ────────────────────────────────────────────────────────────────────
 function renderRules() {
   const catSel = document.getElementById('rule-cat');
-  if (catSel) catSel.innerHTML = CATS.map(c=>`<option>${c.name}</option>`).join('');
+  if (catSel) catSel.innerHTML = [...CATS, ...otherCats].map(c=>`<option>${c.name}</option>`).join('');
   const search = (document.getElementById('rules-search')?.value||'').toLowerCase();
   const filtered = search
     ? rules.filter(r=>r.kw.toLowerCase().includes(search)||r.cat.toLowerCase().includes(search))
@@ -2827,8 +2888,9 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
+    rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, otherBudgets, accounts, recurring,
     cats: CATS,
+    otherCats,
     savedAt: new Date().toISOString()
   };
 }
@@ -2847,6 +2909,8 @@ function loadDataObj(obj) {
     }
   }
   if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.forEach(c=>{ if(c.fixed===undefined) c.fixed=false; }); CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
+  if (obj.otherCats && obj.otherCats.length) otherCats = obj.otherCats;
+  if (obj.otherBudgets) otherBudgets = obj.otherBudgets;
   // New mortgages format
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
