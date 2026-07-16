@@ -618,10 +618,7 @@
           <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
         </div>
         <div id="s-cats" class="s-body">
-          <div class="tabs" id="cat-mgmt-tabs">
-            <button class="tab active" onclick="setCatMgmtTarget('personal',this)">Personal</button>
-            <button class="tab" onclick="setCatMgmtTarget('other',this)">Other Income</button>
-          </div>
+          <div class="tabs" id="cat-mgmt-tabs"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <span style="font-size:12px;color:var(--text3)">Budget year</span>
             <div style="display:flex;align-items:center;gap:12px">
@@ -643,6 +640,7 @@
           <span class="s-icon">📋</span><span class="s-label">Auto-categorisation rules</span><span class="s-chev" id="s-rules-chev">›</span>
         </div>
         <div id="s-rules" class="s-body">
+          <div class="tabs" id="rule-mgmt-tabs"></div>
           <input type="text" class="rules-search" id="rules-search" placeholder="Filter rules…" oninput="renderRules()">
           <div class="rules-scroll" id="rules-list"></div>
           <hr class="divider">
@@ -975,10 +973,11 @@ let mortgages = [
 let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:1110000, beachVal:0};
 let otherDebts = [];
-let otherIncomeStreams = []; // {id, name, type, linkedDebtId}
-// Other Income has its own category list + budgets (shared across every stream —
-// not one set per stream), reusing the same auto-categorisation `rules` as Personal.
-let otherCats = [
+// Each Other Income stream has its own categories + budgets (Waihi Beach and a
+// future Business stream are separate, not one shared "Other Income" bucket) —
+// otherIncomeStreams entries carry {id, name, type, linkedDebtId, cats, budgets}.
+// New streams start from this template, then diverge independently.
+const DEFAULT_STREAM_CATS = () => [
   {name:'Income',              emoji:'💰', fixed:true},
   {name:'Mortgage',             emoji:'🏦', fixed:true},
   {name:'Rates & Insurance',    emoji:'🏛️', fixed:true},
@@ -986,8 +985,8 @@ let otherCats = [
   {name:'Property Management', emoji:'🧾', fixed:true},
   {name:'Other',                emoji:'📌', fixed:false},
 ];
-let otherBudgets = {};
-let catMgmtTarget = 'personal'; // which category/budget set the Settings screen is editing
+let otherIncomeStreams = [];
+let catMgmtTarget = 'personal'; // 'personal' or an otherIncomeStreams id — which set the Settings screen is editing
 let debtOrder = [];
 let pendingTxns = [];
 let recurring = [];
@@ -1060,11 +1059,17 @@ const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
 const fmtWhole  = n => '$' + Math.round(Math.abs(n)).toLocaleString('en-NZ');
 const fmtWholeSigned = n => (n >= 0 ? '+' : '−') + fmtWhole(n);
 const fmtDec = n => '$' + Math.abs(n).toLocaleString('en-NZ', {minimumFractionDigits:2,maximumFractionDigits:2});
-const catEmoji = name => (CATS.find(c=>c.name===name)||otherCats.find(c=>c.name===name)||{emoji:'📌'}).emoji;
-const catColor = name => { const i=CATS.findIndex(c=>c.name===name); if (i>=0) return CAT_COLORS[i]; const j=otherCats.findIndex(c=>c.name===name); return j>=0?CAT_COLORS[j%CAT_COLORS.length]:'#8b90a7'; };
-function categorise(desc) {
+const allStreamCats = () => otherIncomeStreams.flatMap(s=>s.cats||[]);
+const catEmoji = name => (CATS.find(c=>c.name===name)||allStreamCats().find(c=>c.name===name)||{emoji:'📌'}).emoji;
+const catColor = name => { const i=CATS.findIndex(c=>c.name===name); if (i>=0) return CAT_COLORS[i]; const j=allStreamCats().findIndex(c=>c.name===name); return j>=0?CAT_COLORS[j%CAT_COLORS.length]:'#8b90a7'; };
+// Rules are one shared list, but each is tagged to a stream ('personal' or an
+// otherIncomeStreams id) so the same keyword can map to a different category per
+// stream — e.g. a mortgage-servicer keyword maps to Waihi Beach's own "Mortgage"
+// category, not Personal's, when the transaction belongs to that stream.
+function categorise(desc, stream) {
+  const want = stream || 'personal';
   const d = desc.toLowerCase();
-  for (const r of rules) if (d.includes(r.kw.toLowerCase())) return r.cat;
+  for (const r of rules) if ((r.stream||'personal')===want && d.includes(r.kw.toLowerCase())) return r.cat;
   return 'Other';
 }
 function getLast6Months() {
@@ -1118,25 +1123,43 @@ function getBudgetsForYear(year, budgetsObj) {
 }
 function prevBudgetYear() { budgetYear--; renderCategories(); }
 function nextBudgetYear() { budgetYear++; renderCategories(); }
-// ─── Category management context (Personal vs Other Income, in Settings) ────
-function mgmtCatsArr() { return catMgmtTarget==='other' ? otherCats : CATS; }
-function mgmtBudgetsObj() { return catMgmtTarget==='other' ? otherBudgets : budgets; }
-function setCatMgmtTarget(t, el) {
-  catMgmtTarget = t;
-  document.querySelectorAll('#cat-mgmt-tabs .tab').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
+// ─── Category management context (Personal or one specific stream, in Settings) ──
+function mgmtCatsArr() {
+  if (catMgmtTarget==='personal') return CATS;
+  const s = otherIncomeStreams.find(x=>x.id===catMgmtTarget);
+  return s ? (s.cats || (s.cats=[])) : CATS;
+}
+function mgmtBudgetsObj() {
+  if (catMgmtTarget==='personal') return budgets;
+  const s = otherIncomeStreams.find(x=>x.id===catMgmtTarget);
+  return s ? (s.budgets || (s.budgets={})) : budgets;
+}
+// Shared between the Categories & Budgets card and the Rules card — both edit
+// content scoped to the same Personal/stream selection, so switching the tab in
+// either one moves both.
+function setCatMgmtTarget(t) {
+  catMgmtTarget = (t==='personal') ? 'personal' : Number(t);
+  renderCatMgmtTabs();
   renderCategories();
+  renderRules();
+}
+function renderCatMgmtTabs() {
+  const tabs = [{id:'personal',name:'Personal'}, ...otherIncomeStreams.map(s=>({id:s.id,name:s.name}))];
+  const html = tabs.map(t => `<button class="tab ${catMgmtTarget===t.id?'active':''}" onclick="setCatMgmtTarget('${t.id}')">${t.name}</button>`).join('');
+  ['cat-mgmt-tabs','rule-mgmt-tabs'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = html; });
 }
 // ─── Live-view category/budget context (Overview/P&L, driven by the stream filter) ──
 function viewCatsForFilter() {
   if (streamFilter==='personal') return CATS;
-  if (streamFilter==='all') return [...CATS, ...otherCats];
-  return otherCats;
+  if (streamFilter==='all') return [...CATS, ...allStreamCats()];
+  const s = otherIncomeStreams.find(x=>x.id===streamFilter);
+  return s ? (s.cats||[]) : [];
 }
 function viewBudgetsForYear(year) {
   if (streamFilter==='personal') return getBudgetsForYear(year, budgets);
-  if (streamFilter==='all') return {...getBudgetsForYear(year, budgets), ...getBudgetsForYear(year, otherBudgets)};
-  return getBudgetsForYear(year, otherBudgets);
+  if (streamFilter==='all') return otherIncomeStreams.reduce((acc,s)=>({...acc, ...getBudgetsForYear(year, s.budgets||{})}), getBudgetsForYear(year, budgets));
+  const s = otherIncomeStreams.find(x=>x.id===streamFilter);
+  return s ? getBudgetsForYear(year, s.budgets||{}) : {};
 }
 function prevMonth() {
   selMonth--; if (selMonth<0) { selMonth=11; selYear--; }
@@ -1516,7 +1539,8 @@ function openCatSheet(txnId) {
   const t = transactions.find(x=>x.id===txnId);
   document.getElementById('sheet-title').textContent = 'Choose category';
   const opts = document.getElementById('cat-options');
-  const cats = (t && t.stream && t.stream!=='personal') ? otherCats : CATS;
+  const txnStream = t && t.stream && t.stream!=='personal' ? otherIncomeStreams.find(s=>s.id===t.stream) : null;
+  const cats = txnStream ? (txnStream.cats||[]) : CATS;
   opts.innerHTML = cats.map(c => `
     <div class="cat-option" onclick="setCat(${txnId},'${c.name}')">
       <span class="cat-emoji">${c.emoji}</span>
@@ -1989,8 +2013,8 @@ function openAddIncomeStream() {
   document.getElementById('modal-confirm').onclick = () => {
     const f = readIncomeStreamForm();
     if (!f.name) return;
-    otherIncomeStreams.push({id:Date.now(), ...f});
-    closeModal(); renderIncomeStreams(); renderOverview(); scheduleSave();
+    otherIncomeStreams.push({id:Date.now(), ...f, cats:DEFAULT_STREAM_CATS(), budgets:{}});
+    closeModal(); renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
 }
@@ -2004,7 +2028,7 @@ function openUpdateIncomeStream(id) {
     const f = readIncomeStreamForm();
     if (!f.name) return;
     Object.assign(s, f);
-    closeModal(); renderIncomeStreams(); renderOverview(); scheduleSave();
+    closeModal(); renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
 }
@@ -2015,7 +2039,8 @@ function deleteIncomeStream(id) {
   transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
   otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
   if (streamFilter===id) streamFilter='all';
-  renderIncomeStreams(); renderOverview(); scheduleSave();
+  if (catMgmtTarget===id) catMgmtTarget='personal';
+  renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); renderCategories(); renderRules(); scheduleSave();
 }
 function renderIncomeStreams() {
   const el = document.getElementById('income-streams-list');
@@ -2311,6 +2336,7 @@ function parseCSV(text, account) {
   const col = (...names) => names.reduce((f,h)=>f>=0?f:headers.indexOf(h), -1);
   const txns = [];
   let idBase = transactions.length + Date.now();
+  const stream = accountStream(account);
 
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i]);
@@ -2345,7 +2371,7 @@ function parseCSV(text, account) {
     const date = parseCSVDate(dateStr);
     if (!date || isNaN(amount) || amount === 0) continue;
     desc = (desc||'Unknown').replace(/\s+/g,' ').trim();
-    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc), stream:accountStream(account)});
+    txns.push({id:idBase++, date, desc, amount, account, cat:categorise(desc, stream), stream});
   }
   return txns;
 }
@@ -2484,12 +2510,11 @@ function openManualTxn() {
     </div>
     <div class="input-group"><label>Category</label>
       <select id="mt-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
-        ${CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}
-        ${otherCats.length ? `<optgroup label="Other Income">${otherCats.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('')}</optgroup>` : ''}
+        ${catOptionsForStream(accountStream(accounts[0]?.id))}
       </select>
     </div>
     ${otherIncomeStreams.length ? `<div class="input-group"><label>Stream</label>
-      <select id="mt-stream" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
+      <select id="mt-stream" onchange="onMtStreamChange()" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);padding:10px 12px;font-size:15px;width:100%">
         <option value="personal" ${accountStream(accounts[0]?.id)==='personal'?'selected':''}>Personal</option>
         ${otherIncomeStreams.map(s=>`<option value="${s.id}" ${accountStream(accounts[0]?.id)===s.id?'selected':''}>${s.name}</option>`).join('')}
       </select>
@@ -2515,11 +2540,20 @@ function openManualTxn() {
   document.getElementById('modal').classList.add('open');
   setTimeout(()=>document.getElementById('mt-desc')?.focus(), 80);
 }
+function catOptionsForStream(stream) {
+  const cats = (stream && stream!=='personal') ? ((otherIncomeStreams.find(s=>s.id===stream)||{}).cats||[]) : CATS;
+  return cats.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
+}
 function onMtAccountChange() {
   const streamEl = document.getElementById('mt-stream');
-  if (!streamEl) return;
   const stream = accountStream(document.getElementById('mt-account').value);
-  streamEl.value = stream==='personal' ? 'personal' : String(stream);
+  if (streamEl) streamEl.value = stream==='personal' ? 'personal' : String(stream);
+  document.getElementById('mt-cat').innerHTML = catOptionsForStream(stream);
+}
+function onMtStreamChange() {
+  const streamEl = document.getElementById('mt-stream');
+  const stream = streamEl.value==='personal' ? 'personal' : Number(streamEl.value);
+  document.getElementById('mt-cat').innerHTML = catOptionsForStream(stream);
 }
 
 // ─── Accounts management ─────────────────────────────────────────────────────
@@ -2567,7 +2601,7 @@ function deleteAccount(i) {
 // ─── Export CSV ───────────────────────────────────────────────────────────────
 function exportCSV() {
   const accNameMap = Object.fromEntries(accounts.map(a=>[a.id,a.name]));
-  const catFixedMap = Object.fromEntries([...CATS, ...otherCats].map(c=>[c.name, c.fixed ? 'Fixed' : 'Variable']));
+  const catFixedMap = Object.fromEntries([...CATS, ...allStreamCats()].map(c=>[c.name, c.fixed ? 'Fixed' : 'Variable']));
   const header = 'Date,Month,Description,Category,Fixed/Variable,Account,Amount,Type';
   const rows = [...transactions]
     .sort((a,b) => a.date - b.date)
@@ -2610,6 +2644,7 @@ function useSpendAvg(catName, val) {
   renderCategories();
 }
 function renderCategories() {
+  renderCatMgmtTabs();
   const el = document.getElementById('cat-mgmt-list');
   const yrEl = document.getElementById('cat-budget-year-label');
   if (yrEl) yrEl.textContent = budgetYear;
@@ -2687,14 +2722,19 @@ function addCategory() {
 }
 
 // ─── Rules ────────────────────────────────────────────────────────────────────
+// Rules are one shared list, but each is tagged to a stream (see categorise()) —
+// the Personal/stream tabs here select which rules are shown/added, same context
+// as the Categories & Budgets tabs above (both driven by catMgmtTarget).
 function renderRules() {
+  renderCatMgmtTabs();
   const catSel = document.getElementById('rule-cat');
-  if (catSel) catSel.innerHTML = [...CATS, ...otherCats].map(c=>`<option>${c.name}</option>`).join('');
+  if (catSel) catSel.innerHTML = mgmtCatsArr().map(c=>`<option>${c.name}</option>`).join('');
   const search = (document.getElementById('rules-search')?.value||'').toLowerCase();
+  const inScope = rules.filter(r=>(r.stream||'personal')===catMgmtTarget);
   const filtered = search
-    ? rules.filter(r=>r.kw.toLowerCase().includes(search)||r.cat.toLowerCase().includes(search))
-    : rules;
-  document.getElementById('rules-list').innerHTML = filtered.map((r,i)=>`
+    ? inScope.filter(r=>r.kw.toLowerCase().includes(search)||r.cat.toLowerCase().includes(search))
+    : inScope;
+  document.getElementById('rules-list').innerHTML = filtered.map((r)=>`
     <div class="rule-item">
       <span class="rule-kw">${r.kw}</span>
       <span class="rule-cat">→ ${r.cat}</span>
@@ -2705,8 +2745,9 @@ function addRule() {
   const kw = document.getElementById('rule-kw').value.trim();
   const cat = document.getElementById('rule-cat').value;
   if (!kw) return;
-  rules.unshift({kw,cat});
-  transactions.forEach(t=>{ if(t.desc.toLowerCase().includes(kw.toLowerCase())) t.cat=cat; });
+  const stream = catMgmtTarget;
+  rules.unshift({kw, cat, stream});
+  transactions.forEach(t=>{ if((t.stream||'personal')===stream && t.desc.toLowerCase().includes(kw.toLowerCase())) t.cat=cat; });
   document.getElementById('rule-kw').value='';
   renderRules(); scheduleSave();
 }
@@ -2916,9 +2957,8 @@ function scheduleSave() {
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
-    rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, otherBudgets, accounts, recurring,
+    rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
     cats: CATS,
-    otherCats,
     savedAt: new Date().toISOString()
   };
 }
@@ -2937,8 +2977,6 @@ function loadDataObj(obj) {
     }
   }
   if (obj.cats && obj.cats.length) { CATS = obj.cats; CATS.forEach(c=>{ if(c.fixed===undefined) c.fixed=false; }); CATS.sort((a,b) => a.name==='Pay'?-1:b.name==='Pay'?1:a.name.localeCompare(b.name)); }
-  if (obj.otherCats && obj.otherCats.length) otherCats = obj.otherCats;
-  if (obj.otherBudgets) otherBudgets = obj.otherBudgets;
   // New mortgages format
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
@@ -2957,6 +2995,12 @@ function loadDataObj(obj) {
   }
   if (obj.otherDebts) otherDebts = obj.otherDebts;
   if (obj.otherIncomeStreams) otherIncomeStreams = obj.otherIncomeStreams;
+  // Migrate the old shared Other Income categories/budgets (before each stream had
+  // its own) onto any stream that doesn't yet have its own set.
+  otherIncomeStreams.forEach(s => {
+    if (!s.cats) s.cats = (obj.otherCats && obj.otherCats.length) ? obj.otherCats.map(c=>({...c})) : DEFAULT_STREAM_CATS();
+    if (!s.budgets) s.budgets = (obj.otherBudgets && Object.keys(obj.otherBudgets).length) ? JSON.parse(JSON.stringify(obj.otherBudgets)) : {};
+  });
   if (obj.debtOrder) debtOrder = obj.debtOrder;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
