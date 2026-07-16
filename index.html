@@ -3256,14 +3256,79 @@ async function sbLoadData() {
   }
 }
 
+// ─── Merge-before-save ────────────────────────────────────────────────────────
+// A shared household is one JSON blob; without merging, whichever device saves
+// last completely overwrites the cloud, silently discarding anything the other
+// device added that this device's snapshot doesn't know about (e.g. a second
+// device's stale copy overwriting an account added moments earlier elsewhere).
+// Merging by id before every save means new items from either side survive;
+// only a genuine edit to the very same record can still collide, and there the
+// device doing the saving wins for that record — a real improvement over
+// today's all-or-nothing overwrite, not a full conflict-resolution system.
+function mergeArraysById(localArr, cloudArr, idKey='id') {
+  localArr = localArr || []; cloudArr = cloudArr || [];
+  const map = new Map();
+  cloudArr.forEach(item => map.set(item[idKey], item));
+  localArr.forEach(item => map.set(item[idKey], item));
+  return [...map.values()];
+}
+function mergeYearMap(localMap, cloudMap) {
+  localMap = localMap || {}; cloudMap = cloudMap || {};
+  const years = new Set([...Object.keys(cloudMap), ...Object.keys(localMap)]);
+  const out = {};
+  years.forEach(y => { out[y] = {...(cloudMap[y]||{}), ...(localMap[y]||{})}; });
+  return out;
+}
+function mergeRules(localRules, cloudRules) {
+  localRules = localRules || []; cloudRules = cloudRules || [];
+  const key = r => `${r.kw}|${r.cat}|${r.stream||'personal'}`;
+  const map = new Map();
+  cloudRules.forEach(r => map.set(key(r), r));
+  localRules.forEach(r => map.set(key(r), r));
+  return [...map.values()];
+}
+function mergeIncomeStreams(localArr, cloudArr) {
+  localArr = localArr || []; cloudArr = cloudArr || [];
+  const cloudMap = new Map(cloudArr.map(s=>[s.id,s]));
+  const localMap = new Map(localArr.map(s=>[s.id,s]));
+  const ids = new Set([...cloudMap.keys(), ...localMap.keys()]);
+  return [...ids].map(id => {
+    const c = cloudMap.get(id), l = localMap.get(id);
+    if (c && l) return {...l, cats: mergeArraysById(l.cats, c.cats, 'name'), budgets: mergeYearMap(l.budgets, c.budgets)};
+    return l || c;
+  });
+}
+function mergeWithCloud(data, cloud) {
+  data.transactions       = mergeArraysById(data.transactions, cloud.transactions);
+  data.pendingTxns        = mergeArraysById(data.pendingTxns, cloud.pendingTxns);
+  data.accounts           = mergeArraysById(data.accounts, cloud.accounts);
+  data.otherDebts         = mergeArraysById(data.otherDebts, cloud.otherDebts);
+  data.investments        = mergeArraysById(data.investments, cloud.investments);
+  data.recurring          = mergeArraysById(data.recurring, cloud.recurring);
+  data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages);
+  data.cats               = mergeArraysById(data.cats, cloud.cats, 'name');
+  data.rules              = mergeRules(data.rules, cloud.rules);
+  data.budgets            = mergeYearMap(data.budgets, cloud.budgets);
+  data.otherIncomeStreams = mergeIncomeStreams(data.otherIncomeStreams, cloud.otherIncomeStreams);
+  return data;
+}
 async function sbSaveData(data) {
   if (!sbConn || !sbHousehold || sbSaving) return;
   sbSaving = true;
   try {
+    const { data: existing } = await sbConn.from('household_data').select('data').eq('household_id', sbHousehold.id).single();
+    if (existing?.data && Object.keys(existing.data).length) {
+      data = mergeWithCloud(data, existing.data);
+    }
     const { error } = await sbConn
       .from('household_data')
       .upsert({ household_id: sbHousehold.id, data, updated_at: new Date().toISOString() }, { onConflict: 'household_id' });
     if (error) throw error;
+    // Bring this device's own view up to date with anything the merge pulled in
+    // from the other side, and keep localStorage matching what's now in the cloud.
+    localStorage.setItem('myfinance_data', JSON.stringify(data));
+    loadDataObj(data);
+    renderOverview(); renderDebt(); renderAssets();
     setSyncStatus('synced', 'Synced ✓');
   } catch(e) {
     setSyncStatus('', 'Cloud save failed');
