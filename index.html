@@ -248,7 +248,7 @@
     .modal-box { background: var(--bg2); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 560px; max-height: 88vh; display: flex; flex-direction: column; border: 0.5px solid var(--border2); }
     .modal-box.modal-wide { padding: 16px; }
     .modal-title { font-size: 17px; font-weight: 600; margin-bottom: 16px; flex-shrink: 0; }
-    #modal-body { overflow-y: auto; flex: 1; }
+    #modal-body { overflow-y: auto; flex: 1; padding-right: 8px; margin-right: -8px; }
     .modal-actions { display: flex; gap: 8px; margin-top: 16px; flex-shrink: 0; }
     .modal-actions .btn { flex: 1; }
 
@@ -2430,7 +2430,10 @@ function renderPendingList() {
         <input type="text" value="${safeDesc}" style="font-size:14px;font-weight:500;background:none;border:none;border-bottom:0.5px solid var(--border2);color:var(--text);outline:none;width:100%;padding:0 0 2px 0" oninput="updatePendingDesc(${t.id},this.value)">
         <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}</div>
       </div>
-      <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;flex-shrink:0;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+        <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
+        <button onclick="addRuleFromPending(${t.id})" style="font-size:10px;color:var(--teal);background:none;border:none;cursor:pointer;padding:0" title="Create a rule from this description + category">+ rule</button>
+      </div>
       <div style="text-align:right;flex-shrink:0">
         <div class="${t.amount>=0?'pos':'neg'}" style="font-size:14px;font-weight:600;white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
         <button onclick="rejectPending(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✕ remove</button>
@@ -2441,6 +2444,20 @@ function renderPendingList() {
 function updatePendingDesc(id, val) {
   const t = pendingTxns.find(x=>x.id===id);
   if (t) { t.desc = val; scheduleSave(); }
+}
+function addRuleFromPending(id) {
+  const t = pendingTxns.find(x=>x.id===id);
+  const kw = t?.desc.trim();
+  if (!kw) return;
+  const stream = t.stream || 'personal';
+  rules.unshift({kw, cat:t.cat, stream});
+  // Apply immediately to every other pending/committed transaction in the same
+  // stream that matches, so you don't have to leave this review screen to do it.
+  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && p.desc.toLowerCase().includes(kw.toLowerCase())) p.cat = t.cat; });
+  transactions.forEach(tx => { if ((tx.stream||'personal')===stream && tx.desc.toLowerCase().includes(kw.toLowerCase())) tx.cat = t.cat; });
+  document.getElementById('modal-body').innerHTML = renderPendingList();
+  showToast(`Rule added: "${kw}" → ${t.cat}`);
+  scheduleSave();
 }
 function openPendingReview() {
   if (!pendingTxns.length) return;
