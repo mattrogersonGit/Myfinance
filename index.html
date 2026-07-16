@@ -3324,11 +3324,14 @@ async function sbSaveData(data) {
       .from('household_data')
       .upsert({ household_id: sbHousehold.id, data, updated_at: new Date().toISOString() }, { onConflict: 'household_id' });
     if (error) throw error;
-    // Bring this device's own view up to date with anything the merge pulled in
-    // from the other side, and keep localStorage matching what's now in the cloud.
+    // Keep localStorage matching what's now in the cloud. Deliberately NOT calling
+    // loadDataObj()/re-rendering here: recalcNetWorth() (reached via renderAssets)
+    // unconditionally calls scheduleSave(), which turned this into an infinite
+    // save loop every ~3s, and reloading from this save's own (possibly
+    // now-stale) snapshot could stomp an edit made in the moments since this
+    // save started. This device picks up anything merged in from elsewhere the
+    // next time it actually loads (reload/sign-in), same as before this fix.
     localStorage.setItem('myfinance_data', JSON.stringify(data));
-    loadDataObj(data);
-    renderOverview(); renderDebt(); renderAssets();
     setSyncStatus('synced', 'Synced ✓');
   } catch(e) {
     setSyncStatus('', 'Cloud save failed');
