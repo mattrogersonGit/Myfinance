@@ -198,6 +198,7 @@
     #sync-status { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 5px; }
     #sync-status.syncing { color: var(--amber); }
     #sync-status.synced { color: var(--teal); }
+    #sync-status.error { color: var(--red); }
     .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
     /* Search */
@@ -3019,6 +3020,7 @@ function deleteRecurring(i) {
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
 function scheduleSave() {
+  if (sbConn && sbUser && sbHousehold) setSyncStatus('syncing', 'Unsaved changes…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveData, 1500);
 }
@@ -3084,7 +3086,10 @@ function loadDataObj(obj) {
 function saveData() {
   const data = getDataObj();
   localStorage.setItem('myfinance_data', JSON.stringify(data));
-  if (sbConn && sbUser && sbHousehold && isPro()) sbSaveData(data);
+  if (sbConn && sbUser && sbHousehold && isPro()) {
+    setSyncStatus('syncing', 'Saving…');
+    sbSaveData(data);
+  }
 }
 function loadFromLocal() {
   try {
@@ -3268,7 +3273,7 @@ async function sbLoadData() {
     .select('data, updated_at')
     .eq('household_id', sbHousehold.id)
     .single();
-  if (error) { setSyncStatus('', 'Cloud load failed'); return; }
+  if (error) { setSyncStatus('error', 'Cloud load failed'); return; }
   if (data?.data && Object.keys(data.data).length > 0) {
     loadDataObj(data.data);
     localStorage.setItem('myfinance_data', JSON.stringify(data.data));
@@ -3375,7 +3380,7 @@ async function sbSaveData(data) {
     localStorage.setItem('myfinance_data', JSON.stringify(data));
     setSyncStatus('synced', 'Synced ✓');
   } catch(e) {
-    setSyncStatus('', 'Cloud save failed');
+    setSyncStatus('error', 'Cloud save failed');
     console.error('Supabase save:', e);
   } finally { sbSaving = false; }
 }
