@@ -1629,10 +1629,14 @@ function setCat(id, cat) {
   const oldCat = t.cat;
   t.cat = cat;
   if (oldCat !== cat && t.desc) {
-    const kw = t.desc.trim();
-    const alreadyCovered = rules.some(r => kw.toLowerCase().includes(r.kw.toLowerCase()));
+    // Fold in the Particulars/Analysis Code detail so a generic payer name reused
+    // for several purposes (e.g. "Rogerson M J" covering phone, gas, power) gets a
+    // rule specific to this purpose, not one that grabs every transaction from them.
+    const kw = (t.desc.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
+    const stream = t.stream || 'personal';
+    const alreadyCovered = rules.some(r => (r.stream||'personal')===stream && kw.toLowerCase().includes(r.kw.toLowerCase()));
     if (!alreadyCovered) {
-      rules.unshift({kw, cat});
+      rules.unshift({kw, cat, stream});
       const label = kw.length > 28 ? kw.slice(0, 28) + '…' : kw;
       showToast(`Rule added: "${label}" → ${cat}`);
     }
@@ -2485,16 +2489,23 @@ function updatePendingDesc(id, val) {
 }
 function addRuleFromPending(id) {
   const t = pendingTxns.find(x=>x.id===id);
-  const kw = t?.desc.trim();
+  if (!t || !t.desc) return;
+  // Fold in the Particulars/Analysis Code detail (same text categorise() actually
+  // matches against, via txnSearchText) so a generic payer name that's reused for
+  // several different purposes -- e.g. "Rogerson M J" covering phone, gas, power --
+  // produces a rule specific to *this* purpose instead of a rule that grabs all of them.
+  const kw = (t.desc.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
   if (!kw) return;
   const stream = t.stream || 'personal';
   rules.unshift({kw, cat:t.cat, stream});
   // Apply immediately to every other pending/committed transaction in the same
   // stream that matches, so you don't have to leave this review screen to do it.
-  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && txnSearchText(p).includes(kw.toLowerCase())) p.cat = t.cat; });
-  transactions.forEach(tx => { if ((tx.stream||'personal')===stream && txnSearchText(tx).includes(kw.toLowerCase())) tx.cat = t.cat; });
+  const kwLower = kw.toLowerCase();
+  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && txnSearchText(p).includes(kwLower)) p.cat = t.cat; });
+  transactions.forEach(tx => { if ((tx.stream||'personal')===stream && txnSearchText(tx).includes(kwLower)) tx.cat = t.cat; });
   document.getElementById('modal-body').innerHTML = renderPendingList();
-  showToast(`Rule added: "${kw}" → ${t.cat}`);
+  const label = kw.length > 34 ? kw.slice(0, 34) + '…' : kw;
+  showToast(`Rule added: "${label}" → ${t.cat}`);
   scheduleSave();
 }
 function openPendingReview() {
