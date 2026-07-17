@@ -3077,10 +3077,21 @@ function loadDataObj(obj) {
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
-    // Merge saved accounts — keep built-in ones, add any custom ones
+    // Merge saved accounts — keep built-in ones, add any custom ones. Always
+    // start the built-in merge from the hardcoded id list, never from whatever
+    // `accounts` currently holds: loadDataObj runs twice per page load
+    // (loadFromLocal, then sbLoadData), and starting from the live array on the
+    // second call let a custom account already present get swept into the
+    // built-in .map() and incorrectly stamped fixed:true -- which then made the
+    // *next* load's `!s.fixed` filter permanently exclude it, since a custom
+    // account's built-in/custom status must never depend on mutable saved data.
+    const builtIns = [
+      {id:'everyday',   name:'Everyday',    icon:'🏦', fixed:true},
+      {id:'creditcard', name:'Credit card', icon:'💳', fixed:true},
+    ];
     const saved = obj.accounts;
-    accounts = accounts.map(a => { const s=saved.find(x=>x.id===a.id); return s?{...a,...s,fixed:true}:a; });
-    saved.filter(s=>!s.fixed).forEach(s=>{ if(!accounts.find(a=>a.id===s.id)) accounts.push(s); });
+    accounts = builtIns.map(a => { const s=saved.find(x=>x.id===a.id); return s?{...a,...s,fixed:true}:a; });
+    saved.filter(s=>!builtIns.find(b=>b.id===s.id)).forEach(s=>{ if(!accounts.find(a=>a.id===s.id)) accounts.push({...s, fixed:false}); });
   }
 }
 function saveData() {
