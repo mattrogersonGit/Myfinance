@@ -2520,7 +2520,9 @@ function openPendingCatSheet(id) {
   const t = pendingTxns.find(x=>x.id===id);
   if (!t) return;
   const opts = document.getElementById('cat-options');
-  opts.innerHTML = CATS.map(c=>`
+  const txnStream = t.stream && t.stream!=='personal' ? otherIncomeStreams.find(s=>s.id===t.stream) : null;
+  const cats = txnStream ? (txnStream.cats||[]) : CATS;
+  opts.innerHTML = cats.map(c=>`
     <div class="cat-option" onclick="setPendingCat(${id},'${c.name}')">
       <span class="cat-emoji">${c.emoji}</span><span class="cat-name">${c.name}</span>
       ${t.cat===c.name?'<span class="cat-check">✓</span>':''}
