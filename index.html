@@ -986,6 +986,17 @@ const DEFAULT_STREAM_CATS = () => [
   {name:'Property Management', emoji:'🧾', fixed:true},
   {name:'Other',                emoji:'📌', fixed:false},
 ];
+// Sensible default icons for common category names that won't already exist
+// anywhere else to match against (utility bills, property/investment terms).
+const COMMON_CAT_ICONS = {
+  'Gas': '🔥',
+  'Water': '💧',
+  'Equity': '📊',
+  'Body Corp': '🏢',
+  'Cleaning': '🧹',
+  'Legal': '⚖️',
+  'Accounting': '🧮',
+};
 let otherIncomeStreams = [];
 let catMgmtTarget = 'personal'; // 'personal' or an otherIncomeStreams id — which set the Settings screen is editing
 // Deletions, so a merge with another device's stale copy doesn't resurrect
@@ -2747,10 +2758,16 @@ function updateCatName(i, val) {
   cats[i].name = newName;
   // A freshly-added category still has the generic pin icon — if the new name
   // matches a category that already has a proper icon elsewhere (Personal, or
-  // another stream), adopt it instead of leaving the placeholder.
+  // another stream), adopt it instead of leaving the placeholder. Otherwise
+  // fall back to a small curated list of common names (utility bills, property/
+  // investment terms) that won't already exist as a category anywhere else.
   if (cats[i].emoji === '📌') {
-    const match = CATS.find(c=>c.name===newName) || allStreamCats().find(c=>c.name===newName);
+    // Exclude pin-icon matches — cats[i] itself already has the new name by this
+    // point, so an unqualified search could just match itself (a no-op) and
+    // mask the curated fallback below.
+    const match = [...CATS, ...allStreamCats()].find(c=>c.name===newName && c.emoji!=='📌');
     if (match) cats[i].emoji = match.emoji;
+    else if (COMMON_CAT_ICONS[newName]) cats[i].emoji = COMMON_CAT_ICONS[newName];
   }
   renderCategories(); scheduleSave();
 }
