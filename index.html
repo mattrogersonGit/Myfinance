@@ -2510,6 +2510,15 @@ function addRuleFromPending(id) {
 }
 function openPendingReview() {
   if (!pendingTxns.length) return;
+  // A pending transaction's stream is a one-time snapshot taken when its CSV was
+  // first parsed (see parseCSV). If an account gets linked to an Other Income
+  // stream *after* some rows were already sitting in the review queue (or a CSV
+  // gets re-imported and the dedup logic keeps the older, already-pending copy
+  // instead of the freshly re-parsed one), those rows are left stuck showing the
+  // Personal category list instead of their stream's. Since nothing has been
+  // committed yet, it's always safe to re-derive stream from the account's
+  // *current* link every time the review screen opens.
+  pendingTxns.forEach(t => { t.stream = accountStream(t.account); });
   document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
   document.querySelector('.modal-box').classList.add('modal-wide');
   document.getElementById('modal-body').innerHTML = renderPendingList();
