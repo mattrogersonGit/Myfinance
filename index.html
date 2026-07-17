@@ -1029,7 +1029,7 @@ let currentPage = 'overview';
 // ─── Supabase config ──────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://cirhguycwvgmqxscbahw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpcmhndXljd3ZnbXF4c2NiYWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5NDY4MzUsImV4cCI6MjA5ODUyMjgzNX0.fDK8v6oHl3rYXxF0kQ_F9Cr-q2ROIHI21_Yd6m2kbvE';
-let sbConn = null, sbUser = null, sbHousehold = null, sbSaving = false;
+let sbConn = null, sbUser = null, sbHousehold = null, sbSaving = false, sbSavePending = false;
 
 // ─── Billing ──────────────────────────────────────────────────────────────────
 const STRIPE_MONTHLY_URL   = 'https://buy.stripe.com/9B6cMX36x8JKdNv8Ries000';
@@ -2809,6 +2809,7 @@ function deleteCategory(i) {
 function addCategory() {
   mgmtCatsArr().push({name:'New Category',emoji:'📌'});
   renderCategories();
+  scheduleSave();
   // Focus the new name input
   const inputs = document.querySelectorAll('.cat-name-input');
   if (inputs.length) inputs[inputs.length-1].select();
@@ -3422,7 +3423,14 @@ function mergeWithCloud(data, cloud) {
   return data;
 }
 async function sbSaveData(data) {
-  if (!sbConn || !sbHousehold || sbSaving) return;
+  if (!sbConn || !sbHousehold) return;
+  // A save already in flight (e.g. a slow network round-trip) must not just drop
+  // this request -- during a big CSV commit, edits routinely land faster than a
+  // save round-trip completes. Dropping silently here is how something like a
+  // freshly-added category could vanish if the page reloaded before any later
+  // edit happened to trigger another save. Instead, remember one more save is
+  // owed and run it (with whatever's current by then) once this one finishes.
+  if (sbSaving) { sbSavePending = true; return; }
   sbSaving = true;
   try {
     const { data: existing } = await sbConn.from('household_data').select('data').eq('household_id', sbHousehold.id).single();
@@ -3445,7 +3453,10 @@ async function sbSaveData(data) {
   } catch(e) {
     setSyncStatus('error', 'Cloud save failed');
     console.error('Supabase save:', e);
-  } finally { sbSaving = false; }
+  } finally {
+    sbSaving = false;
+    if (sbSavePending) { sbSavePending = false; sbSaveData(getDataObj()); }
+  }
 }
 
 async function sbSyncPush() {
