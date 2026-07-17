@@ -987,6 +987,13 @@ const DEFAULT_STREAM_CATS = () => [
 ];
 let otherIncomeStreams = [];
 let catMgmtTarget = 'personal'; // 'personal' or an otherIncomeStreams id — which set the Settings screen is editing
+// Deletions, so a merge with another device's stale copy doesn't resurrect
+// something intentionally removed here — see mergeArraysById/mergeWithCloud.
+let tombstones = {}; // { [scope]: { [id]: deletedAtMillis } }
+function tombstone(scope, id) {
+  if (!tombstones[scope]) tombstones[scope] = {};
+  tombstones[scope][String(id)] = Date.now();
+}
 let debtOrder = [];
 let pendingTxns = [];
 let recurring = [];
@@ -1624,6 +1631,7 @@ function setCat(id, cat) {
 }
 function deleteTxn(id) {
   transactions = transactions.filter(t=>t.id!==id);
+  tombstone('transactions', id);
   scheduleSave();
   renderTransactions();
 }
@@ -1972,6 +1980,7 @@ function openOtherDebtHistory(id) {
 function deleteOtherDebt(id) {
   if (!confirm('Delete this debt?')) return;
   otherDebts = otherDebts.filter(x=>x.id!==id);
+  tombstone('otherDebts', id);
   if (debtItemCharts[id]) { debtItemCharts[id].destroy(); delete debtItemCharts[id]; }
   renderDebt(); scheduleSave();
 }
@@ -2043,6 +2052,7 @@ function deleteIncomeStream(id) {
   if (!confirm(`Delete "${s.name}"? Its transactions will be reassigned to Personal.`)) return;
   transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
   otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
+  tombstone('otherIncomeStreams', id);
   if (streamFilter===id) streamFilter='all';
   if (catMgmtTarget===id) catMgmtTarget='personal';
   renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); renderCategories(); renderRules(); scheduleSave();
@@ -2295,6 +2305,7 @@ function openInvestmentHistory(id) {
 function deleteInvestment(id) {
   if (!confirm('Delete this investment?')) return;
   investments = investments.filter(i=>i.id!==id);
+  tombstone('investments', id);
   renderInvestments(); scheduleSave();
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-confirm').style.display=''; document.querySelector('.modal-box').classList.remove('modal-wide'); }
@@ -2487,6 +2498,7 @@ function openPendingReview() {
 function clearAllPending() {
   if (!pendingTxns.length) return;
   if (!confirm(`Remove all ${pendingTxns.length} pending transactions from review? This doesn't affect anything already committed -- use this if you want to re-import the CSV from scratch.`)) return;
+  pendingTxns.forEach(t => tombstone('pendingTxns', t.id));
   pendingTxns = [];
   closeModal();
   renderPendingBanner();
@@ -2514,6 +2526,7 @@ function setPendingCat(id, cat) {
 }
 function rejectPending(id) {
   pendingTxns = pendingTxns.filter(t=>t.id!==id);
+  tombstone('pendingTxns', id);
   if (!pendingTxns.length) { closeModal(); renderPendingBanner(); scheduleSave(); return; }
   document.getElementById('modal-body').innerHTML = renderPendingList();
   document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
@@ -2634,6 +2647,7 @@ function addAccount() {
 function deleteAccount(i) {
   if (accounts[i].fixed) return;
   if (!confirm(`Delete account "${accounts[i].name}"? Transactions already imported will keep their account label.`)) return;
+  tombstone('accounts', accounts[i].id);
   accounts.splice(i,1);
   renderAccounts(); renderImportZones(); scheduleSave();
 }
@@ -2758,6 +2772,7 @@ function deleteCategory(i) {
   transactions.forEach(t=>{ if(t.cat===name) t.cat='Other'; });
   Object.keys(budgetsObj).forEach(yr => { delete budgetsObj[yr][name]; });
   cats.splice(i,1);
+  tombstone(catMgmtTarget==='personal' ? 'cats_personal' : `cats_stream_${catMgmtTarget}`, name);
   renderCategories(); scheduleSave();
 }
 function addCategory() {
@@ -2798,7 +2813,12 @@ function addRule() {
   document.getElementById('rule-kw').value='';
   renderRules(); scheduleSave();
 }
-function deleteRule(i) { rules.splice(i,1); renderRules(); scheduleSave(); }
+function deleteRule(i) {
+  const r = rules[i];
+  rules.splice(i,1);
+  tombstone('rules', `${r.kw}|${r.cat}|${r.stream||'personal'}`);
+  renderRules(); scheduleSave();
+}
 
 // ─── Net worth trend chart ────────────────────────────────────────────────────
 function buildNetWorthSeries() {
@@ -2990,6 +3010,7 @@ function addRecurring() {
 }
 function deleteRecurring(i) {
   if (!confirm(`Remove "${recurring[i].label}" from recurring list?`)) return;
+  tombstone('recurring', recurring[i].id);
   recurring.splice(i,1);
   renderRecurring();
   scheduleSave();
@@ -3006,6 +3027,7 @@ function getDataObj() {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
     cats: CATS,
+    tombstones,
     savedAt: new Date().toISOString()
   };
 }
@@ -3041,6 +3063,7 @@ function loadDataObj(obj) {
     property = 'homeVal' in obj.property ? obj.property : {homeVal:obj.property.val||0, beachVal:0};
   }
   if (obj.otherDebts) otherDebts = obj.otherDebts;
+  if (obj.tombstones) tombstones = obj.tombstones;
   if (obj.otherIncomeStreams) otherIncomeStreams = obj.otherIncomeStreams;
   // Migrate the old shared Other Income categories/budgets (before each stream had
   // its own) onto any stream that doesn't yet have its own set.
@@ -3265,12 +3288,13 @@ async function sbLoadData() {
 // only a genuine edit to the very same record can still collide, and there the
 // device doing the saving wins for that record — a real improvement over
 // today's all-or-nothing overwrite, not a full conflict-resolution system.
-function mergeArraysById(localArr, cloudArr, idKey='id') {
+function mergeArraysById(localArr, cloudArr, idKey='id', scope=null, tomb=null) {
   localArr = localArr || []; cloudArr = cloudArr || [];
   const map = new Map();
   cloudArr.forEach(item => map.set(item[idKey], item));
   localArr.forEach(item => map.set(item[idKey], item));
-  return [...map.values()];
+  const dead = (scope && tomb && tomb[scope]) || {};
+  return [...map.values()].filter(item => !(String(item[idKey]) in dead));
 }
 function mergeYearMap(localMap, cloudMap) {
   localMap = localMap || {}; cloudMap = cloudMap || {};
@@ -3279,37 +3303,54 @@ function mergeYearMap(localMap, cloudMap) {
   years.forEach(y => { out[y] = {...(cloudMap[y]||{}), ...(localMap[y]||{})}; });
   return out;
 }
-function mergeRules(localRules, cloudRules) {
+function mergeRules(localRules, cloudRules, tomb) {
   localRules = localRules || []; cloudRules = cloudRules || [];
   const key = r => `${r.kw}|${r.cat}|${r.stream||'personal'}`;
   const map = new Map();
   cloudRules.forEach(r => map.set(key(r), r));
   localRules.forEach(r => map.set(key(r), r));
-  return [...map.values()];
+  const dead = (tomb && tomb.rules) || {};
+  return [...map.values()].filter(r => !(key(r) in dead));
 }
-function mergeIncomeStreams(localArr, cloudArr) {
+function mergeIncomeStreams(localArr, cloudArr, tomb) {
   localArr = localArr || []; cloudArr = cloudArr || [];
   const cloudMap = new Map(cloudArr.map(s=>[s.id,s]));
   const localMap = new Map(localArr.map(s=>[s.id,s]));
   const ids = new Set([...cloudMap.keys(), ...localMap.keys()]);
-  return [...ids].map(id => {
+  const dead = (tomb && tomb.otherIncomeStreams) || {};
+  return [...ids].filter(id => !(String(id) in dead)).map(id => {
     const c = cloudMap.get(id), l = localMap.get(id);
-    if (c && l) return {...l, cats: mergeArraysById(l.cats, c.cats, 'name'), budgets: mergeYearMap(l.budgets, c.budgets)};
+    if (c && l) return {
+      ...l,
+      cats: mergeArraysById(l.cats, c.cats, 'name', `cats_stream_${id}`, tomb),
+      budgets: mergeYearMap(l.budgets, c.budgets),
+    };
     return l || c;
   });
 }
+// Tombstones themselves union across devices — a delete recorded on either
+// side must stick, never un-deleted by the other device's merge.
+function mergeTombstones(local, cloud) {
+  local = local || {}; cloud = cloud || {};
+  const scopes = new Set([...Object.keys(local), ...Object.keys(cloud)]);
+  const out = {};
+  scopes.forEach(s => { out[s] = {...(cloud[s]||{}), ...(local[s]||{})}; });
+  return out;
+}
 function mergeWithCloud(data, cloud) {
-  data.transactions       = mergeArraysById(data.transactions, cloud.transactions);
-  data.pendingTxns        = mergeArraysById(data.pendingTxns, cloud.pendingTxns);
-  data.accounts           = mergeArraysById(data.accounts, cloud.accounts);
-  data.otherDebts         = mergeArraysById(data.otherDebts, cloud.otherDebts);
-  data.investments        = mergeArraysById(data.investments, cloud.investments);
-  data.recurring          = mergeArraysById(data.recurring, cloud.recurring);
-  data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages);
-  data.cats               = mergeArraysById(data.cats, cloud.cats, 'name');
-  data.rules              = mergeRules(data.rules, cloud.rules);
+  const tomb = mergeTombstones(data.tombstones, cloud.tombstones);
+  data.tombstones         = tomb;
+  data.transactions       = mergeArraysById(data.transactions, cloud.transactions, 'id', 'transactions', tomb);
+  data.pendingTxns        = mergeArraysById(data.pendingTxns, cloud.pendingTxns, 'id', 'pendingTxns', tomb);
+  data.accounts           = mergeArraysById(data.accounts, cloud.accounts, 'id', 'accounts', tomb);
+  data.otherDebts         = mergeArraysById(data.otherDebts, cloud.otherDebts, 'id', 'otherDebts', tomb);
+  data.investments        = mergeArraysById(data.investments, cloud.investments, 'id', 'investments', tomb);
+  data.recurring          = mergeArraysById(data.recurring, cloud.recurring, 'id', 'recurring', tomb);
+  data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
+  data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
+  data.rules              = mergeRules(data.rules, cloud.rules, tomb);
   data.budgets            = mergeYearMap(data.budgets, cloud.budgets);
-  data.otherIncomeStreams = mergeIncomeStreams(data.otherIncomeStreams, cloud.otherIncomeStreams);
+  data.otherIncomeStreams = mergeIncomeStreams(data.otherIncomeStreams, cloud.otherIncomeStreams, tomb);
   return data;
 }
 async function sbSaveData(data) {
