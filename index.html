@@ -3318,14 +3318,35 @@ async function sbLoadData() {
 // device added that this device's snapshot doesn't know about (e.g. a second
 // device's stale copy overwriting an account added moments earlier elsewhere).
 // Merging by id before every save means new items from either side survive;
-// only a genuine edit to the very same record can still collide, and there the
-// device doing the saving wins for that record — a real improvement over
-// today's all-or-nothing overwrite, not a full conflict-resolution system.
+// only a genuine edit to the very same record can still collide. For records
+// that track a dated `history[]` (investments, otherDebts, mortgages), the
+// collision is resolved by recency (latest history date wins) instead of
+// "whichever device happened to save last" — otherwise a device with a
+// stale snapshot re-saving for an unrelated reason silently reverts another
+// device's newer balance update.
+function mergeItemHistory(cloudItem, localItem) {
+  const histMap = new Map();
+  (cloudItem.history||[]).forEach(h => h && h.date && histMap.set(h.date, h));
+  (localItem.history||[]).forEach(h => h && h.date && histMap.set(h.date, h));
+  const history = [...histMap.values()].sort((a,b)=>a.date.localeCompare(b.date));
+  const merged = {...cloudItem, ...localItem, history};
+  const latest = history[history.length-1];
+  if (latest && 'value' in latest) {
+    if ('current' in merged) merged.current = latest.value;
+    if ('balance' in merged) merged.balance = latest.value;
+    merged.updatedAt = latest.date;
+  }
+  return merged;
+}
 function mergeArraysById(localArr, cloudArr, idKey='id', scope=null, tomb=null) {
   localArr = localArr || []; cloudArr = cloudArr || [];
-  const map = new Map();
-  cloudArr.forEach(item => map.set(item[idKey], item));
-  localArr.forEach(item => map.set(item[idKey], item));
+  const cloudMap = new Map(cloudArr.map(item => [item[idKey], item]));
+  const map = new Map(cloudMap);
+  localArr.forEach(item => {
+    const c = cloudMap.get(item[idKey]);
+    if (c && (Array.isArray(c.history) || Array.isArray(item.history))) item = mergeItemHistory(c, item);
+    map.set(item[idKey], item);
+  });
   const dead = (scope && tomb && tomb[scope]) || {};
   return [...map.values()].filter(item => !(String(item[idKey]) in dead));
 }
@@ -3384,6 +3405,7 @@ function mergeWithCloud(data, cloud) {
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
   data.budgets            = mergeYearMap(data.budgets, cloud.budgets);
   data.otherIncomeStreams = mergeIncomeStreams(data.otherIncomeStreams, cloud.otherIncomeStreams, tomb);
+  if (cloud.savings && data.savings) data.savings = mergeItemHistory(cloud.savings, data.savings);
   return data;
 }
 async function sbSaveData(data) {
