@@ -1966,7 +1966,10 @@ function openUpdateOtherDebt(id) {
   document.getElementById('modal-confirm').textContent = 'Save';
   document.getElementById('modal-confirm').onclick = () => {
     const f = readDebtForm();
-    if (!f.name) return;
+    // Editing an *existing* debt must never silently discard the whole update
+    // (balance included) just because the name field came back blank -- keep
+    // whatever name it already had rather than aborting with no feedback.
+    if (!f.name) f.name = d.name;
     const prevBal = d.balance;
     Object.assign(d, f);
     if (!d.history) d.history = [];
