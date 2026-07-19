@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — MyFinance</title>
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #1a1d27;
+    --border: rgba(255,255,255,0.08);
+    --text: #f0f2f8;
+    --text2: #a8adc4;
+    --text3: #7a7f96;
+    --teal: #1db88a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8;
+      --bg2: #ffffff;
+      --border: rgba(0,0,0,0.08);
+      --text: #14161f;
+      --text2: #565b70;
+      --text3: #8489a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  header img { width: 40px; height: 40px; border-radius: 10px; }
+  header h1 { font-size: 20px; margin: 0; }
+  .updated { color: var(--text3); font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; color: var(--teal); }
+  p, li { color: var(--text2); font-size: 14.5px; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 6px; }
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-top: 28px; }
+  .back { display: inline-block; margin-bottom: 20px; font-size: 13px; color: var(--text3); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">&#8249; Back to MyFinance</a>
+    <header>
+      <img src="icons/icon-192.png" alt="">
+      <h1>MyFinance — Privacy Policy</h1>
+    </header>
+    <div class="updated">Effective date: 20 July 2026</div>
+
+    <p>MyFinance is a personal finance tracking app operated by <strong>MJR Trades</strong> ("we", "us"). This
+    policy explains what information MyFinance collects, how it's used, and who it's shared with. It applies to the
+    web app and the Android app available on Google Play.</p>
+
+    <h2>What we collect</h2>
+    <p>MyFinance is built around the financial information you choose to enter. We collect:</p>
+    <ul>
+      <li><strong>Account information</strong> — your email address, used to sign in via Supabase Authentication.</li>
+      <li><strong>Financial data you enter</strong> — bank transactions (imported by you from a CSV file or entered
+        manually), account names and balances, budgets, categories, debts, mortgages, investments, and any
+        household or "Other Income" streams you set up. None of this is imported automatically from your bank —
+        you control what gets added.</li>
+      <li><strong>Subscription status</strong> — if you upgrade to Pro, our payment processor (Stripe) shares your
+        subscription status and a customer reference ID with us so we can unlock Pro features. We do not receive
+        or store your card details — Stripe handles payment collection directly and is responsible for that data
+        under its own privacy policy.</li>
+    </ul>
+    <p>We don't run any advertising or third-party analytics/tracking scripts in the app.</p>
+
+    <h2>How your data is stored</h2>
+    <p>Your financial data is stored in a Supabase-hosted database (PostgreSQL) tied to your household account, and
+    is also cached on your device (browser local storage) so the app keeps working offline. Access to your data in
+    the database is restricted using row-level security so that only members of your own household can read or
+    write it.</p>
+
+    <h2>Household sharing</h2>
+    <p>MyFinance lets you invite another person (e.g. a partner) to share your household's data. If you send or
+    accept a household invite, both people can view and edit the same transactions, accounts, budgets, and other
+    financial data in that household. Only invite people you're comfortable sharing this information with.</p>
+
+    <h2>Who we share data with</h2>
+    <p>We don't sell your data or share it with advertisers. Data is shared only with the service providers needed
+    to run the app:</p>
+    <ul>
+      <li><strong>Supabase</strong> — database hosting and authentication.</li>
+      <li><strong>Stripe</strong> — payment processing for Pro subscriptions.</li>
+    </ul>
+    <p>We may also disclose information if required to by law.</p>
+
+    <h2>Data retention and deletion</h2>
+    <p>Your data is retained for as long as your account/household exists. If you'd like your account and all
+    associated data permanently deleted, email us at the address below and we'll action the request.</p>
+
+    <h2>Security</h2>
+    <p>We use industry-standard practices to protect your data, including encrypted connections (HTTPS) and
+    database-level access controls. No method of transmission or storage is 100% secure, and we can't guarantee
+    absolute security.</p>
+
+    <h2>Children's privacy</h2>
+    <p>MyFinance is not directed at, or knowingly used to collect information from, children under 13.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If this policy changes, we'll update the effective date above. Continued use of the app after a change
+    means you accept the updated policy.</p>
+
+    <h2>Contact us</h2>
+    <div class="card">
+      <p style="margin:0">Questions about this policy, or want to request access to or deletion of your data?</p>
+      <p style="margin:8px 0 0"><a href="mailto:mattrogerson77@gmail.com">mattrogerson77@gmail.com</a></p>
+    </div>
+  </div>
+</body>
+</html>
