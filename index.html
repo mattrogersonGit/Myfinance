@@ -1002,10 +1002,27 @@ let otherIncomeStreams = [];
 let catMgmtTarget = 'personal'; // 'personal' or an otherIncomeStreams id — which set the Settings screen is editing
 // Deletions, so a merge with another device's stale copy doesn't resurrect
 // something intentionally removed here — see mergeArraysById/mergeWithCloud.
-let tombstones = {}; // { [scope]: { [id]: deletedAtMillis } }
+// Entries are {at, alive}: alive:false is a delete, alive:true is an explicit
+// revive (see reviveTombstone) — needed because some records (categories) are
+// keyed by a mutable name rather than a stable id, so deleting one and later
+// creating an unrelated new one with the same name must not stay blacklisted
+// forever. A bare number is the old pre-revive format (implicitly alive:false).
+let tombstones = {}; // { [scope]: { [id]: {at, alive} } }
 function tombstone(scope, id) {
   if (!tombstones[scope]) tombstones[scope] = {};
-  tombstones[scope][String(id)] = Date.now();
+  tombstones[scope][String(id)] = { at: Date.now(), alive: false };
+}
+function reviveTombstone(scope, id) {
+  if (!tombstones[scope]) tombstones[scope] = {};
+  tombstones[scope][String(id)] = { at: Date.now(), alive: true };
+}
+function normTomb(raw) {
+  if (raw == null) return null;
+  return typeof raw === 'number' ? { at: raw, alive: false } : raw;
+}
+function isTombDead(raw) {
+  const t = normTomb(raw);
+  return !!t && t.alive !== true;
 }
 let debtOrder = [];
 let pendingTxns = [];
@@ -2572,6 +2589,12 @@ function rejectPending(id) {
   scheduleSave();
 }
 function acceptAllPending() {
+  // Without tombstoning these ids, a device/tab that hasn't loaded this commit
+  // yet still has all of them sitting in its own local pendingTxns -- its next
+  // save unions that stale copy back in (nothing tells the merge "already
+  // accepted"), resurrecting the whole reviewed batch back into the pending
+  // queue even though it's already safely sitting in transactions.
+  pendingTxns.forEach(t => tombstone('pendingTxns', t.id));
   transactions = transactions.concat(pendingTxns).sort((a,b)=>b.date-a.date);
   pendingTxns = [];
   closeModal();
@@ -2783,6 +2806,14 @@ function updateCatName(i, val) {
   transactions.forEach(t=>{ if(t.cat===oldName) t.cat=newName; });
   rules.forEach(r=>{ if(r.cat===oldName) r.cat=newName; });
   cats[i].name = newName;
+  // Category tombstones are keyed by name, not a stable id (see mergeArraysById).
+  // If this exact name was deleted before, its tombstone would otherwise strip
+  // this "new" category right back out on the very next sync, even though it's
+  // a deliberate re-add. Just deleting the local tombstone entry isn't enough --
+  // mergeTombstones would still pull the old delete back in from cloud's copy --
+  // so record an explicit, newer revive instead, which supersedes it on merge.
+  const catScope = catMgmtTarget==='personal' ? 'cats_personal' : `cats_stream_${catMgmtTarget}`;
+  reviveTombstone(catScope, newName);
   // A freshly-added category still has the generic pin icon — if the new name
   // matches a category that already has a proper icon elsewhere (Personal, or
   // another stream), adopt it instead of leaving the placeholder. Otherwise
@@ -3069,6 +3100,17 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveData, 1500);
 }
+// The debounce above means the very last edit before the app is closed or
+// backgrounded -- often the "commit all" moment right at the end of a big CSV
+// review, when closing the app feels natural -- would otherwise sit unsaved for
+// up to 1.5s and simply never get written if the page never gets that time.
+// Flushing immediately when the tab hides/unloads closes that window.
+function flushSaveNow() {
+  clearTimeout(saveTimer);
+  saveData();
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSaveNow(); });
+window.addEventListener('pagehide', flushSaveNow);
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
@@ -3376,7 +3418,7 @@ function mergeArraysById(localArr, cloudArr, idKey='id', scope=null, tomb=null) 
     map.set(item[idKey], item);
   });
   const dead = (scope && tomb && tomb[scope]) || {};
-  return [...map.values()].filter(item => !(String(item[idKey]) in dead));
+  return [...map.values()].filter(item => !isTombDead(dead[String(item[idKey])]));
 }
 function mergeYearMap(localMap, cloudMap) {
   localMap = localMap || {}; cloudMap = cloudMap || {};
@@ -3392,7 +3434,7 @@ function mergeRules(localRules, cloudRules, tomb) {
   cloudRules.forEach(r => map.set(key(r), r));
   localRules.forEach(r => map.set(key(r), r));
   const dead = (tomb && tomb.rules) || {};
-  return [...map.values()].filter(r => !(key(r) in dead));
+  return [...map.values()].filter(r => !isTombDead(dead[key(r)]));
 }
 function mergeIncomeStreams(localArr, cloudArr, tomb) {
   localArr = localArr || []; cloudArr = cloudArr || [];
@@ -3400,7 +3442,7 @@ function mergeIncomeStreams(localArr, cloudArr, tomb) {
   const localMap = new Map(localArr.map(s=>[s.id,s]));
   const ids = new Set([...cloudMap.keys(), ...localMap.keys()]);
   const dead = (tomb && tomb.otherIncomeStreams) || {};
-  return [...ids].filter(id => !(String(id) in dead)).map(id => {
+  return [...ids].filter(id => !isTombDead(dead[String(id)])).map(id => {
     const c = cloudMap.get(id), l = localMap.get(id);
     if (c && l) return {
       ...l,
@@ -3410,13 +3452,25 @@ function mergeIncomeStreams(localArr, cloudArr, tomb) {
     return l || c;
   });
 }
-// Tombstones themselves union across devices — a delete recorded on either
-// side must stick, never un-deleted by the other device's merge.
+// Tombstones themselves union across devices, but per-key it's whichever of
+// local/cloud is more RECENT that wins (not blind local-wins) — a delete
+// recorded on either side still sticks against a stale device that's simply
+// never heard about it, but a genuine later revive (see reviveTombstone) is
+// able to supersede an older delete of the same key instead of being
+// permanently masked by it.
 function mergeTombstones(local, cloud) {
   local = local || {}; cloud = cloud || {};
   const scopes = new Set([...Object.keys(local), ...Object.keys(cloud)]);
   const out = {};
-  scopes.forEach(s => { out[s] = {...(cloud[s]||{}), ...(local[s]||{})}; });
+  scopes.forEach(s => {
+    const keys = new Set([...Object.keys(local[s]||{}), ...Object.keys(cloud[s]||{})]);
+    out[s] = {};
+    keys.forEach(k => {
+      const l = normTomb((local[s]||{})[k]);
+      const c = normTomb((cloud[s]||{})[k]);
+      out[s][k] = (l && c) ? (l.at >= c.at ? l : c) : (l || c);
+    });
+  });
   return out;
 }
 function mergeWithCloud(data, cloud) {
