@@ -3182,7 +3182,16 @@ function loadDataObj(obj) {
     saved.filter(s=>!builtIns.find(b=>b.id===s.id)).forEach(s=>{ if(!accounts.find(a=>a.id===s.id)) accounts.push({...s, fixed:false}); });
   }
 }
+let accountDeleted = false;
 function saveData() {
+  // Once the account is actually gone server-side, nothing should ever write
+  // to localStorage again -- including the visibilitychange/pagehide flush
+  // safety net below, which location.reload() itself triggers. Without this,
+  // that flush reads the still-fully-populated in-memory data (only the
+  // localStorage key gets cleared, not the JS variables) and writes it right
+  // back moments before the page actually unloads, resurrecting the local
+  // cache underneath the deletion.
+  if (accountDeleted) return;
   const data = getDataObj();
   localStorage.setItem('myfinance_data', JSON.stringify(data));
   if (sbConn && sbUser && sbHousehold && isPro()) {
@@ -3790,6 +3799,10 @@ async function doDeleteAccount() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'Delete failed');
+    // Block any further save from this point on -- see the accountDeleted
+    // check in saveData() -- before doing anything else that could trigger
+    // one (signOut, closing the modal, the reload itself).
+    accountDeleted = true;
     // The account no longer exists server-side, but the Supabase client still
     // has its own session cached in localStorage under a separate key from
     // ours -- without explicitly signing out, a reload restores that stale
