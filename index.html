@@ -3776,6 +3776,12 @@ async function doDeleteAccount() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'Delete failed');
+    // The account no longer exists server-side, but the Supabase client still
+    // has its own session cached in localStorage under a separate key from
+    // ours -- without explicitly signing out, a reload restores that stale
+    // session and tries to reuse it (e.g. silently creating a fresh orphaned
+    // household) instead of cleanly landing back on the sign-in screen.
+    await sbConn.auth.signOut();
     localStorage.removeItem('myfinance_data');
     closeModal();
     alert('Your account has been deleted.');
