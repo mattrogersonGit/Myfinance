@@ -125,6 +125,7 @@
     /* Buttons */
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s, transform 0.1s; }
     .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary { background: var(--teal); color: #fff; }
     .btn-secondary { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
     .btn-danger { background: rgba(224,82,82,0.15); color: var(--red); border: 0.5px solid rgba(224,82,82,0.25); }
@@ -3733,7 +3734,55 @@ function renderAccountSection() {
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPush()" title="Upload local data to cloud">↑ Push to cloud</button>
         <button class="btn btn-secondary" style="flex:1;font-size:12px" onclick="sbSyncPull()" title="Download latest data from cloud">↓ Pull from cloud</button>
-      </div>` : ''}`;
+      </div>` : ''}
+      <div style="text-align:center;margin-top:14px">
+        <a href="#" onclick="openDeleteAccount();return false" style="color:var(--red);font-size:12px">Delete account</a>
+      </div>`;
+  }
+}
+
+async function openDeleteAccount() {
+  if (!sbConn || !sbUser) return;
+  let soleMember = true;
+  if (sbHousehold) {
+    const { count } = await sbConn.from('household_members').select('*', { count: 'exact', head: true }).eq('household_id', sbHousehold.id);
+    soleMember = (count ?? 1) <= 1;
+  }
+  const warning = soleMember
+    ? `This permanently deletes your login and your entire household's data — every transaction, budget, account, debt, and investment. This cannot be undone.`
+    : `This deletes your login and removes your access. The household's shared data stays intact for other members.`;
+  document.getElementById('modal-title').textContent = 'Delete account';
+  document.querySelector('.modal-box').classList.remove('modal-wide');
+  document.getElementById('modal-body').innerHTML = `
+    <div style="color:var(--red);font-size:13px;margin-bottom:12px;line-height:1.5">${warning}</div>
+    <div class="input-group"><label>Type DELETE to confirm</label><input type="text" id="del-acct-confirm" autocomplete="off" oninput="document.getElementById('modal-confirm').disabled = this.value.trim()!=='DELETE'"></div>
+  `;
+  const btn = document.getElementById('modal-confirm');
+  btn.style.display = '';
+  btn.textContent = 'Delete my account';
+  btn.disabled = true;
+  btn.onclick = doDeleteAccount;
+  document.getElementById('modal').classList.add('open');
+}
+async function doDeleteAccount() {
+  const btn = document.getElementById('modal-confirm');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const { data: { session } } = await sbConn.auth.getSession();
+    if (!session) throw new Error('Not signed in');
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/delete-account`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Delete failed');
+    localStorage.removeItem('myfinance_data');
+    closeModal();
+    alert('Your account has been deleted.');
+    location.reload();
+  } catch (e) {
+    alert('Could not delete account: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Delete my account';
   }
 }
 
