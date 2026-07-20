@@ -3316,18 +3316,32 @@ async function sbLoadHousehold() {
   }
 }
 
+// A foreign-key violation here (code 23503) on owner_id/user_id means the
+// cached session belongs to an auth user that no longer exists server-side
+// (e.g. their account was deleted from another tab/device, or -- before the
+// signOut fix in doDeleteAccount -- a leftover session from deleting your
+// own account). Retrying or alerting forever won't help; the only fix is to
+// drop this stale session and send them back to a clean sign-in.
+async function sbHandleStaleSession() {
+  alert('Your session is no longer valid, possibly because this account was deleted. Signing you out.');
+  await sbConn.auth.signOut();
+  localStorage.removeItem('myfinance_data');
+  location.reload();
+}
 async function sbCreateHousehold() {
   const { data: hh, error } = await sbConn
     .from('households')
     .insert({ name: 'My Finances', owner_id: sbUser.id, plan: 'free' })
     .select()
     .single();
+  if (error?.code === '23503') { await sbHandleStaleSession(); return; }
   if (error || !hh) {
     alert('Household setup failed (step 1 — households insert):\n\n' + (error?.message || error?.code || 'unknown'));
     console.error('Create household:', error);
     return;
   }
   const { error: memErr } = await sbConn.from('household_members').insert({ household_id: hh.id, user_id: sbUser.id, role: 'owner' });
+  if (memErr?.code === '23503') { await sbHandleStaleSession(); return; }
   if (memErr) {
     alert('Household setup failed (step 2 — members insert):\n\n' + (memErr?.message || memErr?.code || 'unknown'));
     console.error('Add member:', memErr);
