@@ -1970,6 +1970,20 @@ function otherDebtCardHtml(d, key, isFirst, isLast) {
     ${goalHtml}
   </div>`;
 }
+// Backdated balance entries need to land in the right chronological spot, not
+// just get appended -- otherwise history[history.length-1] (used all over the
+// app to mean "the latest entry") would return a backdated one instead of a
+// genuinely more recent entry that already existed. Same date as an existing
+// entry replaces it rather than duplicating. Returns the entry that's now
+// actually latest, so callers can sync top-level fields (updatedAt/current/
+// balance) to it rather than blindly to whatever was just typed in.
+function insertHistoryEntry(history, entry) {
+  const idx = history.findIndex(h => h.date === entry.date);
+  if (idx >= 0) history[idx] = entry;
+  else history.push(entry);
+  history.sort((a,b) => a.date.localeCompare(b.date));
+  return history[history.length-1];
+}
 function debtFormHtml(d) {
   const v = (k, def='') => d ? (d[k] ?? def) : def;
   const sel = (id, val) => `document.getElementById('${id}').value='${val}'`;
@@ -2015,8 +2029,10 @@ function openAddOtherDebt() {
 function openUpdateOtherDebt(id) {
   const d = otherDebts.find(x=>x.id===id);
   if (!d) return;
+  const today = new Date().toISOString().slice(0,10);
   document.getElementById('modal-title').textContent = 'Edit ' + d.name;
-  document.getElementById('modal-body').innerHTML = debtFormHtml(d);
+  document.getElementById('modal-body').innerHTML = debtFormHtml(d) +
+    `<div class="input-group"><label>Balance as of</label><input type="date" id="od-date" value="${today}" max="${today}"></div>`;
   document.getElementById('modal-confirm').textContent = 'Save';
   document.getElementById('modal-confirm').onclick = () => {
     const f = readDebtForm();
@@ -2029,8 +2045,10 @@ function openUpdateOtherDebt(id) {
     if (!d.history) d.history = [];
     // Only add history entry if balance changed
     if (f.balance !== prevBal) {
-      d.updatedAt = new Date().toISOString().slice(0,10);
-      d.history.push({date:d.updatedAt, value:f.balance});
+      const entryDate = document.getElementById('od-date').value || today;
+      const latest = insertHistoryEntry(d.history, {date: entryDate, value: f.balance});
+      d.updatedAt = latest.date;
+      d.balance = latest.value;
     }
     closeModal(); renderDebt(); scheduleSave();
   };
@@ -2167,19 +2185,22 @@ function openDebtHistory(id) {
 function openUpdateMortgage(id) {
   const m = mortgages.find(x=>x.id===id);
   if (!m) return;
+  const today = new Date().toISOString().slice(0,10);
   const latest = m.history[m.history.length - 1] || {balances:{}, payment:0};
   const partInputs = m.parts.map(p=>`<div class="input-group"><label>${p} ($)</label><input type="number" id="mp-${p.replace(/\s+/g,'-')}" value="${latest.balances[p]||0}" min="0"></div>`).join('');
   const payInput = id==='home' ? `<div class="input-group"><label>Fortnightly payment ($)</label><input type="number" id="mp-payment" value="${latest.payment||0}" min="0"></div>` : '';
   document.getElementById('modal-title').textContent = 'Update ' + m.name;
-  document.getElementById('modal-body').innerHTML = partInputs + payInput;
+  document.getElementById('modal-body').innerHTML = partInputs + payInput +
+    `<div class="input-group"><label>Balance as of</label><input type="date" id="mp-date" value="${today}" max="${today}"></div>`;
   document.getElementById('modal-confirm').style.display = '';
   document.getElementById('modal-confirm').onclick = () => {
     const balances = {};
     let total = 0;
     m.parts.forEach(p => { const v = parseFloat(document.getElementById(`mp-${p.replace(/\s+/g,'-')}`).value)||0; balances[p]=v; total+=v; });
-    const entry = {date:new Date().toISOString().slice(0,10), balances, total:Math.round(total)};
+    const entryDate = document.getElementById('mp-date').value || today;
+    const entry = {date:entryDate, balances, total:Math.round(total)};
     if (id==='home') entry.payment = parseFloat(document.getElementById('mp-payment').value)||0;
-    m.history.push(entry);
+    insertHistoryEntry(m.history, entry);
     closeModal(); renderDebt(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
@@ -2224,13 +2245,17 @@ function openSavingsHistory() {
   document.getElementById('modal').classList.add('open');
 }
 function openUpdateSavings() {
+  const today = new Date().toISOString().slice(0,10);
   document.getElementById('modal-title').textContent = 'Update Savings';
-  document.getElementById('modal-body').innerHTML = `<div class="input-group"><label>Current savings balance ($)</label><input type="number" id="sav-val" value="${savings.current}" min="0"></div>`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Current savings balance ($)</label><input type="number" id="sav-val" value="${savings.current}" min="0"></div>
+    <div class="input-group"><label>Balance as of</label><input type="date" id="sav-date" value="${today}" max="${today}"></div>`;
   document.getElementById('modal-confirm').onclick = () => {
     const val = parseFloat(document.getElementById('sav-val').value)||0;
-    savings.current = val;
-    savings.updatedAt = new Date().toISOString().slice(0,10);
-    savings.history.push({date:savings.updatedAt, value:val});
+    const entryDate = document.getElementById('sav-date').value || today;
+    const latest = insertHistoryEntry(savings.history, {date: entryDate, value: val});
+    savings.current = latest.value;
+    savings.updatedAt = latest.date;
     closeModal(); renderSavingsCard(); recalcNetWorth(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
@@ -2333,18 +2358,21 @@ function openAddInvestment() {
 function openUpdateInvestment(id) {
   const inv = investments.find(i=>i.id===id);
   if (!inv) return;
+  const today = new Date().toISOString().slice(0,10);
   document.getElementById('modal-title').textContent = 'Update ' + inv.name;
   document.getElementById('modal-body').innerHTML = `
     <div class="input-group"><label>Current value ($)</label><input type="number" id="inv-new-val" value="${inv.current}" min="0"></div>
+    <div class="input-group"><label>Balance as of</label><input type="date" id="inv-date" value="${today}" max="${today}"></div>
     <div style="font-size:12px;color:var(--text3);margin-top:4px">Original investment: ${fmt(inv.buy)}</div>
   `;
   document.getElementById('modal-confirm').onclick = () => {
     const val = parseFloat(document.getElementById('inv-new-val').value);
     if (isNaN(val)) return;
-    inv.current = val;
-    inv.updatedAt = new Date().toISOString().slice(0,10);
+    const entryDate = document.getElementById('inv-date').value || today;
     if (!inv.history) inv.history = [];
-    inv.history.push({date:inv.updatedAt, value:val});
+    const latest = insertHistoryEntry(inv.history, {date: entryDate, value: val});
+    inv.current = latest.value;
+    inv.updatedAt = latest.date;
     closeModal(); renderAssets(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
