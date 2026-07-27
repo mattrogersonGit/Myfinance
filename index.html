@@ -3307,19 +3307,14 @@ async function initSupabase() {
   setSyncStatus('syncing', 'Connecting…');
   try {
     sbConn = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const params = new URLSearchParams(window.location.search);
-    const tok = params.get('invite');
-    if (tok) sessionStorage.setItem('pendingInvite', tok);
-    const { data: { session } } = await sbConn.auth.getSession();
-    if (session) { sbUser = session.user; await sbLoadHousehold(); }
-    else setSyncStatus('', 'Local only');
+    // Register this BEFORE any await below. The client starts processing a
+    // recovery link's URL token as soon as it's created, and fires
+    // PASSWORD_RECOVERY to whatever's listening at that moment -- if
+    // onAuthStateChange were registered after the getSession() await instead,
+    // that processing can finish during the await, unobserved, and the
+    // recovery link then just quietly authenticates you like a normal sign-in
+    // with no chance to actually set a new password.
     sbConn.auth.onAuthStateChange(async (event, sess) => {
-      // A password-reset email link lands here with this event, carrying a
-      // temporary recovery session -- without handling it explicitly, the
-      // boot flow's normal hasLocal/skipAuth logic just shows the app as
-      // usual (or SIGNED_IN fires right after and does the same), so the
-      // link silently drops you into the app with no chance to actually set
-      // a new password.
       if (event === 'PASSWORD_RECOVERY') {
         sbUser = sess.user;
         showApp();
@@ -3334,6 +3329,12 @@ async function initSupabase() {
       if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; setSyncStatus('', 'Local only'); }
       renderAccountSection();
     });
+    const params = new URLSearchParams(window.location.search);
+    const tok = params.get('invite');
+    if (tok) sessionStorage.setItem('pendingInvite', tok);
+    const { data: { session } } = await sbConn.auth.getSession();
+    if (session) { sbUser = session.user; await sbLoadHousehold(); }
+    else setSyncStatus('', 'Local only');
     renderAccountSection();
   } catch(e) { console.error('Supabase init:', e); setSyncStatus('', 'Local only'); }
 }
