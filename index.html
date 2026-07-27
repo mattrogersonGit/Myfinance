@@ -341,7 +341,8 @@
     <input type="email" id="auth-email" placeholder="Email address" autocomplete="email"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
     <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password"
-      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:12px">
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:8px">
+    <div style="text-align:right;margin-bottom:10px"><a href="#" onclick="sbForgotPassword('auth-email','auth-error');return false" style="color:var(--teal);font-size:12px;text-decoration:none">Forgot password?</a></div>
     <div id="auth-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
     <div style="display:flex;gap:8px">
       <button onclick="authScreenAction('signin')" style="flex:1;background:var(--teal);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:600;padding:13px;cursor:pointer">Sign in</button>
@@ -3313,6 +3314,18 @@ async function initSupabase() {
     if (session) { sbUser = session.user; await sbLoadHousehold(); }
     else setSyncStatus('', 'Local only');
     sbConn.auth.onAuthStateChange(async (event, sess) => {
+      // A password-reset email link lands here with this event, carrying a
+      // temporary recovery session -- without handling it explicitly, the
+      // boot flow's normal hasLocal/skipAuth logic just shows the app as
+      // usual (or SIGNED_IN fires right after and does the same), so the
+      // link silently drops you into the app with no chance to actually set
+      // a new password.
+      if (event === 'PASSWORD_RECOVERY') {
+        sbUser = sess.user;
+        showApp();
+        openPasswordResetModal();
+        return;
+      }
       if (event === 'SIGNED_IN') {
         sbUser = sess.user;
         if (document.getElementById('app').style.display === 'none') showApp();
@@ -3595,6 +3608,58 @@ async function sbAuthAction(mode) {
   } catch(e) { if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; } }
 }
 
+async function sbForgotPassword(emailInputId, errorElId) {
+  const email = (document.getElementById(emailInputId)?.value || '').trim();
+  const errEl = document.getElementById(errorElId);
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  if (!email) { showErr('Enter your email address above, then tap "Forgot password?"'); return; }
+  try {
+    const { error } = await sbConn.auth.resetPasswordForEmail(email);
+    if (error) throw error;
+    if (errEl) errEl.style.display = 'none';
+    alert('Password reset email sent -- check your inbox and follow the link to set a new password.');
+  } catch (e) {
+    showErr(e.message);
+  }
+}
+function openPasswordResetModal() {
+  document.getElementById('modal-title').textContent = 'Set a new password';
+  document.querySelector('.modal-box').classList.remove('modal-wide');
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Choose a new password for your account.</div>
+    <div class="input-group"><label>New password</label><input type="password" id="reset-pass1" autocomplete="new-password"></div>
+    <div class="input-group"><label>Confirm new password</label><input type="password" id="reset-pass2" autocomplete="new-password"></div>
+    <div id="reset-pass-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+  `;
+  const btn = document.getElementById('modal-confirm');
+  btn.style.display = '';
+  btn.disabled = false;
+  btn.textContent = 'Set password';
+  btn.onclick = submitPasswordReset;
+  document.getElementById('modal').classList.add('open');
+}
+async function submitPasswordReset() {
+  const p1 = document.getElementById('reset-pass1').value;
+  const p2 = document.getElementById('reset-pass2').value;
+  const errEl = document.getElementById('reset-pass-error');
+  const showErr = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  if (p1.length < 6) { showErr('Password must be at least 6 characters.'); return; }
+  if (p1 !== p2) { showErr('Passwords do not match.'); return; }
+  errEl.style.display = 'none';
+  const btn = document.getElementById('modal-confirm');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { error } = await sbConn.auth.updateUser({ password: p1 });
+    if (error) throw error;
+    closeModal();
+    alert('Password updated. You\'re signed in.');
+    await sbLoadHousehold();
+    renderAccountSection();
+  } catch (e) {
+    showErr(e.message);
+    btn.disabled = false; btn.textContent = 'Set password';
+  }
+}
 async function sbSignOut() {
   await sbConn.auth.signOut();
   sbUser = null; sbHousehold = null;
@@ -3722,7 +3787,8 @@ function renderAccountSection() {
   if (!sbUser) {
     el.innerHTML = `
       <input type="email" id="sb-email" placeholder="Email address" autocomplete="email" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
-      <input type="password" id="sb-password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:12px">
+      <input type="password" id="sb-password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
+      <div style="text-align:right;margin-bottom:8px"><a href="#" onclick="sbForgotPassword('sb-email','sb-auth-error');return false" style="color:var(--teal);font-size:12px;text-decoration:none">Forgot password?</a></div>
       <div id="sb-auth-error" style="color:var(--red,#ff5f57);font-size:12px;margin-bottom:8px;display:none"></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" style="flex:1" onclick="sbAuthAction('signin')">Sign in</button>
