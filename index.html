@@ -365,12 +365,30 @@
     <div id="invite-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
     <button id="invite-btn" onclick="sbInviteSignup()"
       style="width:100%;background:var(--teal,#14b8a6);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:600;padding:14px;cursor:pointer;margin-bottom:14px">
-      Create account &amp; join
-    </button>
+      Create account &amp; join</button>
     <div style="text-align:center;font-size:13px;color:#7a7f96">
       Already have an account?
       <button onclick="sbInviteSignin()" style="background:none;border:none;color:var(--teal,#14b8a6);font-size:13px;cursor:pointer;padding:0;margin-left:4px">Sign in instead</button>
     </div>
+  </div>
+
+  <!-- Shown instead of the sign-in form when following a password-recovery link.
+       Deliberately never reveals #app (real financial data) behind it -- only
+       once the password is actually set does this hand off into the app. -->
+  <div id="reset-panel" style="display:none;width:100%;max-width:320px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:36px;margin-bottom:10px">🔑</div>
+      <div style="font-size:20px;font-weight:700;margin-bottom:6px">Set a new password</div>
+      <div style="font-size:14px;color:#7a7f96">Choose a new password for your account.</div>
+    </div>
+    <input type="password" id="reset-pass1" placeholder="New password" autocomplete="new-password"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
+    <input type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password"
+      style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:14px">
+    <div id="reset-pass-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
+    <button id="reset-pass-btn" onclick="submitPasswordResetAuth()"
+      style="width:100%;background:var(--teal,#14b8a6);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:600;padding:14px;cursor:pointer">
+      Set password</button>
   </div>
 </div>
 
@@ -3317,8 +3335,7 @@ async function initSupabase() {
     sbConn.auth.onAuthStateChange(async (event, sess) => {
       if (event === 'PASSWORD_RECOVERY') {
         sbUser = sess.user;
-        showApp();
-        openPasswordResetModal();
+        showResetPasswordAuth();
         return;
       }
       if (event === 'SIGNED_IN') {
@@ -3623,23 +3640,22 @@ async function sbForgotPassword(emailInputId, errorElId) {
     showErr(e.message);
   }
 }
-function openPasswordResetModal() {
-  document.getElementById('modal-title').textContent = 'Set a new password';
-  document.querySelector('.modal-box').classList.remove('modal-wide');
-  document.getElementById('modal-body').innerHTML = `
-    <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Choose a new password for your account.</div>
-    <div class="input-group"><label>New password</label><input type="password" id="reset-pass1" autocomplete="new-password"></div>
-    <div class="input-group"><label>Confirm new password</label><input type="password" id="reset-pass2" autocomplete="new-password"></div>
-    <div id="reset-pass-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
-  `;
-  const btn = document.getElementById('modal-confirm');
-  btn.style.display = '';
-  btn.disabled = false;
-  btn.textContent = 'Set password';
-  btn.onclick = submitPasswordReset;
-  document.getElementById('modal').classList.add('open');
+// Shown instead of the app when following a password-recovery link. Never
+// calls showApp() -- that would render the full dashboard (real financial
+// data) behind this form, before the password has actually been changed.
+// The app only becomes visible once submitPasswordResetAuth() succeeds.
+function showResetPasswordAuth() {
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.querySelector('.auth-logo').style.display = 'none';
+  document.querySelector('.auth-title').style.display = 'none';
+  document.querySelector('.auth-sub').style.display = 'none';
+  document.querySelector('.auth-features').style.display = 'none';
+  document.getElementById('auth-sb-form').style.display = 'none';
+  document.querySelector('.skip-btn').style.display = 'none';
+  document.getElementById('invite-panel').style.display = 'none';
+  document.getElementById('reset-panel').style.display = 'block';
 }
-async function submitPasswordReset() {
+async function submitPasswordResetAuth() {
   const p1 = document.getElementById('reset-pass1').value;
   const p2 = document.getElementById('reset-pass2').value;
   const errEl = document.getElementById('reset-pass-error');
@@ -3647,13 +3663,12 @@ async function submitPasswordReset() {
   if (p1.length < 6) { showErr('Password must be at least 6 characters.'); return; }
   if (p1 !== p2) { showErr('Passwords do not match.'); return; }
   errEl.style.display = 'none';
-  const btn = document.getElementById('modal-confirm');
+  const btn = document.getElementById('reset-pass-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     const { error } = await sbConn.auth.updateUser({ password: p1 });
     if (error) throw error;
-    closeModal();
-    alert('Password updated. You\'re signed in.');
+    showApp();
     await sbLoadHousehold();
     renderAccountSection();
   } catch (e) {
