@@ -3342,9 +3342,16 @@ function renderStorageSummary() {
 }
 function clearData() {
   if (!confirm('Clear all transaction data, investments, and settings? This cannot be undone.')) return;
-  transactions=[]; investments=[]; rules=rules.slice(0,20);
+  // Previously only reset 3 of many state variables (accounts, mortgages,
+  // savings, debts, budgets, categories, etc. were all left fully intact),
+  // and never guarded against the flush-save safety net writing the
+  // still-mostly-populated in-memory state right back to localStorage on the
+  // next hide/reload -- so "clearing" barely did anything real. Same fix as
+  // account deletion/sign-out: block further saves, clear storage, reload to
+  // a genuinely fresh boot rather than trying to hand-reset every variable.
+  suppressLocalSave = true;
   localStorage.removeItem('myfinance_data');
-  renderOverview();
+  location.reload();
 }
 
 // ─── Supabase ────────────────────────────────────────────────────────────────
