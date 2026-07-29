@@ -3355,7 +3355,7 @@ function renderStorageSummary() {
       ${transactions.length} transactions · ${rules.length} rules · ${CATS.length} categories · ${accounts.length} accounts
     </div>`;
 }
-function clearData() {
+async function clearData() {
   if (!confirm('Clear all transaction data, investments, and settings? This cannot be undone.')) return;
   // Previously only reset 3 of many state variables (accounts, mortgages,
   // savings, debts, budgets, categories, etc. were all left fully intact),
@@ -3364,7 +3364,14 @@ function clearData() {
   // next hide/reload -- so "clearing" barely did anything real. Same fix as
   // account deletion/sign-out: block further saves, clear storage, reload to
   // a genuinely fresh boot rather than trying to hand-reset every variable.
+  //
+  // Also must sign out of any active Supabase session, not just clear the
+  // local cache: if a valid session is still around, initSupabase() silently
+  // re-authenticates on the very next load, pulls the household's data back
+  // down from the cloud, and re-saves it locally -- so a reload right after
+  // clearing would show everything again, looking like the clear failed.
   suppressLocalSave = true;
+  if (sbConn && sbUser) { try { await sbConn.auth.signOut(); } catch(e) {} }
   localStorage.removeItem('myfinance_data');
   location.reload();
 }
