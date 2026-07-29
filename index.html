@@ -3174,6 +3174,21 @@ function flushSaveNow() {
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSaveNow(); });
 window.addEventListener('pagehide', flushSaveNow);
+// suppressLocalSave only protects the tab that set it -- each open tab of
+// this origin has its own separate JS context, so if account deletion,
+// sign-out, or "Clear all data" happens in one tab, any OTHER already-open
+// tab still has its own fully-populated in-memory state and has no idea
+// anything changed. The next time that other tab is hidden or reloaded, its
+// own independent flush-save logic would write everything right back into
+// the localStorage the first tab just cleared. The storage event fires in
+// every OTHER tab of the same origin when localStorage changes, so this
+// lets them react and suppress their own save too instead of undoing it.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'myfinance_data' && e.newValue === null) {
+    suppressLocalSave = true;
+    location.reload();
+  }
+});
 function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
