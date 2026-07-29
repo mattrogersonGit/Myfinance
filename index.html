@@ -3165,6 +3165,11 @@ function scheduleSave() {
 // up to 1.5s and simply never get written if the page never gets that time.
 // Flushing immediately when the tab hides/unloads closes that window.
 function flushSaveNow() {
+  // Guard against flushing while still on the login/choice screen -- with
+  // nothing shown yet there's no real edit to protect, and without this the
+  // in-memory default categories/rules/accounts get written to localStorage
+  // just from a tab losing focus, before the user ever chose local mode.
+  if (document.getElementById('app').style.display === 'none') return;
   clearTimeout(saveTimer);
   saveData();
 }
@@ -3286,6 +3291,14 @@ function setSyncStatus(state, text) {
   txt.textContent = text;
 }
 function skipAuth() {
+  // Marks that the user has deliberately chosen local-only mode, so a future
+  // boot knows to go straight back to the app. Deliberately separate from
+  // "does myfinance_data exist" -- using local mode at all (even with zero
+  // real data) saves the app's default categories/rules/accounts back to
+  // localStorage on the next save, which would otherwise make the presence
+  // check true again right after a "Clear all data"/sign-out and silently
+  // skip the login screen it's supposed to land back on.
+  localStorage.setItem('myfinance_local_mode', '1');
   showApp();
   loadFromLocal();
   renderOverview();
@@ -3369,6 +3382,7 @@ async function clearData() {
   suppressLocalSave = true;
   if (sbConn && sbUser) { try { await sbConn.auth.signOut(); } catch(e) {} }
   localStorage.removeItem('myfinance_data');
+  localStorage.removeItem('myfinance_local_mode');
   location.reload();
 }
 
@@ -3393,6 +3407,11 @@ async function initSupabase() {
       }
       if (event === 'SIGNED_IN') {
         sbUser = sess.user;
+        // Marks this device as "past the choice screen" the same way
+        // skipAuth() does for local-only mode, so a signed-in user's next
+        // boot goes straight back into the app instead of flashing the
+        // login screen while this async session check is still in flight.
+        localStorage.setItem('myfinance_local_mode', '1');
         if (document.getElementById('app').style.display === 'none') showApp();
         await sbLoadHousehold();
       }
@@ -3435,6 +3454,7 @@ async function sbHandleStaleSession() {
   alert('Your session is no longer valid, possibly because this account was deleted. Signing you out.');
   await sbConn.auth.signOut();
   localStorage.removeItem('myfinance_data');
+  localStorage.removeItem('myfinance_local_mode');
   location.reload();
 }
 async function sbCreateHousehold() {
@@ -3737,6 +3757,7 @@ async function sbSignOut() {
   suppressLocalSave = true;
   await sbConn.auth.signOut();
   localStorage.removeItem('myfinance_data');
+  localStorage.removeItem('myfinance_local_mode');
   location.reload();
 }
 
@@ -3968,6 +3989,7 @@ async function doDeleteAccount() {
     // household) instead of cleanly landing back on the sign-in screen.
     await sbConn.auth.signOut();
     localStorage.removeItem('myfinance_data');
+    localStorage.removeItem('myfinance_local_mode');
     closeModal();
     alert('Your account has been deleted.');
     location.reload();
@@ -3981,9 +4003,9 @@ async function doDeleteAccount() {
 window.addEventListener('load', () => {
   document.getElementById('loading').style.display='none';
   initSupabase();
-  const hasLocal = !!localStorage.getItem('myfinance_data');
+  const localMode = localStorage.getItem('myfinance_local_mode') === '1';
   const hasInvite = !!new URLSearchParams(window.location.search).get('invite');
-  if (hasLocal) {
+  if (localMode) {
     skipAuth();
   } else if (hasInvite) {
     showInviteAuth();
