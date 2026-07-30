@@ -1118,6 +1118,11 @@ function paywallHtml(reason) {
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+// new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
+// of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
+// roughly the first half of their day. Read the local calendar fields directly
+// instead so date-input defaults/maxes always match the device's actual date.
+const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtM = n => { const abs=Math.abs(n),s=n<0?'-':''; if(abs>=1e6) return s+'$'+(abs/1e6).toFixed(2)+'M'; if(abs>=10000) return s+'$'+Math.round(abs/1000)+'k'; return (n<0?'-':'')+fmt(Math.abs(n)); };
 const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
@@ -2016,7 +2021,7 @@ function openAddOtherDebt() {
   document.getElementById('modal-confirm').onclick = () => {
     const f = readDebtForm();
     if (!f.name) return;
-    const today = new Date().toISOString().slice(0,10);
+    const today = todayLocal();
     otherDebts.push({id:Date.now(), ...f, originalBalance:f.balance, goalBalance:0, updatedAt:today, history:[{date:today,value:f.balance}]});
     closeModal(); renderDebt(); scheduleSave();
   };
@@ -2025,7 +2030,7 @@ function openAddOtherDebt() {
 function openUpdateOtherDebt(id) {
   const d = otherDebts.find(x=>x.id===id);
   if (!d) return;
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayLocal();
   document.getElementById('modal-title').textContent = 'Edit ' + d.name;
   document.getElementById('modal-body').innerHTML = debtFormHtml(d) +
     `<div class="input-group"><label>Balance as of</label><input type="date" id="od-date" value="${today}" max="${today}"></div>`;
@@ -2181,7 +2186,7 @@ function openDebtHistory(id) {
 function openUpdateMortgage(id) {
   const m = mortgages.find(x=>x.id===id);
   if (!m) return;
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayLocal();
   const latest = m.history[m.history.length - 1] || {balances:{}, payment:0};
   const partInputs = m.parts.map(p=>`<div class="input-group"><label>${p} ($)</label><input type="number" id="mp-${p.replace(/\s+/g,'-')}" value="${latest.balances[p]||0}" min="0"></div>`).join('');
   const payInput = id==='home' ? `<div class="input-group"><label>Fortnightly payment ($)</label><input type="number" id="mp-payment" value="${latest.payment||0}" min="0"></div>` : '';
@@ -2241,7 +2246,7 @@ function openSavingsHistory() {
   document.getElementById('modal').classList.add('open');
 }
 function openUpdateSavings() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayLocal();
   document.getElementById('modal-title').textContent = 'Update Savings';
   document.getElementById('modal-body').innerHTML = `
     <div class="input-group"><label>Current savings balance ($)</label><input type="number" id="sav-val" value="${savings.current}" min="0"></div>
@@ -2345,7 +2350,7 @@ function openAddInvestment() {
       units: 1,
       buy: parseFloat(document.getElementById('inv-buy').value)||0,
       current: parseFloat(document.getElementById('inv-current').value)||0,
-      updatedAt: new Date().toISOString().slice(0,10)
+      updatedAt: todayLocal()
     });
     closeModal(); renderInvestments(); scheduleSave();
   };
@@ -2354,7 +2359,7 @@ function openAddInvestment() {
 function openUpdateInvestment(id) {
   const inv = investments.find(i=>i.id===id);
   if (!inv) return;
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayLocal();
   document.getElementById('modal-title').textContent = 'Update ' + inv.name;
   document.getElementById('modal-body').innerHTML = `
     <div class="input-group"><label>Current value ($)</label><input type="number" id="inv-new-val" value="${inv.current}" min="0"></div>
@@ -2664,7 +2669,7 @@ function acceptAllPending() {
 }
 
 function openManualTxn() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayLocal();
   document.getElementById('modal-title').textContent = 'Add transaction';
   document.querySelector('.modal-box').classList.remove('modal-wide');
   document.getElementById('modal-body').innerHTML = `
@@ -3218,7 +3223,7 @@ function loadDataObj(obj) {
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
     // Migrate old single-mortgage format
-    mortgages[0].history = [{date:new Date().toISOString().slice(0,10),balances:{'Mortgage 1':obj.mortgage.bal,'Mortgage 3':0,'Offset':0},total:obj.mortgage.bal,payment:obj.mortgage.rep}];
+    mortgages[0].history = [{date:todayLocal(),balances:{'Mortgage 1':obj.mortgage.bal,'Mortgage 3':0,'Offset':0},total:obj.mortgage.bal,payment:obj.mortgage.rep}];
   }
   // Savings
   if (obj.savings && typeof obj.savings === 'object' && 'current' in obj.savings) {
