@@ -262,6 +262,22 @@
     .spinner { width: 32px; height: 32px; border: 2.5px solid var(--border2); border-top-color: var(--teal); border-radius: 50%; animation: spin 0.7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Guided tour */
+    #tour-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 250; }
+    .tour-target-active { position: relative; z-index: 251; box-shadow: 0 0 0 4px var(--teal), 0 0 24px 6px rgba(20,184,166,0.35); border-radius: 10px; }
+    #tour-tooltip { position: fixed; z-index: 310; width: 280px; max-width: calc(100vw - 32px); }
+    .tour-card { background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.45); }
+    .tour-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .tour-body { font-size: 13px; color: var(--text2); line-height: 1.5; margin-bottom: 12px; }
+    .tour-dots { display: flex; gap: 5px; margin-bottom: 12px; }
+    .tour-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border2); }
+    .tour-dot.active { background: var(--teal); }
+    .tour-actions { display: flex; align-items: center; gap: 8px; }
+    .tour-skip { background: none; border: none; color: var(--text3); font-size: 12px; cursor: pointer; padding: 6px 4px; }
+    .tour-back, .tour-next { border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .tour-back { background: var(--bg3); color: var(--text); }
+    .tour-next { background: var(--teal); color: #fff; }
+
     /* Month navigator */
     .month-nav { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 10px 0 4px; }
     .month-nav button { background: var(--bg3); border: 0.5px solid var(--border2); color: var(--text); font-size: 20px; line-height: 1; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -423,7 +439,7 @@
 
       <div id="ov-stream-debt-note"></div>
 
-      <div class="card">
+      <div class="card" id="ov-bva-card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
           Budget vs Actual
           <div style="display:flex;gap:4px">
@@ -435,7 +451,7 @@
         <div id="bva-list"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="ov-donut-card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
           <span id="ov-donut-title">Spending by category</span>
           <div class="tabs" style="margin-bottom:0">
@@ -725,6 +741,8 @@
           <span class="s-icon">❓</span><span class="s-label">Help &amp; Guide</span><span class="s-chev" id="s-help-chev">›</span>
         </div>
         <div id="s-help" class="s-body">
+
+          <button class="btn btn-secondary btn-block" style="margin-bottom:18px" onclick="startTour()">Take the tour</button>
 
           <!-- Free vs Pro -->
           <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">Free vs Pro</div>
@@ -3311,6 +3329,111 @@ function skipAuth() {
   showApp();
   loadFromLocal();
   renderOverview();
+  maybeStartTour();
+}
+
+// ─── Guided tour ─────────────────────────────────────────────────────────────
+const TOUR_STEPS = [
+  { id:'welcome', title:'Welcome to MyFinance', body:'A quick tour of how to get set up -- takes about a minute. Skip anytime and reopen this later from Settings &rarr; Help &amp; Guide.' },
+  { id:'accounts', page:'import', open:'s-accounts', target:'#s-accounts', title:'Accounts', body:'You start with Everyday and Credit card. Add more here if you want to track other bank accounts separately.' },
+  { id:'categories', page:'import', open:'s-cats', target:'#s-cats', title:'Categories &amp; budgets', body:'A full set of categories is ready to go, and you can set a monthly budget per category right here. Tap a category\'s icon to see your average spend over 3, 6 and 12 months, with a one-tap "Use" to set that as your budget.' },
+  { id:'rules', page:'import', open:'s-rules', target:'#s-rules', title:'Auto-categorisation rules', body:'Rules match a keyword in a transaction\'s description to a category automatically, so most imports need little manual tidying up. Add your own anytime.' },
+  { id:'import', page:'import', open:'s-import', target:'#s-import', title:'Import transactions', body:'Download a CSV from your bank -- Westpac, ANZ, BNZ, and ASB are all supported -- and drop it in here to import in bulk.' },
+  { id:'manual-txn', page:'import', open:'s-import', action:'openManualTxn', target:'.modal-box', title:'Add a transaction manually', body:'You can also add single transactions by hand -- handy for cash spending or anything outside a CSV import.' },
+  { id:'debt', page:'debt', action:'openAddOtherDebt', target:'.modal-box', title:'Track a debt', body:'Add a mortgage, loan, or credit card here with its current balance. You\'ll be able to update the balance over time and see a payoff history.' },
+  { id:'asset', page:'assets', action:'openAddInvestment', target:'.modal-box', title:'Track an asset', body:'Add KiwiSaver, shares, property, or anything else you want counted toward your net worth.' },
+  { id:'overview-numbers', page:'overview', target:'.metrics', title:'Your numbers at a glance', body:'Income, spending, net surplus, and savings rate for the month -- and just below, Budget vs Actual for each category.' },
+  { id:'overview-charts', page:'overview', target:'#ov-donut-card', title:'Your charts', body:'See spending by category here, and further down the page, your cash flow trend and net worth over time.' },
+  { id:'done', title:'You\'re all set', body:'Come back to this tour anytime from Settings &rarr; Help &amp; Guide.' },
+];
+let tourActive = false;
+let tourStepIdx = 0;
+function maybeStartTour() {
+  if (tourActive || localStorage.getItem('myfinance_tour_seen')) return;
+  // Only auto-start for a genuinely fresh install (no transactions yet).
+  // Anyone who already has data when this ships is marked as "seen" instead
+  // of getting the tour sprung on them retroactively.
+  if (transactions.length > 0) { localStorage.setItem('myfinance_tour_seen', '1'); return; }
+  // Re-check at fire time, not just now -- if the user manually opens "Take
+  // the tour" from Settings within this delay, this stale timer would
+  // otherwise call startTour() again later and reset their progress mid-tour.
+  setTimeout(() => { if (!tourActive && !localStorage.getItem('myfinance_tour_seen')) startTour(); }, 600);
+}
+function tourGoToPage(page) {
+  const btn = document.querySelector(`.nav-item[onclick^="navTo('${page}'"]`);
+  if (btn) navTo(page, btn);
+}
+function tourEnsureSectionOpen(id) {
+  const body = document.getElementById(id);
+  if (body && !body.classList.contains('open')) toggleSettings(id);
+}
+function startTour() {
+  if (tourActive) return;
+  tourActive = true;
+  tourStepIdx = 0;
+  document.body.insertAdjacentHTML('beforeend', '<div id="tour-backdrop"></div><div id="tour-tooltip"></div>');
+  document.getElementById('tour-backdrop').onclick = tourConfirmEnd;
+  renderTourStep();
+}
+function tourConfirmEnd() { if (confirm('End the tour?')) endTour(); }
+function endTour() {
+  tourActive = false;
+  document.querySelectorAll('.tour-target-active').forEach(el => el.classList.remove('tour-target-active'));
+  document.getElementById('tour-backdrop')?.remove();
+  document.getElementById('tour-tooltip')?.remove();
+  closeModal();
+  localStorage.setItem('myfinance_tour_seen', '1');
+}
+function tourNext() { tourStepIdx++; if (tourStepIdx >= TOUR_STEPS.length) endTour(); else renderTourStep(); }
+function tourBack() { if (tourStepIdx > 0) { tourStepIdx--; renderTourStep(); } }
+function renderTourStep() {
+  document.querySelectorAll('.tour-target-active').forEach(el => el.classList.remove('tour-target-active'));
+  closeModal();
+  const step = TOUR_STEPS[tourStepIdx];
+  if (step.page) tourGoToPage(step.page);
+  if (step.open) tourEnsureSectionOpen(step.open);
+  if (step.action) window[step.action]();
+  // Two rAFs: one lets navTo's render calls / section expand / modal-open finish
+  // painting, the second lets layout settle before we measure positions.
+  requestAnimationFrame(() => requestAnimationFrame(() => positionTourTooltip(step)));
+}
+function positionTourTooltip(step) {
+  const tooltip = document.getElementById('tour-tooltip');
+  if (!tooltip) return;
+  const target = step.target ? document.querySelector(step.target) : null;
+  if (target) {
+    target.scrollIntoView({ block:'center', behavior:'instant' });
+    target.classList.add('tour-target-active');
+  }
+  const idx = tourStepIdx, total = TOUR_STEPS.length;
+  const dots = TOUR_STEPS.map((_,i) => `<span class="tour-dot ${i===idx?'active':''}"></span>`).join('');
+  tooltip.innerHTML = `<div class="tour-card">
+    <div class="tour-title">${step.title}</div>
+    <div class="tour-body">${step.body}</div>
+    <div class="tour-dots">${dots}</div>
+    <div class="tour-actions">
+      <button class="tour-skip" onclick="tourConfirmEnd()">Skip</button>
+      <div style="flex:1"></div>
+      ${idx>0 ? '<button class="tour-back" onclick="tourBack()">Back</button>' : ''}
+      <button class="tour-next" onclick="tourNext()">${idx===total-1 ? 'Done' : 'Next'}</button>
+    </div>
+  </div>`;
+  requestAnimationFrame(() => {
+    const rect = target ? target.getBoundingClientRect() : null;
+    const ttRect = tooltip.getBoundingClientRect();
+    if (rect) {
+      let top = rect.bottom + 14;
+      if (top + ttRect.height > window.innerHeight - 16) top = Math.max(16, rect.top - ttRect.height - 14);
+      const left = Math.min(Math.max(16, rect.left), window.innerWidth - ttRect.width - 16);
+      tooltip.style.transform = '';
+      tooltip.style.top = top + 'px';
+      tooltip.style.left = left + 'px';
+    } else {
+      tooltip.style.top = '50%';
+      tooltip.style.left = '50%';
+      tooltip.style.transform = 'translate(-50%,-50%)';
+    }
+  });
 }
 function showApp() {
   document.getElementById('auth-screen').style.display='none';
@@ -3451,6 +3574,7 @@ async function initSupabase() {
         localStorage.setItem('myfinance_local_mode', '1');
         if (document.getElementById('app').style.display === 'none') showApp();
         await sbLoadHousehold();
+        maybeStartTour();
       }
       if (event === 'SIGNED_OUT') { sbUser = null; sbHousehold = null; setSyncStatus('', 'Local only'); }
       renderAccountSection();
