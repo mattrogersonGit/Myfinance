@@ -518,6 +518,7 @@
         <button class="tab active" onclick="setPeriod('month',this)">Month</button>
         <button class="tab" onclick="setPeriod('ytd',this)">YTD</button>
         <button class="tab" onclick="setPeriod('year',this)">Year</button>
+        <button class="tab" onclick="setPeriod('taxyear',this)">Tax year</button>
         <button class="tab" onclick="setPeriod('all',this)">All</button>
       </div>
       <div id="pnl-stream-tabs" style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center"></div>
@@ -1025,6 +1026,29 @@ const DEFAULT_STREAM_CATS = () => [
   {name:'Property Management', emoji:'🧾', fixed:true},
   {name:'Other',                emoji:'📌', fixed:false},
 ];
+// Seeded instead of DEFAULT_STREAM_CATS() for 'Investment Property' streams --
+// matches the line items on an NZ rental/Airbnb accountant's Statement of
+// Profit or Loss, so a stream set up this way is ready for a future tax-report
+// calculation without a category migration later. taxTreatment records how
+// each category should be treated by that (not-yet-built) calculation:
+// 'income' (this year's rent), 'apportioned' (needs mixed-use-%/home-office-%
+// apportionment applied), 'direct' (100% deductible as-is). Stored per-category
+// rather than inferred from the name because category names are user-editable.
+const PROPERTY_STREAM_CATS = () => [
+  {name:'Income',               emoji:'💰', fixed:true,  taxTreatment:'income'},
+  {name:'Insurance',            emoji:'🛡️', fixed:true,  taxTreatment:'apportioned'},
+  {name:'Rates',                emoji:'🏛️', fixed:true,  taxTreatment:'apportioned'},
+  {name:'Power',                emoji:'⚡', fixed:false, taxTreatment:'apportioned'},
+  {name:'Gas',                  emoji:'🔥', fixed:false, taxTreatment:'apportioned'},
+  {name:'Internet',             emoji:'📶', fixed:false, taxTreatment:'apportioned'},
+  {name:'Mortgage Interest',    emoji:'🏦', fixed:true,  taxTreatment:'apportioned'},
+  {name:'Cleaning',             emoji:'🧹', fixed:false, taxTreatment:'direct'},
+  {name:'Repairs & Maintenance',emoji:'🔧', fixed:false, taxTreatment:'direct'},
+  {name:'Property Management',  emoji:'🧾', fixed:true,  taxTreatment:'direct'},
+  {name:'Platform Commissions', emoji:'💳', fixed:true,  taxTreatment:'direct'},
+  {name:'Accountancy Fees',     emoji:'📊', fixed:false, taxTreatment:'direct'},
+  {name:'Other',                emoji:'📌', fixed:false, taxTreatment:'direct'},
+];
 // Sensible default icons for common category names that won't already exist
 // anywhere else to match against (utility bills, property/investment terms).
 const COMMON_CAT_ICONS = {
@@ -1145,6 +1169,12 @@ function paywallHtml(reason) {
 // roughly the first half of their day. Read the local calendar fields directly
 // instead so date-input defaults/maxes always match the device's actual date.
 const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+// NZ tax year runs 1 Apr – 31 Mar, keyed by its ENDING calendar year (FY
+// 1 Apr 2025 – 31 Mar 2026 = 2026) -- deliberately separate from budgetYear
+// (a plain calendar year used for the unrelated budgeting feature).
+function taxYearOf(date) { const d = new Date(date); return d.getMonth() < 3 ? d.getFullYear() : d.getFullYear() + 1; }
+function currentTaxYear() { return taxYearOf(new Date()); }
+function taxYearLabel(y) { return `${y-1}–${String(y).slice(2)}`; }
 const fmt = n => '$' + Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtM = n => { const abs=Math.abs(n),s=n<0?'-':''; if(abs>=1e6) return s+'$'+(abs/1e6).toFixed(2)+'M'; if(abs>=10000) return s+'$'+Math.round(abs/1000)+'k'; return (n<0?'-':'')+fmt(Math.abs(n)); };
 const fmtSigned = n => (n >= 0 ? '+' : '−') + fmt(n);
@@ -1192,6 +1222,9 @@ function getFilteredTxns(period) {
     if (period==='month') return t.date.getMonth()===now.getMonth()&&t.date.getFullYear()===now.getFullYear();
     if (period==='ytd') { const cutoff = pnlYear===now.getFullYear() ? now : new Date(pnlYear,11,31); return t.date.getFullYear()===pnlYear && t.date<=cutoff; }
     if (period==='year') return t.date.getFullYear()===pnlYear;
+    // NZ tax year: 1 Apr–31 Mar, keyed by its ENDING calendar year (so
+    // pnlYear=2026 means 1 Apr 2025 – 31 Mar 2026) -- see taxYearOf().
+    if (period==='taxyear') { const start=new Date(pnlYear-1,3,1), end=new Date(pnlYear,2,31,23,59,59,999); return t.date>=start && t.date<=end; }
     if (period==='3months') { const cutoff=new Date(now); cutoff.setMonth(cutoff.getMonth()-3); return t.date>=cutoff; }
     return true;
   });
@@ -1773,9 +1806,9 @@ function renderPNL() {
   const lblEl      = document.getElementById('pnl-month-label');
   const yrLblEl    = document.getElementById('pnl-year-label');
   if (monthNavEl) monthNavEl.style.display = pnlPeriod==='month' ? 'flex' : 'none';
-  if (yearNavEl)  yearNavEl.style.display  = (pnlPeriod==='ytd'||pnlPeriod==='year') ? 'flex' : 'none';
+  if (yearNavEl)  yearNavEl.style.display  = (pnlPeriod==='ytd'||pnlPeriod==='year'||pnlPeriod==='taxyear') ? 'flex' : 'none';
   if (lblEl)    lblEl.textContent  = monthLabel();
-  if (yrLblEl)  yrLblEl.textContent = String(pnlYear);
+  if (yrLblEl)  yrLblEl.textContent = pnlPeriod==='taxyear' ? taxYearLabel(pnlYear) : String(pnlYear);
 
   const period = pnlPeriod==='month' ? 'selmonth' : pnlPeriod;
   const txns = getFilteredTxns(period);
@@ -1856,6 +1889,11 @@ function renderPNL() {
   });
 }
 function setPeriod(p, el) {
+  // pnlYear is a plain calendar year for 'year'/'ytd', but taxyear keys it by
+  // the tax year's ENDING calendar year -- jump to a sensible default on
+  // first switching into/out of taxyear rather than showing a stale range.
+  if (p==='taxyear' && pnlPeriod!=='taxyear') pnlYear = currentTaxYear();
+  else if (p!=='taxyear' && pnlPeriod==='taxyear') pnlYear = new Date().getFullYear();
   pnlPeriod = p;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
@@ -1979,8 +2017,9 @@ function otherDebtCardHtml(d, key, isFirst, isLast) {
   }
   const hasHistory = d.history && d.history.length > 1;
   const moveBtns = `<button class="btn-update" onclick="moveDebtCard('${key}',-1)" ${isFirst?'disabled':''} style="padding:3px 6px">↑</button><button class="btn-update" onclick="moveDebtCard('${key}',1)" ${isLast?'disabled':''} style="padding:3px 6px">↓</button>`;
+  const streamName = d.stream && d.stream!=='personal' ? (otherIncomeStreams.find(s=>s.id===d.stream)?.name) : null;
   return `<div class="card">
-    <div class="card-title-row"><div><div class="card-title">${d.name}</div><div style="font-size:11px;color:var(--text3)">${d.type}</div></div>
+    <div class="card-title-row"><div><div class="card-title">${d.name}</div><div style="font-size:11px;color:var(--text3)">${d.type}${streamName?' · '+streamName:''}</div></div>
     <div style="display:flex;gap:6px;align-items:center">${moveBtns}
       ${hasHistory ? `<button class="btn-update" onclick="openOtherDebtHistory(${d.id})">History</button>` : ''}
       <button class="btn-update" onclick="openUpdateOtherDebt(${d.id})">Update</button>
@@ -2011,11 +2050,19 @@ function debtFormHtml(d) {
   const v = (k, def='') => d ? (d[k] ?? def) : def;
   const sel = (id, val) => `document.getElementById('${id}').value='${val}'`;
   const freqOpts = ['weekly','fortnightly','monthly'].map(f=>`<option value="${f}" ${v('paymentFreq','monthly')===f?'selected':''}>${f.charAt(0).toUpperCase()+f.slice(1)}</option>`).join('');
-  const typeOpts = ['Car Loan','Credit Card','Personal Loan','Student Loan','Buy Now Pay Later','Other'].map(t=>`<option ${v('type')===t?'selected':''}>${t}</option>`).join('');
+  const typeOpts = ['Car Loan','Credit Card','Personal Loan','Student Loan','Buy Now Pay Later','Property Loan','Other'].map(t=>`<option ${v('type')===t?'selected':''}>${t}</option>`).join('');
   const goalVal = v('goalDate') ? v('goalDate').slice(0,10) : '';
+  const curStream = v('stream','personal');
+  const streamField = otherIncomeStreams.length ? `<div class="input-group"><label>Stream</label>
+      <select id="od-stream">
+        <option value="personal" ${curStream==='personal'?'selected':''}>Personal</option>
+        ${otherIncomeStreams.map(s=>`<option value="${s.id}" ${curStream===s.id?'selected':''}>${s.name}</option>`).join('')}
+      </select>
+    </div>` : '';
   return `
     <div class="input-group"><label>Name</label><input type="text" id="od-name" value="${v('name')}" placeholder="e.g. Car loan"></div>
     <div class="input-group"><label>Type</label><select id="od-type">${typeOpts}</select></div>
+    ${streamField}
     <div class="input-group"><label>Current balance ($)</label><input type="number" id="od-bal" value="${v('balance',0)}" min="0"></div>
     <div class="input-group"><label>Interest rate (% p.a.)</label><input type="number" id="od-rate" value="${v('rate','')}" min="0" step="0.01" placeholder="e.g. 12.5"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -2026,9 +2073,11 @@ function debtFormHtml(d) {
 }
 function readDebtForm() {
   const goalRaw = document.getElementById('od-goal').value;
+  const streamEl = document.getElementById('od-stream');
   return {
     name:     document.getElementById('od-name').value.trim(),
     type:     document.getElementById('od-type').value,
+    stream:   streamEl ? (streamEl.value==='personal' ? 'personal' : Number(streamEl.value)) : 'personal',
     balance:  parseFloat(document.getElementById('od-bal').value)||0,
     rate:     parseFloat(document.getElementById('od-rate').value)||null,
     payment:  parseFloat(document.getElementById('od-pay').value)||null,
@@ -2141,7 +2190,8 @@ function openAddIncomeStream() {
   document.getElementById('modal-confirm').onclick = () => {
     const f = readIncomeStreamForm();
     if (!f.name) return;
-    otherIncomeStreams.push({id:Date.now(), ...f, cats:DEFAULT_STREAM_CATS(), budgets:{}});
+    const cats = f.type === 'Investment Property' ? PROPERTY_STREAM_CATS() : DEFAULT_STREAM_CATS();
+    otherIncomeStreams.push({id:Date.now(), ...f, cats, budgets:{}});
     closeModal(); renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
@@ -2163,13 +2213,14 @@ function openUpdateIncomeStream(id) {
 function deleteIncomeStream(id) {
   const s = otherIncomeStreams.find(x=>x.id===id);
   if (!s) return;
-  if (!confirm(`Delete "${s.name}"? Its transactions will be reassigned to Personal.`)) return;
+  if (!confirm(`Delete "${s.name}"? Its transactions and debts will be reassigned to Personal.`)) return;
   transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
+  otherDebts.forEach(d => { if (d.stream===id) d.stream='personal'; });
   otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
   tombstone('otherIncomeStreams', id);
   if (streamFilter===id) streamFilter='all';
   if (catMgmtTarget===id) catMgmtTarget='personal';
-  renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); renderCategories(); renderRules(); scheduleSave();
+  renderIncomeStreams(); renderOverview(); renderCatMgmtTabs(); renderCategories(); renderRules(); renderDebt(); scheduleSave();
 }
 function renderIncomeStreams() {
   const el = document.getElementById('income-streams-list');
@@ -2177,15 +2228,36 @@ function renderIncomeStreams() {
   if (!otherIncomeStreams.length) { el.innerHTML = '<div class="empty" style="padding:8px 0">No other income streams yet</div>'; return; }
   el.innerHTML = otherIncomeStreams.map(s => {
     const debt = resolveLinkedDebt(s.linkedDebtId);
-    return `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:0.5px solid var(--border)">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:500">${s.name}</div>
-        <div style="font-size:12px;color:var(--text2)">${s.type}${debt ? ' · Linked: '+debt.name+' ('+fmt(debt.balance)+')' : ''}</div>
+    const beachCount = s.type==='Investment Property'
+      ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach').length
+      : 0;
+    return `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:500">${s.name}</div>
+          <div style="font-size:12px;color:var(--text2)">${s.type}${debt ? ' · Linked: '+debt.name+' ('+fmt(debt.balance)+')' : ''}</div>
+        </div>
+        <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openUpdateIncomeStream(${s.id})">Edit</button>
+        <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
       </div>
-      <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openUpdateIncomeStream(${s.id})">Edit</button>
-      <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
+      ${beachCount ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="bulkMoveBeachTxns(${s.id})">Move ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} here →</button>` : ''}
     </div>`;
   }).join('');
+}
+// One-off migration helper: transactions that predate a property's own income
+// stream often ended up tagged Personal with a loose category like "Beach" --
+// this moves them onto the stream (recategorised to its "Other" bucket, since
+// the two category lists don't correspond 1:1) so the tax year's data is
+// continuous instead of starting the stream from zero partway through.
+function bulkMoveBeachTxns(streamId) {
+  const stream = otherIncomeStreams.find(s=>s.id===streamId);
+  if (!stream) return;
+  const matches = transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach');
+  if (!matches.length) return;
+  if (!confirm(`Move ${matches.length} "Beach"-categorised transaction${matches.length===1?'':'s'} to "${stream.name}"? They'll be recategorised to "Other" within that stream -- re-tag them individually afterward if needed.`)) return;
+  const otherCat = stream.cats.find(c=>c.name==='Other')?.name || stream.cats[0]?.name || 'Other';
+  matches.forEach(t => { t.stream = streamId; t.cat = otherCat; });
+  renderIncomeStreams(); renderTransactions(); renderOverview(); scheduleSave();
 }
 function openDebtHistory(id) {
   const m = mortgages.find(x => x.id === id);
