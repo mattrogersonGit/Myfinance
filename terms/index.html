@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service — My Finance</title>
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<script>
+  (function () {
+    var pref = localStorage.getItem('myfinance_theme') || 'system';
+    var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<style>
+  :root { --bg:#0f1117; --bg2:#1a1d27; --border:rgba(255,255,255,0.08); --text:#f0f2f8; --text2:#a8adc4; --text3:#7a7f96; --teal:#1db88a; }
+  :root[data-theme="light"] { --bg:#f5f6f8; --bg2:#ffffff; --border:rgba(0,0,0,0.08); --text:#14161f; --text2:#565b70; --text3:#8489a0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  .back { display: inline-block; margin-bottom: 20px; font-size: 13px; color: var(--text3); text-decoration: none; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .updated { color: var(--text3); font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; color: var(--teal); }
+  p, li { color: var(--text2); font-size: 14.5px; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 6px; }
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-top: 28px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">&#8249; Back to My Finance</a>
+    <h1>My Finance — Terms of Service</h1>
+    <div class="updated">Effective date: 25 August 2026</div>
+
+    <p>These terms govern your use of My Finance (the "app"), operated by <strong>MJR Trades</strong> ("we", "us"),
+    available at getmyfinance.app and on Google Play. By using the app, you agree to these terms.</p>
+
+    <h2>The service</h2>
+    <p>My Finance is a personal finance tracking tool. It does not connect to your bank — you import transactions
+    yourself from a CSV file exported from your bank's internet banking, or enter them manually. You can also use
+    the app without an account, in which case your data is kept only in your browser.</p>
+
+    <h2>Accounts</h2>
+    <p>Creating an account lets your data sync across devices and, on Pro, be shared with another household member
+    you invite. You're responsible for keeping your login credentials secure, and for what you choose to enter into
+    the app. You can delete your account and its data at any time from Settings.</p>
+
+    <h2>Subscriptions (Pro)</h2>
+    <p>My Finance offers a free plan and a paid Pro plan. Pro is billed at $4.99/month or $39.99/year, NZD, incl.
+    GST, processed by Stripe. You can cancel at any time; your Pro access continues until the end of the current
+    billing period. We don't offer prorated refunds for a partial billing period.</p>
+
+    <h2>Acceptable use</h2>
+    <p>Don't use My Finance for any unlawful purpose, or try to interfere with or gain unauthorised access to the
+    app or other users' data.</p>
+
+    <h2>No financial advice</h2>
+    <p>My Finance is a tracking and organisation tool. Nothing in the app constitutes financial, tax, or investment
+    advice. You're responsible for decisions you make based on the information you enter.</p>
+
+    <h2>Disclaimer &amp; liability</h2>
+    <p>The app is provided "as is", without warranties of any kind. To the extent permitted by law, we are not
+    liable for any loss arising from your use of the app, including loss of data you have entered.</p>
+
+    <h2>Changes</h2>
+    <p>We may update these terms from time to time. Continued use of the app after a change means you accept the
+    updated terms.</p>
+
+    <h2>Contact</h2>
+    <div class="card">
+      <p style="margin:0">Questions about these terms?</p>
+      <p style="margin:8px 0 0"><a href="mailto:mattrogerson77@gmail.com">mattrogerson77@gmail.com</a></p>
+    </div>
+  </div>
+</body>
+</html>

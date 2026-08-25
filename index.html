@@ -7,7 +7,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="MyFinance">
   <meta name="theme-color" content="#0f1117" id="meta-theme-color">
-  <title>MyFinance</title>
+  <title>My Finance — Track Spending, Budgets &amp; Net Worth (NZ)</title>
+  <meta name="description" content="My Finance helps New Zealanders track spending, budgets, savings, debt, investments and net worth — without connecting your bank. Import a CSV, get your full financial picture.">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -331,6 +332,135 @@
       #page-container { max-width: 680px; margin: 0 auto; }
       #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); border-radius: var(--radius) var(--radius) 0 0; }
     }
+
+    /* ─── Marketing homepage ─────────────────────────────────────────────── */
+    #marketing-home { display: none; position: fixed; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--bg); color: var(--text); z-index: 900; }
+    #marketing-home * { box-sizing: border-box; }
+    #marketing-home a { text-decoration: none; color: inherit; }
+    #marketing-home .mkt-wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+    #marketing-home section { padding: 64px 0; }
+    #marketing-home .mkt-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--teal); margin-bottom: 10px; }
+    #marketing-home h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.3px; margin: 0 0 10px; }
+    #marketing-home .mkt-sub { font-size: 15px; color: var(--text2); max-width: 560px; margin: 0 0 32px; line-height: 1.55; }
+    #marketing-home .mkt-center { text-align: center; margin-left: auto; margin-right: auto; }
+
+    /* Nav */
+    .mkt-nav { position: sticky; top: 0; z-index: 50; background: rgba(15,17,23,0.88); backdrop-filter: blur(10px); border-bottom: 0.5px solid var(--border); }
+    :root[data-theme="light"] .mkt-nav { background: rgba(245,246,248,0.88); }
+    .mkt-nav-row { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .mkt-logo { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
+    .mkt-logo span { color: var(--teal); }
+    .mkt-nav-links { display: flex; align-items: center; gap: 28px; font-size: 14px; font-weight: 500; color: var(--text2); }
+    .mkt-nav-links a:hover { color: var(--text); }
+    .mkt-nav-cta { display: flex; align-items: center; gap: 10px; }
+    .mkt-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 22px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; white-space: nowrap; }
+    .mkt-btn-primary { background: var(--teal); color: #fff; }
+    .mkt-btn-primary:hover { background: var(--teal2); }
+    .mkt-btn-secondary { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
+    .mkt-btn-secondary:hover { background: var(--bg2); }
+    .mkt-btn-text { background: none; color: var(--text2); padding: 12px 10px; }
+    .mkt-btn-text:hover { color: var(--text); }
+    .mkt-btn-lg { padding: 15px 26px; font-size: 15px; }
+    @media (max-width: 760px) { .mkt-nav-links { display: none; } }
+
+    /* Hero */
+    .mkt-hero { padding: 56px 0 64px; }
+    .mkt-hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+    .mkt-hero h1 { font-size: 42px; line-height: 1.12; font-weight: 800; letter-spacing: -0.8px; margin: 0 0 18px; }
+    .mkt-hero-sub { font-size: 19px; font-weight: 600; color: var(--text); margin: 0 0 14px; line-height: 1.4; }
+    .mkt-hero-body { font-size: 15.5px; color: var(--text2); line-height: 1.6; margin: 0 0 28px; max-width: 480px; }
+    .mkt-hero-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+    .mkt-trust { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--text3); }
+    .mkt-trust span { display: inline-flex; align-items: center; gap: 6px; }
+    .mkt-trust b { color: var(--teal); }
+    @media (max-width: 860px) {
+      .mkt-hero-grid { grid-template-columns: 1fr; }
+      .mkt-hero h1 { font-size: 32px; }
+      .mkt-hero-shot { order: -1; max-width: 260px; margin: 0 auto; }
+    }
+
+    /* Phone screenshot frame */
+    .mkt-phone { position: relative; border-radius: 32px; padding: 10px; background: #05060a; box-shadow: 0 24px 60px -20px rgba(0,0,0,0.55), 0 0 0 0.5px var(--border2); }
+    .mkt-phone img { display: block; width: 100%; height: auto; border-radius: 24px; aspect-ratio: 1236/2745; object-fit: cover; }
+    .mkt-phone.mkt-phone-crop-bottom img { object-position: bottom; }
+
+    /* Generic grids/cards */
+    .mkt-grid { display: grid; gap: 16px; }
+    .mkt-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .mkt-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .mkt-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 860px) { .mkt-grid-3, .mkt-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .mkt-grid-2, .mkt-grid-3, .mkt-grid-4 { grid-template-columns: 1fr; } }
+    .mkt-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 16px; padding: 22px; }
+    .mkt-card-icon { font-size: 26px; margin-bottom: 12px; }
+    .mkt-card h3 { font-size: 16px; font-weight: 700; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+    .mkt-card p { font-size: 13.5px; color: var(--text2); line-height: 1.55; margin: 0; }
+    .mkt-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(29,184,138,0.15); color: var(--teal); padding: 2px 8px; border-radius: 100px; }
+
+    /* Steps (bank -> csv -> app -> insights, and no-bank-connection process) */
+    .mkt-steps { display: flex; gap: 14px; }
+    .mkt-step { flex: 1; text-align: center; }
+    .mkt-step-icon { width: 56px; height: 56px; border-radius: 16px; background: var(--bg3); border: 0.5px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 12px; }
+    .mkt-step-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .mkt-step-body { font-size: 12.5px; color: var(--text3); line-height: 1.5; }
+    .mkt-step-arrow { display: flex; align-items: center; color: var(--text3); font-size: 18px; padding-top: 16px; }
+    @media (max-width: 700px) {
+      .mkt-steps { flex-direction: column; }
+      .mkt-step-arrow { transform: rotate(90deg); padding: 0; align-self: center; }
+    }
+
+    /* Category rule pills */
+    .mkt-rule-row { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 12px 16px; font-size: 13.5px; }
+    .mkt-rule-merchant { font-weight: 700; flex: 1; }
+    .mkt-rule-arrow { color: var(--text3); }
+    .mkt-rule-cat { font-size: 11px; background: var(--bg3); color: var(--text2); padding: 3px 10px; border-radius: 100px; font-weight: 600; }
+
+    /* Pricing */
+    .mkt-price-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 18px; padding: 28px; }
+    .mkt-price-card.mkt-price-featured { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+    .mkt-price-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text2); margin-bottom: 10px; }
+    .mkt-price-amt { font-size: 34px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; }
+    .mkt-price-amt small { font-size: 14px; font-weight: 500; color: var(--text3); }
+    .mkt-price-note { font-size: 12.5px; color: var(--text3); margin-bottom: 20px; }
+    .mkt-price-list { list-style: none; padding: 0; margin: 0 0 22px; font-size: 13.5px; color: var(--text2); }
+    .mkt-price-list li { display: flex; gap: 8px; padding: 6px 0; }
+    .mkt-price-list li b { color: var(--teal); }
+
+    /* Google Play badge */
+    .mkt-play-badge { display: inline-block; }
+
+    /* FAQ */
+    .mkt-faq-item { border-bottom: 0.5px solid var(--border); padding: 18px 0; }
+    .mkt-faq-item summary { cursor: pointer; font-size: 15px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .mkt-faq-item summary::-webkit-details-marker { display: none; }
+    .mkt-faq-item summary::after { content: '+'; font-size: 20px; color: var(--text3); font-weight: 400; }
+    .mkt-faq-item[open] summary::after { content: '\2212'; }
+    .mkt-faq-item p { font-size: 13.5px; color: var(--text2); line-height: 1.6; margin: 10px 0 0; }
+
+    /* Final CTA + footer */
+    .mkt-final-cta { text-align: center; background: var(--bg2); border-radius: 24px; padding: 56px 24px; border: 0.5px solid var(--border); }
+    .mkt-final-cta h2 { margin-bottom: 8px; }
+    .mkt-footer { border-top: 0.5px solid var(--border); padding: 40px 0; }
+    .mkt-footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .mkt-footer-links { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13.5px; color: var(--text2); }
+    .mkt-footer-links a:hover { color: var(--text); }
+    .mkt-footer-bottom { font-size: 12.5px; color: var(--text3); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+
+    /* Conversion refinements */
+    #marketing-home .mkt-section-tight { padding: 40px 0; }
+    .mkt-hero-badge { display: inline-flex; align-items: center; gap: 7px; background: rgba(29,184,138,0.12); border: 0.5px solid rgba(29,184,138,0.35); color: var(--teal); font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 100px; margin-bottom: 16px; }
+    .mkt-mid-cta { text-align: center; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 20px; padding: 40px 24px; }
+    .mkt-mid-cta h3 { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+    .mkt-mid-cta p { font-size: 14px; color: var(--text2); margin: 0 0 20px; }
+    .mkt-bank-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px; }
+    .mkt-bank-chip { background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 10px; padding: 10px 18px; font-size: 14px; font-weight: 700; color: var(--text); }
+    .mkt-bank-chip.mkt-bank-chip-generic { font-weight: 500; color: var(--text2); font-size: 13px; }
+    .mkt-card-featured { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); position: relative; }
+    .mkt-card-featured .mkt-card-icon { font-size: 30px; }
+    .mkt-card-featured h3 { font-size: 19px; }
+    .mkt-card-featured p { font-size: 14.5px; }
+    .mkt-play-badge img { display: block; height: 54px; width: auto; }
+    .mkt-price-list li b.mkt-num { color: var(--text); background: rgba(29,184,138,0.12); padding: 1px 6px; border-radius: 5px; }
   </style>
 </head>
 <body>
@@ -339,6 +469,343 @@
 <div id="loading">
   <div class="spinner"></div>
   <div style="font-size:14px;color:var(--text2)">Loading MyFinance…</div>
+</div>
+
+<!-- Marketing homepage (shown to normal browser visitors; standalone/installed app and invite links skip straight to the auth screen below) -->
+<div id="marketing-home">
+  <nav class="mkt-nav">
+    <div class="mkt-wrap mkt-nav-row">
+      <div class="mkt-logo">My<span>Finance</span></div>
+      <div class="mkt-nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="mkt-nav-cta">
+        <button class="mkt-btn mkt-btn-text" onclick="enterAuth('signin')">Sign in</button>
+        <button class="mkt-btn mkt-btn-primary" onclick="enterAuth('signup')">Get started</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="mkt-hero">
+    <div class="mkt-wrap mkt-hero-grid">
+      <div>
+        <div class="mkt-hero-badge">🔒 No bank login. No open banking. Ever.</div>
+        <h1>Know where your money is going.</h1>
+        <div class="mkt-hero-sub">Your complete financial picture — without connecting your bank.</div>
+        <p class="mkt-hero-body">Download a CSV from your bank, import it, and see your spending, budgets, debt, investments and net worth — all in one place.</p>
+        <div class="mkt-hero-ctas">
+          <button class="mkt-btn mkt-btn-primary mkt-btn-lg" onclick="enterAuth('signup')">Start for free</button>
+          <a class="mkt-btn mkt-btn-secondary mkt-btn-lg" href="https://play.google.com/store/apps/details?id=app.getmyfinance.twa" target="_blank" rel="noopener">Download for Android</a>
+        </div>
+        <div class="mkt-trust">
+          <span><b>&#10003;</b> No bank connection</span>
+          <span><b>&#10003;</b> No account required to try</span>
+          <span><b>&#10003;</b> Built for NZ</span>
+        </div>
+      </div>
+      <div class="mkt-hero-shot">
+        <div class="mkt-phone"><img src="screenshots/overview.jpg" alt="My Finance dashboard showing income, spending, savings rate and budget vs actual"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- No bank connection -->
+  <section>
+    <div class="mkt-wrap">
+      <div class="mkt-eyebrow">The difference</div>
+      <h2>Your bank stays your bank.</h2>
+      <p class="mkt-sub">My Finance never asks for your online banking login and never connects to your bank. You stay in control of exactly what gets imported.</p>
+      <div class="mkt-steps">
+        <div class="mkt-step">
+          <div class="mkt-step-icon">🏦</div>
+          <div class="mkt-step-title">Download</div>
+          <div class="mkt-step-body">Export a CSV from your bank's internet banking.</div>
+        </div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step">
+          <div class="mkt-step-icon">📥</div>
+          <div class="mkt-step-title">Import</div>
+          <div class="mkt-step-body">Drop the CSV into My Finance.</div>
+        </div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step">
+          <div class="mkt-step-icon">🏷️</div>
+          <div class="mkt-step-title">Categorise</div>
+          <div class="mkt-step-body">My Finance organises transactions automatically.</div>
+        </div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step">
+          <div class="mkt-step-icon">📊</div>
+          <div class="mkt-step-title">View</div>
+          <div class="mkt-step-body">See spending, budgets and your full financial position.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Local-only mode -->
+  <section class="mkt-section-tight">
+    <div class="mkt-wrap mkt-grid mkt-grid-2">
+      <div class="mkt-card mkt-card-featured">
+        <div class="mkt-card-icon">🔓</div>
+        <h3>Start without an account</h3>
+        <p>No sign-up, no email, nothing to lose. Try My Finance right now — your data stays on your device.</p>
+        <button class="mkt-btn mkt-btn-primary" style="margin-top:16px" onclick="skipAuth()">Try it now — no account needed</button>
+      </div>
+      <div class="mkt-card">
+        <div class="mkt-card-icon">☁️</div>
+        <h3>Create an account when you're ready</h3>
+        <p>An account syncs your data across devices and enables household sharing with a partner.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature overview -->
+  <section id="features">
+    <div class="mkt-wrap">
+      <div class="mkt-eyebrow">Everything in one place</div>
+      <h2>More than a budget app</h2>
+      <p class="mkt-sub">All the pieces of your financial picture, together.</p>
+      <div class="mkt-grid mkt-grid-3">
+        <div class="mkt-card"><div class="mkt-card-icon">📊</div><h3>Spending</h3><p>See exactly where your money goes each month, by category.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">🏷️</div><h3>Budgets</h3><p>Set a monthly budget per category and track actual vs budget.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">🔁</div><h3>Recurring payments</h3><p>Keep track of subscriptions and regular bills.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">📈</div><h3>Net worth</h3><p>Property, savings, investments and debt, combined into one number.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">💹</div><h3>Investments</h3><p>Track KiwiSaver, shares, ETFs, property and more.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">👪</div><h3>Household sharing <span class="mkt-badge">Pro</span></h3><p>Invite a partner to share the same household's finances.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshot showcase -->
+  <section>
+    <div class="mkt-wrap">
+      <div class="mkt-eyebrow">See it for yourself</div>
+      <h2>See your finances at a glance.</h2>
+      <p class="mkt-sub">No mockups — this is My Finance, with a sample household's data.</p>
+      <div class="mkt-grid mkt-grid-3">
+        <div>
+          <div class="mkt-phone"><img src="screenshots/overview.jpg" alt="Dashboard: income, spending, savings rate and budget vs actual"></div>
+          <div class="mkt-sub" style="margin:14px 0 0;font-size:13px;text-align:center">Dashboard</div>
+        </div>
+        <div>
+          <div class="mkt-phone"><img src="screenshots/analytics.jpg" alt="Spending by category and net worth trend"></div>
+          <div class="mkt-sub" style="margin:14px 0 0;font-size:13px;text-align:center">Spending &amp; net worth</div>
+        </div>
+        <div>
+          <div class="mkt-phone"><img src="screenshots/pnl.jpg" alt="Budget vs actual by category"></div>
+          <div class="mkt-sub" style="margin:14px 0 0;font-size:13px;text-align:center">Budget vs actual</div>
+        </div>
+      </div>
+      <div class="mkt-mid-cta" style="margin-top:40px">
+        <h3>Ready to see where your money is going?</h3>
+        <p>Try My Finance free — no bank connection required.</p>
+        <button class="mkt-btn mkt-btn-primary mkt-btn-lg" onclick="enterAuth('signup')">Start for free</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CSV -> insights -->
+  <section class="mkt-section-tight">
+    <div class="mkt-wrap mkt-center">
+      <div class="mkt-eyebrow" style="text-align:center">How your data flows</div>
+      <h2>From bank statement to financial insight</h2>
+      <div class="mkt-steps" style="max-width:720px;margin:32px auto 0">
+        <div class="mkt-step"><div class="mkt-step-icon">🏦</div><div class="mkt-step-title">Your bank</div></div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step"><div class="mkt-step-icon">📄</div><div class="mkt-step-title">CSV</div></div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step"><div class="mkt-step-icon">💰</div><div class="mkt-step-title">My Finance</div></div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step"><div class="mkt-step-icon">📈</div><div class="mkt-step-title">Insights</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Automatic categorisation -->
+  <section>
+    <div class="mkt-wrap mkt-hero-grid">
+      <div>
+        <div class="mkt-eyebrow">Set it up once</div>
+        <h2>Categorise once. Let My Finance remember.</h2>
+        <p class="mkt-sub">Add a rule once and every matching transaction is categorised automatically on future imports.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;max-width:420px">
+          <div class="mkt-rule-row"><span class="mkt-rule-merchant">COUNTDOWN</span><span class="mkt-rule-arrow">&#8594;</span><span class="mkt-rule-cat">Food</span></div>
+          <div class="mkt-rule-row"><span class="mkt-rule-merchant">MITRE 10</span><span class="mkt-rule-arrow">&#8594;</span><span class="mkt-rule-cat">House</span></div>
+          <div class="mkt-rule-row"><span class="mkt-rule-merchant">Z ENERGY</span><span class="mkt-rule-arrow">&#8594;</span><span class="mkt-rule-cat">Petrol</span></div>
+          <div class="mkt-rule-row"><span class="mkt-rule-merchant">NETFLIX</span><span class="mkt-rule-arrow">&#8594;</span><span class="mkt-rule-cat">Subscriptions</span></div>
+        </div>
+      </div>
+      <div class="mkt-hero-shot">
+        <div class="mkt-phone"><img src="screenshots/transactions.jpg" alt="Transactions automatically categorised by merchant"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NZ-specific -->
+  <section>
+    <div class="mkt-wrap mkt-center">
+      <div class="mkt-eyebrow" style="text-align:center">Built here</div>
+      <h2>Made for New Zealand finances</h2>
+      <div class="mkt-grid mkt-grid-3" style="margin-top:28px">
+        <div class="mkt-card"><div class="mkt-card-icon">$</div><h3>NZ dollars</h3><p>Every figure in the app is NZD.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">🏠</div><h3>NZ households</h3><p>Mortgages, rates, KiwiSaver — the categories NZ households use.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">🏛️</div><h3>NZ bank CSVs</h3><p>Your bank's CSV export, recognised automatically.</p></div>
+      </div>
+      <div class="mkt-bank-row">
+        <span class="mkt-bank-chip">ANZ</span>
+        <span class="mkt-bank-chip">ASB</span>
+        <span class="mkt-bank-chip">BNZ</span>
+        <span class="mkt-bank-chip">Westpac</span>
+        <span class="mkt-bank-chip mkt-bank-chip-generic">+ any other NZ bank (generic CSV)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Android -->
+  <section>
+    <div class="mkt-wrap mkt-hero-grid">
+      <div>
+        <div class="mkt-eyebrow">Web + Android</div>
+        <h2>Take your finances with you</h2>
+        <p class="mkt-sub">Check your budget on the bus, log a transaction at the till. Full My Finance, installed like a native app — or just use it in any browser.</p>
+        <a class="mkt-play-badge" href="https://play.google.com/store/apps/details?id=app.getmyfinance.twa" target="_blank" rel="noopener">
+          <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+        </a>
+      </div>
+      <div class="mkt-hero-shot">
+        <div class="mkt-phone"><img src="screenshots/settings.jpg" alt="My Finance settings and import screen on Android"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing">
+    <div class="mkt-wrap mkt-center" style="max-width:720px">
+      <div class="mkt-eyebrow" style="text-align:center">Pricing</div>
+      <h2>Simple pricing. No surprises.</h2>
+      <div class="mkt-grid mkt-grid-2" style="margin-top:28px;text-align:left">
+        <div class="mkt-price-card">
+          <div class="mkt-price-name">Free</div>
+          <div class="mkt-price-amt">$0</div>
+          <div class="mkt-price-note">Forever free</div>
+          <ul class="mkt-price-list">
+            <li><b>&#10003;</b> Import &amp; auto-categorise transactions</li>
+            <li><b>&#10003;</b> Budgets, spending and P&amp;L</li>
+            <li><b>&#10003;</b> Up to <b class="mkt-num">500</b> stored transactions</li>
+            <li><b>&#10003;</b> Last <b class="mkt-num">6 months</b> of history</li>
+          </ul>
+        </div>
+        <div class="mkt-price-card mkt-price-featured">
+          <div class="mkt-price-name">Pro</div>
+          <div class="mkt-price-amt">$4.99<small>/month</small></div>
+          <div class="mkt-price-note">or <strong style="color:var(--text)">$39.99/year</strong> — NZD, incl. GST. Cancel any time.</div>
+          <ul class="mkt-price-list">
+            <li><b>&#10003;</b> Everything in Free</li>
+            <li><b>&#10003;</b> <b class="mkt-num">Unlimited</b> transaction history</li>
+            <li><b>&#10003;</b> Household sharing</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Privacy -->
+  <section class="mkt-section-tight">
+    <div class="mkt-wrap mkt-center" style="max-width:640px">
+      <div class="mkt-eyebrow" style="text-align:center">Privacy</div>
+      <h2>Your financial data is yours.</h2>
+      <p class="mkt-sub mkt-center">My Finance doesn't connect to your bank — you choose exactly what you import. Using the app locally, without an account, keeps your data in your browser only. Creating an account stores your data in a private database, accessible only to your household, so it can sync across your devices. Connections to the app are encrypted (HTTPS).</p>
+    </div>
+  </section>
+
+  <!-- Who it's for -->
+  <section>
+    <div class="mkt-wrap">
+      <div class="mkt-eyebrow">Who it's for</div>
+      <h2>Built for people who want to understand their money.</h2>
+      <div class="mkt-grid mkt-grid-4" style="margin-top:28px">
+        <div class="mkt-card"><div class="mkt-card-icon">🙋</div><h3>Individuals</h3><p>Get a clear picture of your own spending and savings.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">💑</div><h3>Couples &amp; families</h3><p>Share one view of household finances with Pro.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">📈</div><h3>People building wealth</h3><p>Track investments, KiwiSaver and net worth over time.</p></div>
+        <div class="mkt-card"><div class="mkt-card-icon">📑</div><h3>Spreadsheet users</h3><p>Get the same control, without maintaining the spreadsheet.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how-it-works" class="mkt-section-tight">
+    <div class="mkt-wrap mkt-center">
+      <div class="mkt-eyebrow" style="text-align:center">Getting started</div>
+      <h2>How it works</h2>
+      <div class="mkt-steps" style="max-width:720px;margin:32px auto 0">
+        <div class="mkt-step"><div class="mkt-step-icon">1</div><div class="mkt-step-title">Create an account (or start locally)</div></div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step"><div class="mkt-step-icon">2</div><div class="mkt-step-title">Import transactions</div></div>
+        <div class="mkt-step-arrow">&#8594;</div>
+        <div class="mkt-step"><div class="mkt-step-icon">3</div><div class="mkt-step-title">Take control</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="mkt-wrap" style="max-width:720px">
+      <div class="mkt-eyebrow">Questions</div>
+      <h2>Frequently asked questions</h2>
+      <div style="margin-top:20px">
+        <details class="mkt-faq-item"><summary>Do I have to connect my bank?</summary><p>No. My Finance never connects to your bank account. You download a CSV from your bank's internet banking and import it manually.</p></details>
+        <details class="mkt-faq-item"><summary>Which NZ banks are supported?</summary><p>ANZ, ASB, BNZ and Westpac CSV exports are recognised automatically. Other banks can be imported with the generic CSV importer.</p></details>
+        <details class="mkt-faq-item"><summary>Is My Finance free?</summary><p>Yes. The Free plan includes all core features, with up to 500 stored transactions and 6 months of visible history. Pro removes those limits and adds household sharing, for $4.99/month or $39.99/year NZD incl. GST.</p></details>
+        <details class="mkt-faq-item"><summary>Can my partner use it?</summary><p>Yes — Pro lets you invite another person to share your household's data.</p></details>
+        <details class="mkt-faq-item"><summary>Can I use it on my phone?</summary><p>Yes. My Finance works in any mobile browser and can be installed as an app on Android (via Google Play) or added to your home screen on iPhone.</p></details>
+        <details class="mkt-faq-item"><summary>What happens to my financial data?</summary><p>If you use My Finance without an account, your data stays only in your browser. If you create an account, your data is stored in a private database accessible only to your household.</p></details>
+        <details class="mkt-faq-item"><summary>Can I cancel Pro?</summary><p>Yes, any time — Pro billing is a standard monthly or annual subscription with no lock-in.</p></details>
+        <details class="mkt-faq-item"><summary>Can I export my data?</summary><p>Yes. You can export your transactions to CSV at any time from Settings.</p></details>
+        <details class="mkt-faq-item"><summary>Do you have access to my bank account?</summary><p>No. My Finance has no connection to your bank or its login details — it only ever sees the transactions you choose to import.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section>
+    <div class="mkt-wrap">
+      <div class="mkt-final-cta">
+        <h2>Ready to take control of your money?</h2>
+        <p class="mkt-sub mkt-center" style="margin-bottom:24px">No bank connection required.</p>
+        <div class="mkt-hero-ctas" style="justify-content:center">
+          <button class="mkt-btn mkt-btn-primary mkt-btn-lg" onclick="enterAuth('signup')">Start for free</button>
+          <a class="mkt-btn mkt-btn-secondary mkt-btn-lg" href="https://play.google.com/store/apps/details?id=app.getmyfinance.twa" target="_blank" rel="noopener">Download for Android</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="mkt-footer">
+    <div class="mkt-wrap">
+      <div class="mkt-footer-row">
+        <div class="mkt-logo">My<span>Finance</span></div>
+        <div class="mkt-footer-links">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+          <a href="/help/">Help</a>
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms/">Terms</a>
+          <a href="mailto:mattrogerson77@gmail.com">Contact</a>
+        </div>
+      </div>
+      <div class="mkt-footer-bottom">
+        <span>&copy; 2026 My Finance</span>
+        <span>Built in New Zealand</span>
+      </div>
+    </div>
+  </footer>
 </div>
 
 <!-- Auth screen -->
@@ -3508,6 +3975,7 @@ function positionTourTooltip(step) {
   });
 }
 function showApp() {
+  document.getElementById('marketing-home').style.display='none';
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
   armExitGuard();
@@ -4232,18 +4700,36 @@ async function doDeleteAccount() {
   }
 }
 
+// ─── Marketing homepage ──────────────────────────────────────────────────────
+// The marketing homepage is shown to normal browser visitors only. An
+// installed/standalone PWA or TWA (the packaged Android app) always skips it
+// and goes straight to the existing auth screen / app below -- deliberately
+// NOT based on localStorage, a previous local-only choice, or an existing
+// session, so a normal browser visit always sees the marketing page, even for
+// a returning visitor with data already saved locally.
+function isStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+// Reveals the existing sign-in/create-account form -- no separate auth
+// implementation, just hides the marketing page and shows #auth-screen
+// exactly as it already renders today.
+function enterAuth(mode) {
+  document.getElementById('marketing-home').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+  if (mode === 'signin') document.getElementById('auth-email')?.focus();
+}
+
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.getElementById('loading').style.display='none';
   initSupabase();
-  const localMode = localStorage.getItem('myfinance_local_mode') === '1';
   const hasInvite = !!new URLSearchParams(window.location.search).get('invite');
-  if (localMode) {
-    skipAuth();
-  } else if (hasInvite) {
+  if (hasInvite) {
     showInviteAuth();
-  } else {
+  } else if (isStandaloneApp()) {
     document.getElementById('auth-screen').style.display='flex';
+  } else {
+    document.getElementById('marketing-home').style.display='block';
   }
 });
 

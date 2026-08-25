@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download for Android — My Finance</title>
+<meta name="description" content="Get My Finance on Android via Google Play, or use it in any browser on the web.">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<script>
+  (function () {
+    var pref = localStorage.getItem('myfinance_theme') || 'system';
+    var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<style>
+  :root { --bg:#0f1117; --bg2:#1a1d27; --border:rgba(255,255,255,0.08); --text:#f0f2f8; --text2:#a8adc4; --text3:#7a7f96; --teal:#1db88a; }
+  :root[data-theme="light"] { --bg:#f5f6f8; --bg2:#ffffff; --border:rgba(0,0,0,0.08); --text:#14161f; --text2:#565b70; --text3:#8489a0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 80px; text-align: center; }
+  .back { display: inline-block; margin-bottom: 24px; font-size: 13px; color: var(--text3); text-decoration: none; text-align: left; }
+  h1 { font-size: 28px; margin: 20px 0 10px; letter-spacing: -0.3px; }
+  .sub { color: var(--text2); margin-bottom: 32px; }
+  .phone { width: 220px; margin: 0 auto 32px; border-radius: 32px; padding: 10px; background: #05060a; box-shadow: 0 24px 60px -20px rgba(0,0,0,0.55); }
+  .phone img { display: block; width: 100%; border-radius: 24px; aspect-ratio: 1236/2745; object-fit: cover; }
+  .play-badge { display: inline-block; margin-bottom: 14px; }
+  .play-badge img { height: 58px; width: auto; }
+  .or { color: var(--text3); font-size: 13px; margin: 18px 0; }
+  .web-link { display: inline-block; color: var(--teal); font-weight: 600; text-decoration: none; }
+  .note { margin-top: 40px; font-size: 13px; color: var(--text3); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">&#8249; Back to My Finance</a>
+    <div class="phone"><img src="/screenshots/overview.jpg" alt="My Finance dashboard on Android"></div>
+    <h1>Take your finances with you</h1>
+    <p class="sub">My Finance is available on Android and works in any web browser.</p>
+    <a class="play-badge" href="https://play.google.com/store/apps/details?id=app.getmyfinance.twa" target="_blank" rel="noopener">
+      <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+    </a>
+    <div class="or">or</div>
+    <a class="web-link" href="/">Use My Finance in your browser &#8594;</a>
+    <div class="note">No bank connection required, on web or Android.</div>
+  </div>
+</body>
+</html>

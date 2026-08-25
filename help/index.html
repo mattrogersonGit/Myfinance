@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Help — My Finance</title>
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<script>
+  (function () {
+    var pref = localStorage.getItem('myfinance_theme') || 'system';
+    var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<style>
+  :root { --bg:#0f1117; --bg2:#1a1d27; --border:rgba(255,255,255,0.08); --text:#f0f2f8; --text2:#a8adc4; --text3:#7a7f96; --teal:#1db88a; }
+  :root[data-theme="light"] { --bg:#f5f6f8; --bg2:#ffffff; --border:rgba(0,0,0,0.08); --text:#14161f; --text2:#565b70; --text3:#8489a0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  .back { display: inline-block; margin-bottom: 20px; font-size: 13px; color: var(--text3); text-decoration: none; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  .sub { color: var(--text2); margin-bottom: 32px; }
+  h2 { font-size: 16px; margin: 0 0 6px; color: var(--teal); }
+  .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+  p { color: var(--text2); font-size: 14.5px; margin: 0; }
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .contact { margin-top: 32px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">&#8249; Back to My Finance</a>
+    <h1>Help</h1>
+    <p class="sub">Quick answers to common questions. For anything else, get in touch below.</p>
+
+    <div class="card">
+      <h2>Importing a bank CSV</h2>
+      <p>In the app, go to Settings &rarr; Import CSV, and upload the file you exported from your bank's internet
+      banking. ANZ, ASB, BNZ and Westpac formats are recognised automatically; other banks use a generic importer
+      that expects a date, description and amount column.</p>
+    </div>
+    <div class="card">
+      <h2>Auto-categorisation rules</h2>
+      <p>Settings &rarr; Auto-categorisation rules lets you add a keyword (e.g. a merchant name) mapped to a
+      category. Matching transactions are categorised automatically on every future import. You can also add a rule
+      directly from an uncategorised transaction.</p>
+    </div>
+    <div class="card">
+      <h2>Household sharing</h2>
+      <p>Pro accounts can invite another person (e.g. a partner) to share the same household's data from
+      Settings &rarr; Account.</p>
+    </div>
+    <div class="card">
+      <h2>Exporting your data</h2>
+      <p>Settings &rarr; Export to CSV downloads your transactions as a CSV file at any time.</p>
+    </div>
+    <div class="card">
+      <h2>Deleting your account</h2>
+      <p>Settings &rarr; Account &rarr; Delete account permanently removes your account and its data. This can't be
+      undone.</p>
+    </div>
+
+    <div class="contact">
+      <p>Still stuck? Email <a href="mailto:mattrogerson77@gmail.com">mattrogerson77@gmail.com</a>.</p>
+    </div>
+  </div>
+</body>
+</html>
