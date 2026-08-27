@@ -486,3 +486,100 @@ input[type="text"]:focus { outline: none; border-color: var(--sun); }
 .museum-title { font-size: 13px; font-weight: 800; margin: 6px 0 4px 0; }
 .museum-desc { font-size: 11px; color: var(--ink-soft); }
 .museum-date { font-size: 10px; color: var(--ink-soft); margin-top: 6px; }
+
+/* ===== Home — the weekly calendar and the village board ===== */
+
+.calendar {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.day {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  background: rgba(34,34,59,0.06);
+  color: var(--ink-soft);
+}
+.day .em { font-size: 15px; margin-bottom: 1px; }
+.day.done { background: var(--save); color: white; }
+.day.today {
+  background: var(--sun);
+  color: white;
+  box-shadow: 0 0 0 4px rgba(255,183,3,0.25);
+}
+
+/* Screen override: Home gets a much wider, board-style layout instead of
+   the 480px focused-scene column every other screen uses. */
+.screen.home-screen {
+  max-width: 960px;
+}
+
+.home-board {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 1.5fr 1fr;
+  grid-template-areas:
+    "job    goal    market"
+    "job    home    market"
+    "museum home    valley"
+    "wallet wallet  wallet";
+}
+.hb-card {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.hb-goal   { grid-area: goal; }
+.hb-home   { grid-area: home; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.hb-job    { grid-area: job; display: flex; flex-direction: column; justify-content: center; }
+.hb-market { grid-area: market; display: flex; flex-direction: column; justify-content: center; }
+.hb-wallet { grid-area: wallet; }
+.hb-museum { grid-area: museum; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; }
+.hb-valley { grid-area: valley; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; }
+.hb-museum:active, .hb-valley:active { transform: scale(0.97); }
+
+@media (max-width: 760px) {
+  .home-board {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "goal"
+      "home"
+      "job"
+      "market"
+      "wallet"
+      "museum"
+      "valley";
+  }
+}
+
+/* Job Board mini-game: clear-grid (Wash a Car / Rake Leaves) */
+.clear-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.clear-tile {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  cursor: pointer;
+}
+.clear-tile.done { background: #fff6e0; cursor: default; opacity: 0.7; }
+.clear-tile:active { transform: scale(0.92); }

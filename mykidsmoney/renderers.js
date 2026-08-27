@@ -98,10 +98,11 @@ function renderChoose(content, rt) {
   }
   if (rt.answered) {
     const picked = content.options.find(o => o.id === rt.answered);
+    const feedbackText = content.feedback ? content.feedback[rt.answered] : null;
     return `
       <div class="card" style="text-align:center;">
         <div class="celebrate" style="font-size:48px;">✨</div>
-        <p class="subtitle">You chose: ${escapeHtml(picked.label)}</p>
+        <p class="subtitle">${feedbackText ? escapeHtml(feedbackText) : 'You chose: ' + escapeHtml(picked.label)}</p>
       </div>
       <button class="btn" data-action="activity-continue">Continue</button>
     `;
@@ -163,5 +164,39 @@ function renderGoalPick() {
     <div class="grid">
       ${CONFIG.goals.map(g => `<div class="choice-tile" data-action="goal-pick" data-value="${g.id}">${g.icon}<div class="label">${g.name}<br><span class="mono" style="font-size:.75em;">$${g.target}</span></div></div>`).join('')}
     </div>
+  `;
+}
+
+// ---- clear-grid: tap tiles to clear them (Job Board mini-game) ----
+function renderClearGrid(content, rt) {
+  rt.cleared = rt.cleared || {};
+  const allDone = Array.from({ length: content.tileCount }).every((_, i) => rt.cleared[i]);
+  const tiles = Array.from({ length: content.tileCount }).map((_, i) => {
+    const done = rt.cleared[i];
+    return `<div class="clear-tile ${done ? 'done' : ''}" data-action="${done ? '' : 'clear-tap'}" data-value="${i}">${done ? '✨' : content.tileIcon}</div>`;
+  }).join('');
+  return `
+    <div class="clear-grid">${tiles}</div>
+    <button class="btn" data-action="activity-continue" ${allDone ? '' : 'disabled'}>Continue</button>
+  `;
+}
+
+// ---- market-scene: a shopping situation with a reason and a budget ----
+function renderMarketScene(content, rt) {
+  if (rt.answered) {
+    const picked = content.options.find(o => o.id === rt.answered);
+    return `
+      <div class="celebrate">${picked.best ? '🎉' : '🛍️'}</div>
+      <div class="title">${escapeHtml(picked.label)}</div>
+      <div class="card"><p class="subtitle">${escapeHtml(picked.feedback)}</p></div>
+      <button class="btn" data-action="activity-continue">Continue</button>
+    `;
+  }
+  return `
+    <div class="card" style="text-align:center;">
+      <div class="emoji-hero">${content.icon}</div>
+      <p class="subtitle">${escapeHtml(content.reason)} You have $${content.budget}.</p>
+    </div>
+    ${content.options.map(o => `<button class="btn secondary" data-action="market-pick" data-value="${o.id}">${escapeHtml(o.label)}</button>`).join('')}
   `;
 }

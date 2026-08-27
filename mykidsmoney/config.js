@@ -30,6 +30,7 @@ const CONFIG = {
     // average of all skills is at least the "confident" band.
     unlockFloorBand: 'Getting It',
     unlockAverageBand: 'Confident',
+    weeksBeforeBigDay: 3,
   },
 
   ranks: [
@@ -47,8 +48,18 @@ const CONFIG = {
     { id: 'bike', name: 'Bike', icon: '🚲', target: 20 },
   ],
 
+  pocketMoney: 5, // deposited into cash (undecided wallet) on day 1 of every week
+
+  // Weekly calendar shape. Slots marked 'event' draw a random event from
+  // EVENTS at week-start; slots marked 'choice' let the child pick Job Board
+  // or Market. Day 0 (payday) and day 6 (review) are handled specially by
+  // the engine and aren't listed here.
+  weekPattern: ['choice', 'event', 'choice', 'choice', 'event'],
+
+  givingMomentEveryWeeks: 2,
+
   // Plain-language sentences a parent could eventually read. Keyed by skill id,
-  // shown to the child only inside the Boss Challenge recap (never as a number).
+  // shown to the child only inside recap screens (never as a number).
   skillDescriptors: {
     MONEY_SENSE: 'can tell money apart from things that aren’t money',
     JAR_LITERACY: 'can explain Spend, Save and Give',

@@ -1,216 +1,164 @@
-// MyKidsMoney — World 1 (Coinbrook) curriculum. Pure data: stages, activities,
-// and the Boss Challenge. The engine/renderers read this; nothing here knows
-// how to draw a screen.
-//
-// Activity shape: { id, type, title, skills:[{skill, tier}], xpTier, content }
-// `tier` maps to CONFIG.mastery.evidence. `xpTier` maps to CONFIG.xp.
+// MyKidsMoney — Coinbrook content. Pure data: onboarding, jobs, market
+// scenes, events, giving moments, and the Boss Challenge. Engine/renderers
+// read this; nothing here knows how to draw a screen.
 
-const WORLD1 = {
-  id: 'w1',
-  name: 'Coinbrook',
-  stages: [
-    {
-      id: 's1', name: 'What Is Money?', icon: '🪙',
-      activities: [
-        {
-          id: 'money-or-not', type: 'sort', title: 'Money or Not?',
-          skills: [{ skill: 'MONEY_SENSE', tier: 'foundation' }], xpTier: 'small',
-          content: {
-            zoneLabels: { yes: 'Money', no: 'Not Money' },
-            items: [
-              { id: 'coin', icon: '🪙', name: 'A coin', answer: 'yes' },
-              { id: 'note', icon: '💵', name: 'A note', answer: 'yes' },
-              { id: 'tap', icon: '📱', name: 'Tap to pay', answer: 'yes' },
-              { id: 'rock', icon: '🪨', name: 'A rock', answer: 'no' },
-              { id: 'leaf', icon: '🍃', name: 'A leaf', answer: 'no' },
-              { id: 'teddy', icon: '🧸', name: 'A teddy bear', answer: 'no' },
-              { id: 'sticker', icon: '⭐', name: 'A sticker', answer: 'no' },
-              { id: 'shell', icon: '🐚', name: 'A seashell', answer: 'no' },
-            ],
-          },
-        },
-        {
-          id: 'three-things', type: 'reveal', title: 'Three Things Money Can Do',
-          skills: [], xpTier: 'small',
-          content: {
-            cards: [
-              { emoji: '🪙💵', text: 'Money is coins, notes — even numbers on a screen.' },
-              { emoji: '🎉', text: 'You can SPEND it on something fun right now.' },
-              { emoji: '🌱', text: 'You can SAVE it for something later.' },
-              { emoji: '❤️', text: 'You can GIVE it to help someone else.' },
-            ],
-          },
-        },
-      ],
-    },
-    {
-      id: 's2', name: 'Spend, Save & Give', icon: '🏺',
-      activities: [
-        {
-          id: 'meet-jars', type: 'jar-explore', title: 'Meet the Jars',
-          skills: [{ skill: 'JAR_LITERACY', tier: 'low' }], xpTier: 'small',
-          content: {
-            jars: [
-              { id: 'spend', icon: '💰', name: 'SPEND', explain: 'SPEND is for things you want right now — like a comic today!' },
-              { id: 'save', icon: '🏦', name: 'SAVE', explain: 'SAVE is for things you want later — it grows while you wait.' },
-              { id: 'give', icon: '❤️', name: 'GIVE', explain: 'GIVE is money that helps someone else.' },
-            ],
-          },
-        },
-        {
-          id: 'first-ten', type: 'allocate', title: 'Your First $10',
-          skills: [{ skill: 'JAR_LITERACY', tier: 'medium' }, { skill: 'PATIENCE', tier: 'low' }], xpTier: 'moderate',
-          content: { amount: 10, prompt: "You've got $10! Tap a jar to add a dollar." },
-        },
-        {
-          id: 'what-happened', type: 'consequence', title: 'Nice choices!',
-          skills: [], xpTier: null, content: {},
-        },
-        {
-          id: 'jar-checkpoint', type: 'choose', title: 'Quick Question',
-          skills: [{ skill: 'JAR_LITERACY', tier: 'checkpoint' }], xpTier: 'checkpoint',
-          content: {
-            emoji: '🚲', prompt: 'You want a bike next year. Which jar helps most?',
-            options: [
-              { id: 'spend', label: '💰 Spend' },
-              { id: 'save', label: '🏦 Save', best: true },
-              { id: 'give', label: '❤️ Give' },
-            ],
-          },
-        },
-      ],
-    },
-    {
-      id: 's3', name: 'Needs vs Wants', icon: '🧭',
-      activities: [
-        {
-          id: 'sort-it-out', type: 'sort', title: 'Sort It Out',
-          skills: [{ skill: 'NEEDS_WANTS', tier: 'medium' }], xpTier: 'small',
-          content: {
-            zoneLabels: { yes: 'Need', no: 'Want' },
-            items: [
-              { id: 'coat', icon: '🧥', name: 'A warm coat', answer: 'yes' },
-              { id: 'vgame', icon: '🎮', name: 'A new video game', answer: 'no' },
-              { id: 'lunch', icon: '🍱', name: 'Lunch', answer: 'yes' },
-              { id: 'candy', icon: '🍬', name: 'Candy', answer: 'no' },
-              { id: 'shoes', icon: '👟', name: 'Shoes that fit', answer: 'yes' },
-              { id: 'toycar', icon: '🚗', name: 'A toy car', answer: 'no' },
-              { id: 'bag', icon: '🎒', name: 'A school bag', answer: 'yes' },
-            ],
-          },
-        },
-        {
-          id: 'it-depends', type: 'choose', title: 'It Depends...',
-          skills: [{ skill: 'NEEDS_WANTS', tier: 'high' }, { skill: 'TRADE_OFFS', tier: 'low' }], xpTier: 'small',
-          content: {
-            intro: 'Sometimes it depends! If your old shoes don’t fit anymore...',
-            emoji: '👟', prompt: 'New shoes — need or want?',
-            options: [
-              { id: 'need', label: 'Need — mine don’t fit', best: true },
-              { id: 'want', label: 'Want — I just like them' },
-            ],
-            followup: {
-              prompt: 'Why?',
-              options: [
-                { id: 'grew', label: 'I grew and need new ones', correct: true },
-                { id: 'color', label: 'I like the color better', correct: false },
-              ],
-            },
-          },
-        },
-      ],
-    },
-    {
-      id: 's4', name: 'Earning a Little', icon: '⚒️',
-      activities: [
-        {
-          id: 'chore-board', type: 'chore', title: 'Chore Board',
-          skills: [{ skill: 'EARNING', tier: 'medium' }], xpTier: 'small',
-          content: {
-            chores: [
-              { id: 'water', icon: '💧', name: 'Water the plant', taps: 3, pay: 2 },
-              { id: 'tidy', icon: '🧸', name: 'Tidy the toys', taps: 3, pay: 2 },
-              { id: 'feed', icon: '🐾', name: 'Feed the pet', taps: 3, pay: 2 },
-            ],
-          },
-        },
-        {
-          id: 'spend-or-save', type: 'choose', title: 'Spend It or Save It?',
-          skills: [{ skill: 'TRADE_OFFS', tier: 'high' }, { skill: 'PATIENCE', tier: 'medium' }, { skill: 'EARNING', tier: 'low' }], xpTier: 'moderate',
-          content: {
-            emoji: '🧸', prompt: 'You earned $6! There’s a toy for $6 right now… or you could add it to your goal.',
-            options: [
-              { id: 'spend', label: '🧸 Toy — $6 now' },
-              { id: 'save', label: '🏦 Add $6 to my goal' },
-            ],
-          },
-        },
-      ],
-    },
-    {
-      id: 's5', name: 'Save for a Goal', icon: '🎯',
-      activities: [
-        {
-          id: 'pick-goal', type: 'goal-pick', title: 'Pick Your Goal',
-          skills: [{ skill: 'GOALS', tier: 'low' }], xpTier: 'small', content: {},
-        },
-      ],
-    },
-    {
-      id: 's6', name: 'Smart Shopping', icon: '🛍️',
-      activities: [
-        {
-          id: 'snack-stand', type: 'compare', title: 'Snack Stand',
-          skills: [{ skill: 'VALUE', tier: 'medium' }], xpTier: 'small',
-          content: {
-            emoji: '🍿', prompt: 'You have $20 for snacks. Which is better value?',
-            options: [
-              { id: 'big', label: '1 big bag — $20' },
-              { id: 'small', label: '4 small bags — $5 each', best: true },
-            ],
-            feedback: {
-              big: 'You got 1 big bag. 4 small bags would have given you more to share for the same $20!',
-              small: '4 bags for the same $20 — more to share. Great value spotting!',
-            },
-          },
-        },
-        {
-          id: 'sticker-stand', type: 'compare', title: 'Sticker Stand',
-          skills: [{ skill: 'VALUE', tier: 'medium' }], xpTier: 'small',
-          content: {
-            emoji: '⭐', prompt: 'Stickers! Which is better value?',
-            options: [
-              { id: 'one-sheet', label: '1 sheet of 10 — $4', best: true },
-              { id: 'three-sheets', label: '3 sheets of 3 — $6 total' },
-            ],
-            feedback: {
-              'one-sheet': '10 stickers for $4 — more stickers AND cheaper!',
-              'three-sheets': 'Those 3 sheets cost more for fewer stickers than the one big sheet.',
-            },
-          },
-        },
-        {
-          id: 'apple-trap', type: 'compare', title: 'Fruit Stand',
-          skills: [{ skill: 'VALUE', tier: 'checkpoint' }], xpTier: 'checkpoint',
-          content: {
-            emoji: '🍎', prompt: 'Apples for the picnic! Which is better value?',
-            options: [
-              { id: 'giant-box', label: '1 giant box of 12 — $15' },
-              { id: 'small-bags', label: '3 small bags of 3 — $6 total', best: true },
-            ],
-            feedback: {
-              'giant-box': 'The giant box looks like more, but it costs a lot per apple — the small bags were cheaper for what you get.',
-              'small-bags': "Nice! Even though it's fewer apples, the small bags cost much less for each one — that's the better deal.",
-            },
-          },
-        },
-      ],
-    },
-  ],
-};
+// ---------- Onboarding (once, before Week 1) ----------
 
-// Boss Challenge — "The Big Day". Beats 3 and 4 pick a random variant each
-// attempt so a replay isn't memorisable.
+const ONBOARDING = [
+  {
+    id: 'miro-intro', type: 'reveal', skills: [], xpTier: null,
+    content: { cards: [
+      { emoji: '🦊', text: "Hi there! I'm Miro." },
+      { emoji: '🌳', text: "Welcome to Sprout Valley — I'll be your guide, but this is your story." },
+      { emoji: '🏘️', text: "This little town is Coinbrook. Let's get you settled in." },
+    ] },
+  },
+  {
+    id: 'money-or-not', type: 'sort', title: 'Money or Not?', skills: [{ skill: 'MONEY_SENSE', tier: 'foundation' }], xpTier: 'small',
+    content: {
+      zoneLabels: { yes: 'Money', no: 'Not Money' },
+      items: [
+        { id: 'coin', icon: '🪙', name: 'A coin', answer: 'yes' },
+        { id: 'note', icon: '💵', name: 'A note', answer: 'yes' },
+        { id: 'tap', icon: '📱', name: 'Tap to pay', answer: 'yes' },
+        { id: 'rock', icon: '🪨', name: 'A rock', answer: 'no' },
+        { id: 'leaf', icon: '🍃', name: 'A leaf', answer: 'no' },
+        { id: 'teddy', icon: '🧸', name: 'A teddy bear', answer: 'no' },
+        { id: 'sticker', icon: '⭐', name: 'A sticker', answer: 'no' },
+        { id: 'shell', icon: '🐚', name: 'A seashell', answer: 'no' },
+      ],
+    },
+  },
+  {
+    id: 'meet-jars', type: 'jar-explore', title: 'Meet the Jars', skills: [{ skill: 'JAR_LITERACY', tier: 'low' }], xpTier: 'small',
+    content: {
+      jars: [
+        { id: 'spend', icon: '💰', name: 'SPEND', explain: 'SPEND is for things you want at the Market.' },
+        { id: 'save', icon: '🏦', name: 'SAVE', explain: 'SAVE grows toward your goal.' },
+        { id: 'give', icon: '❤️', name: 'GIVE', explain: 'GIVE helps someone else, every couple of weeks.' },
+      ],
+    },
+  },
+  {
+    id: 'onboarding-done', type: 'reveal', skills: [], xpTier: 'small',
+    content: { cards: [
+      { emoji: '🏠', text: 'This is your home. Money arrives here — it\'s up to you what happens next.' },
+      { emoji: '📅', text: 'Every week, keep an eye on your calendar. Ready?' },
+    ] },
+  },
+];
+
+// ---------- Job Board ----------
+// Three interaction mechanics across five jobs: clear-grid (new), sort
+// (reused from the old Needs vs Wants board), chore (reused tap-counter).
+
+const JOBS = [
+  { id: 'wash-car', type: 'clear-grid', name: 'Wash a Car', icon: '🚗', pay: 3, content: { tileIcon: '💧', tileCount: 6 } },
+  { id: 'rake-leaves', type: 'clear-grid', name: 'Rake Leaves', icon: '🍂', pay: 3, content: { tileIcon: '🍂', tileCount: 6 } },
+  {
+    id: 'tidy-room', type: 'sort', name: 'Tidy a Room', icon: '🧸', pay: 4,
+    content: {
+      zoneLabels: { yes: 'Toy Box', no: 'Bookshelf' },
+      items: [
+        { id: 'bear', icon: '🧸', name: 'Teddy bear', answer: 'yes' },
+        { id: 'car', icon: '🚙', name: 'Toy car', answer: 'yes' },
+        { id: 'book1', icon: '📗', name: 'Storybook', answer: 'no' },
+        { id: 'book2', icon: '📘', name: 'Picture book', answer: 'no' },
+        { id: 'blocks', icon: '🧱', name: 'Blocks', answer: 'yes' },
+        { id: 'atlas', icon: '📙', name: 'Atlas', answer: 'no' },
+      ],
+    },
+  },
+  { id: 'walk-dog', type: 'chore', name: 'Walk a Dog', icon: '🐕', pay: 3, content: { taps: 4 } },
+  { id: 'garden', type: 'chore', name: 'Help in the Garden', icon: '🌻', pay: 3, content: { taps: 4 } },
+];
+
+// ---------- Market scenes ----------
+// One drawn at random per week. Contextual, not a raw price-per-unit quiz —
+// every scene has a reason and a budget, and "skip it" is often a valid pick.
+
+const MARKET_SCENES = [
+  {
+    id: 'fruit', icon: '🍎', reason: "You're shopping for fruit for the family.", budget: 6,
+    options: [
+      { id: 'apples', label: 'A big bag of apples — $6', cost: 6, best: true, feedback: 'Great pick — a full bag goes a long way for the whole family.' },
+      { id: 'pears', label: 'A few fancy pears — $6', cost: 6, feedback: 'Lovely pears, but there are only a few — not much for everyone to share.' },
+      { id: 'skip', label: "Skip it — you'll shop next week", cost: 0, feedback: "Fair enough — sometimes waiting is the right call, and your money stays in your Spend jar." },
+    ],
+  },
+  {
+    id: 'supplies', icon: '✏️', reason: 'You need something for school tomorrow.', budget: 5,
+    options: [
+      { id: 'pack', label: 'A pack of pencils — $5', cost: 5, best: true, feedback: "Smart — you'll have spares for weeks, not just tomorrow." },
+      { id: 'fancy', label: 'One fancy glitter pen — $5', cost: 5, feedback: "It's fun, but if it runs out you're back to square one." },
+      { id: 'skip', label: 'Borrow one from a friend instead', cost: 0, feedback: 'No cost at all — and you kept your money for something else.' },
+    ],
+  },
+  {
+    id: 'gift', icon: '🎁', reason: "It's your friend's birthday this week.", budget: 5,
+    options: [
+      { id: 'gift', label: 'A small gift — $4', cost: 4, best: true, feedback: "They'll love it, and you've still got $1 left over." },
+      { id: 'card', label: 'A handmade card — $0', cost: 0, feedback: 'Free and thoughtful — sometimes a gift is a plan, not a price.' },
+      { id: 'splurge', label: 'A big gift — $5 (everything)', cost: 5, feedback: 'Very generous! Just nothing left over this week.' },
+    ],
+  },
+  {
+    id: 'umbrella', icon: '☔', reason: "It's about to rain and you don't have an umbrella.", budget: 6,
+    options: [
+      { id: 'sturdy', label: 'A sturdy umbrella — $6', cost: 6, best: true, feedback: "This one will last through plenty of rainy days ahead." },
+      { id: 'cheap', label: 'A cheap $2 umbrella', cost: 2, feedback: "It's cheaper, but it might not survive the first big gust." },
+      { id: 'skip', label: 'Just wait it out under cover', cost: 0, feedback: 'No spend at all — sometimes that works out fine too.' },
+    ],
+  },
+];
+
+// ---------- Events ----------
+// Small scripted life moments. Which day slots hold an event is fixed by
+// CONFIG.weekPattern; which specific event fills that slot is random.
+
+const EVENTS = [
+  {
+    id: 'birthday', icon: '🎂', prompt: "It's your friend's birthday! Do you want to get them something?",
+    options: [
+      { id: 'gift', label: 'Get a $2 gift', cost: 2, feedback: 'A little something goes a long way — happy birthday to them!' },
+      { id: 'card', label: 'Make a card instead (free)', cost: 0, feedback: 'Handmade and free — just as thoughtful.' },
+    ],
+  },
+  {
+    id: 'found-coin', icon: '🪙', prompt: 'You found a coin on the footpath! What luck.',
+    options: [
+      { id: 'keep', label: 'Keep it', gain: 1, feedback: 'Lucky find — $1 straight into your wallet.' },
+      { id: 'giveback', label: 'Look for the owner', gain: 0, feedback: "Kind thought — you didn't find them, but it felt right to try." },
+    ],
+  },
+  {
+    id: 'piggybank', icon: '🐷', prompt: 'Oops — your piggy bank tipped over and a coin rolled away!',
+    options: [
+      { id: 'shrug', label: 'Oh well, look for it later', cost: 0, feedback: 'These things happen — no harm done.' },
+      { id: 'search', label: 'Stop and search for it now', cost: 0, feedback: 'You found it! Crisis averted.' },
+    ],
+  },
+  {
+    id: 'rain', icon: '🌧️', prompt: "It's raining and you don't have an umbrella!",
+    options: [
+      { id: 'buy', label: 'Buy one for $3', cost: 3, feedback: 'Dry and happy — worth every dollar today.' },
+      { id: 'wait', label: 'Wait it out under a shop roof', cost: 0, feedback: 'A bit damp, but you saved your $3.' },
+    ],
+  },
+];
+
+// ---------- Giving Moments ----------
+
+const GIVING_OPTIONS = [
+  { id: 'neighbor', icon: '👵', label: 'Help a neighbor' },
+  { id: 'shelter', icon: '🐾', label: 'Animal shelter drive' },
+  { id: 'foodbank', icon: '🥫', label: 'Local food bank' },
+];
+
+// ---------- Boss Challenge — "The Big Day" ----------
+// Unchanged from the Stage-based build. Beats 3 and 4 pick a random variant
+// each attempt so a replay isn't memorisable.
+
 const BOSS = {
   id: 'boss', name: 'The Big Day',
   brokenThingVariants: [

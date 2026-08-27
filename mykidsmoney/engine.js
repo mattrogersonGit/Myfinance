@@ -1,7 +1,7 @@
 // MyKidsMoney — progression engine. Pure state/logic: no DOM, no rendering.
 // Renderers and app.js call into this; this file never reaches into them.
 
-const SAVE_KEY = 'mkm_state_v2';
+const SAVE_KEY = 'mkm_state_v3';
 const SKILL_IDS = ['MONEY_SENSE', 'JAR_LITERACY', 'NEEDS_WANTS', 'PATIENCE', 'TRADE_OFFS', 'GOALS', 'VALUE', 'EARNING'];
 
 function freshState() {
@@ -13,23 +13,33 @@ function freshState() {
     child: { name: '', avatar: AVATARS[0], age: 6 },
     settings: { sound: true },
     xp: 0,
-    wallet: { spend: 0, save: 0, give: 0 },
     mastery,
-    goal: null,
-    goalCelebrated: false,
+    cash: 0,                          // undecided wallet money
+    jars: { spend: 0, save: 0, give: 0 }, // persistent, purposeful
+    goal: null,                        // goal id, or null between goals
     achievements,
     avatarCosmetic: null,
-    map: { position: 'w1' },
-    coinbrook: { completedStages: [], activityCompletions: {}, bossAttempts: 0, bossUnlocked: false },
+    coinbrook: {
+      onboarded: false,
+      weekNumber: 0,
+      weeksCompleted: 0,
+      dayIndex: 0,
+      days: [],
+      jobsDoneThisWeek: [],
+      marketScene: null,
+      givingMomentDoneThisWeek: false,
+      bossUnlocked: false,
+    },
     screen: 'welcome',
   };
 }
 
 let state = load() || freshState();
 if (!state.settings) state.settings = { sound: true };
-if (!state.wallet) state.wallet = { spend: 0, save: 0, give: 0 };
 if (!state.mastery) { state.mastery = {}; SKILL_IDS.forEach(s => { state.mastery[s] = 0; }); }
-if (!state.coinbrook) state.coinbrook = { completedStages: [], activityCompletions: {}, bossAttempts: 0, bossUnlocked: false };
+if (state.cash === undefined) state.cash = 0;
+if (!state.jars) state.jars = { spend: 0, save: 0, give: 0 };
+if (!state.coinbrook) state.coinbrook = freshState().coinbrook;
 if (!state.achievements) { state.achievements = {}; ACHIEVEMENT_DEFS.forEach(a => { state.achievements[a.id] = { earned: false, earnedDate: null }; }); }
 
 function load() {
@@ -59,13 +69,17 @@ function addXP(amount) {
   state.xp += amount;
 }
 
+// activityId is used only to track first-time-vs-repeat for the XP trickle;
+// it's fine for it to be reused across weeks (e.g. a job id) — the trickle is
+// a soft anti-farming nudge, not a hard one-time gate (that's Mastery's job).
+const XP_SEEN = {};
 function activityXP(activityId, xpTier) {
   if (!xpTier) return;
-  const count = state.coinbrook.activityCompletions[activityId] || 0;
+  const seen = XP_SEEN[activityId] || 0;
   const base = CONFIG.xp[xpTier] || 0;
-  const amount = count === 0 ? base : Math.max(1, Math.round(base * CONFIG.xp.repeatFactor));
+  const amount = seen === 0 ? base : Math.max(1, Math.round(base * CONFIG.xp.repeatFactor));
   addXP(amount);
-  state.coinbrook.activityCompletions[activityId] = count + 1;
+  XP_SEEN[activityId] = seen + 1;
   return amount;
 }
 
@@ -106,7 +120,7 @@ function grantAchievement(id) {
   return true;
 }
 
-// ---------- Goals ----------
+// ---------- Goal ----------
 
 function goalDef() {
   return state.goal ? CONFIG.goals.find(g => g.id === state.goal) : null;
@@ -115,13 +129,20 @@ function goalDef() {
 function goalProgressPct() {
   const g = goalDef();
   if (!g) return 0;
-  return Math.min(100, Math.round((state.wallet.save / g.target) * 100));
+  return Math.min(100, Math.round((state.jars.save / g.target) * 100));
 }
 
+// Returns true exactly once, the moment Save crosses the goal's target —
+// deducts the target (the goal was "bought" with savings) and clears the
+// goal so a new one can be picked. Save keeps whatever's left over.
 function checkGoalComplete() {
   const g = goalDef();
-  if (!g || state.goalCelebrated) return false;
-  if (state.wallet.save >= g.target) { state.goalCelebrated = true; return true; }
+  if (!g) return false;
+  if (state.jars.save >= g.target) {
+    state.jars.save -= g.target;
+    state.goal = null;
+    return true;
+  }
   return false;
 }
 
@@ -137,6 +158,43 @@ function worldUnlockCheck() {
   return allAtFloor && avgAtTarget;
 }
 
-function coinbrookComplete() {
-  return WORLD1.stages.every(s => state.coinbrook.completedStages.includes(s.id));
+function bigDayReady() {
+  return state.coinbrook.weeksCompleted >= CONFIG.world1.weeksBeforeBigDay;
+}
+
+// ---------- Weekly calendar ----------
+
+function currentDay() {
+  return state.coinbrook.days[state.coinbrook.dayIndex];
+}
+
+function startNewWeek() {
+  const c = state.coinbrook;
+  c.weekNumber += 1;
+  c.jobsDoneThisWeek = [];
+  c.marketScene = MARKET_SCENES[Math.floor(Math.random() * MARKET_SCENES.length)].id;
+  c.givingMomentDoneThisWeek = false;
+  const days = [{ type: 'payday', done: true }];
+  CONFIG.weekPattern.forEach(type => {
+    if (type === 'event') {
+      days.push({ type: 'event', done: false, eventId: EVENTS[Math.floor(Math.random() * EVENTS.length)].id });
+    } else {
+      days.push({ type: 'choice', done: false });
+    }
+  });
+  days.push({ type: 'review', done: false });
+  c.days = days;
+  c.dayIndex = 1;
+  state.cash += CONFIG.pocketMoney;
+}
+
+function completeCurrentDay() {
+  currentDay().done = true;
+  if (state.coinbrook.dayIndex < state.coinbrook.days.length - 1) state.coinbrook.dayIndex += 1;
+}
+
+function givingMomentReady() {
+  return state.jars.give > 0
+    && state.coinbrook.weekNumber % CONFIG.givingMomentEveryWeeks === 0
+    && !state.coinbrook.givingMomentDoneThisWeek;
 }
