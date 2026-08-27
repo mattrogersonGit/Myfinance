@@ -1,61 +1,10 @@
-// MyKidsMoney — V1 prototype engine (World 1: Money Explorer, ages 5-8)
-// No build step, no backend. State persists to localStorage only.
+// MyKidsMoney — screen flow & action dispatch. Owns navigation and wallet/XP/
+// mastery side-effects; delegates actual markup to renderers.js and all rules
+// to engine.js.
 
-const SAVE_KEY = 'mkm_state_v1';
-
-function freshState() {
-  return {
-    child: { name: '', avatar: AVATARS[0], age: 6 },
-    xp: 0,
-    achievements: [],
-    jars: { spend: 0, save: 0, give: 0 },
-    goal: null,
-    screen: 'welcome',
-    settings: { sound: true },
-    session: { coinsLeft: 10, allocated: { spend: 0, save: 0, give: 0 }, nwIndex: 0, nwCorrect: 0, newAchievements: [], xpGainedThisLesson: 0 },
-  };
-}
-
-let state = load() || freshState();
-if (!state.settings) state.settings = { sound: true };
-
-function load() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
-}
-
-function save() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
-}
-
-function levelInfo(xp) {
-  let current = LEVELS[0];
-  let next = LEVELS[1];
-  for (let i = 0; i < LEVELS.length; i++) {
-    if (xp >= LEVELS[i].xpRequired) current = LEVELS[i];
-    next = LEVELS[i + 1] || null;
-  }
-  return { current, next };
-}
-
-function financialAge() {
-  const base = Math.max(3, state.child.age - 3);
-  const bonus = Math.floor(state.xp / 40);
-  return Math.min(base + bonus, state.child.age + 5);
-}
-
-function grantXP(amount) {
-  state.xp += amount;
-  state.session.xpGainedThisLesson += amount;
-}
-
-function grantAchievement(id) {
-  if (state.achievements.includes(id)) return;
-  state.achievements.push(id);
-  state.session.newAchievements.push(id);
-}
+// Normalize away any mid-activity screen from a previous session — resuming
+// mid-Stage isn't supported, we land back on the Coinbrook map instead.
+if (['activity', 'boss', 'goal-celebration', 'boss-recap'].includes(state.screen)) state.screen = 'coinbrook';
 
 // ---------- Sound (synthesized, no audio files) ----------
 
@@ -64,7 +13,6 @@ function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
-
 function playTone(freq, startTime, duration, type, gainPeak) {
   const ctx = getAudioCtx();
   const osc = ctx.createOscillator();
@@ -78,63 +26,84 @@ function playTone(freq, startTime, duration, type, gainPeak) {
   osc.start(startTime);
   osc.stop(startTime + duration);
 }
-
 const Sound = {
-  pop() {
-    if (!state.settings.sound) return;
-    const ctx = getAudioCtx();
-    playTone(520, ctx.currentTime, 0.12, 'triangle', 0.12);
-  },
-  correct() {
-    if (!state.settings.sound) return;
-    const ctx = getAudioCtx();
-    playTone(660, ctx.currentTime, 0.15, 'sine', 0.14);
-    playTone(880, ctx.currentTime + 0.08, 0.18, 'sine', 0.14);
-  },
-  gentle() {
-    if (!state.settings.sound) return;
-    const ctx = getAudioCtx();
-    playTone(440, ctx.currentTime, 0.2, 'sine', 0.1);
-  },
-  fanfare() {
-    if (!state.settings.sound) return;
-    const ctx = getAudioCtx();
-    const notes = [523, 659, 784, 1047];
-    notes.forEach((f, i) => playTone(f, ctx.currentTime + i * 0.11, 0.3, 'triangle', 0.13));
-  },
+  pop() { if (state.settings.sound) playTone(520, getAudioCtx().currentTime, 0.12, 'triangle', 0.12); },
+  correct() { if (state.settings.sound) { const t = getAudioCtx().currentTime; playTone(660, t, 0.15, 'sine', 0.14); playTone(880, t + 0.08, 0.18, 'sine', 0.14); } },
+  gentle() { if (state.settings.sound) playTone(440, getAudioCtx().currentTime, 0.2, 'sine', 0.1); },
+  fanfare() { if (state.settings.sound) { const t = getAudioCtx().currentTime; [523, 659, 784, 1047].forEach((f, i) => playTone(f, t + i * 0.11, 0.3, 'triangle', 0.13)); } },
 };
 
-function goTo(screen) {
-  state.screen = screen;
-  save();
-  render();
+// ---------- Transient (non-persisted) navigation & activity runtime ----------
+
+let rt = {};
+let currentStageId = null;
+let currentActivityIndex = 0;
+let bossBeats = [];
+let bossBeatIndex = 0;
+let lastAllocation = null;
+let pendingResume = null;
+let lastRenderKey = null;
+
+function currentActivity() {
+  if (state.screen === 'boss') return bossBeats[bossBeatIndex];
+  const stage = WORLD1.stages.find(s => s.id === currentStageId);
+  return stage ? stage.activities[currentActivityIndex] : null;
+}
+
+function buildBossBeats() {
+  const broken = BOSS.brokenThingVariants[Math.floor(Math.random() * BOSS.brokenThingVariants.length)];
+  const shop = BOSS.shoppingVariants[Math.floor(Math.random() * BOSS.shoppingVariants.length)];
+  const g = goalDef();
+  return [
+    { id: 'boss-intro', type: 'reveal', skills: [], xpTier: null, content: { cards: [
+      { emoji: '🌅', text: g ? `Big day in Coinbrook! It's almost time for your ${g.name.toLowerCase()}...` : 'Big day today in Coinbrook!' },
+    ] } },
+    { id: 'boss-chore', type: 'chore', skills: [{ skill: 'EARNING', tier: 'boss' }], xpTier: null, content: { chores: [{ id: 'boss-chore', icon: '🧹', name: 'Help around the house', taps: 3, pay: 4 }] } },
+    { id: 'boss-broken', type: 'choose', skills: [{ skill: 'NEEDS_WANTS', tier: 'boss' }, { skill: 'TRADE_OFFS', tier: 'boss' }], xpTier: null, content: {
+      emoji: '😮', prompt: `${broken.prompt} You have $3 left today.`,
+      options: [{ id: 'fix', label: broken.fix, best: true }, { id: 'alt', label: broken.alt }],
+    } },
+    { id: 'boss-shopping', type: 'compare', skills: [{ skill: 'VALUE', tier: 'boss' }], xpTier: null, content: shop },
+    { id: 'boss-endofday', type: 'allocate', skills: [{ skill: 'JAR_LITERACY', tier: 'boss' }, { skill: 'PATIENCE', tier: 'boss' }, { skill: 'GOALS', tier: 'boss' }], xpTier: null, content: { amount: 3, prompt: "End of the day — what's left goes in your jars." } },
+  ];
 }
 
 // ---------- Rendering ----------
 
 const app = document.getElementById('app');
-let lastRenderedScreen = null;
+
+function renderKey() {
+  if (state.screen === 'activity') return `activity:${currentStageId}:${currentActivityIndex}`;
+  if (state.screen === 'boss') return `boss:${bossBeatIndex}`;
+  return state.screen;
+}
 
 function render() {
-  const isNewScreen = state.screen !== lastRenderedScreen;
-  lastRenderedScreen = state.screen;
+  const key = renderKey();
+  const isNewScreen = key !== lastRenderKey;
+  lastRenderKey = key;
   app.innerHTML = '';
   const hud = shouldShowHud() ? renderHud() : '';
-  let screenHtml = SCREENS[state.screen]();
+  let screenHtml = SCREENS[state.screen] ? SCREENS[state.screen]() : SCREENS.valley();
   if (!isNewScreen) screenHtml = screenHtml.replace('class="screen"', 'class="screen no-anim"');
   app.innerHTML = hud + screenHtml;
   if (isNewScreen) window.scrollTo(0, 0);
+  persist();
 }
 
-function shouldShowHud() {
-  return !['welcome', 'profile'].includes(state.screen);
+function goToScreen(screen) {
+  state.screen = screen;
+  render();
 }
+
+function shouldShowHud() { return !['welcome', 'profile'].includes(state.screen); }
 
 function renderHud() {
-  const { current } = levelInfo(state.xp);
+  const { current } = rankInfo(state.xp);
+  const badge = state.avatarCosmetic === 'badge' ? ' 🎖️' : '';
   return `
     <div class="top-hud">
-      <div class="hud-item">${state.child.avatar} ${escapeHtml(state.child.name)}</div>
+      <div class="hud-item">${state.child.avatar}${badge} ${escapeHtml(state.child.name)}</div>
       <div class="hud-item">⭐ ${state.xp} XP</div>
       <div class="hud-item">${current.name}</div>
       <div class="hud-item sound-toggle" data-action="toggle-sound">${state.settings.sound ? '🔊' : '🔇'}</div>
@@ -142,10 +111,33 @@ function renderHud() {
   `;
 }
 
-function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str || '';
-  return d.innerHTML;
+function renderActivityBody(activity) {
+  switch (activity.type) {
+    case 'reveal': return renderReveal(activity.content, rt);
+    case 'sort': return renderSort(activity.content, rt);
+    case 'jar-explore': return renderJarExplore(activity.content, rt);
+    case 'allocate': return renderAllocate(activity.content, rt);
+    case 'choose': return renderChoose(activity.content, rt);
+    case 'compare': return renderCompare(activity.content, rt);
+    case 'chore': return renderChore(activity.content, rt);
+    case 'goal-pick': return renderGoalPick();
+    case 'consequence': return renderConsequenceBody();
+    default: return '';
+  }
+}
+
+function renderConsequenceBody() {
+  const a = lastAllocation || { spend: 0, save: 0, give: 0 };
+  const lines = [];
+  if (a.spend > 0) lines.push(`🎉 You bought something fun with $${a.spend}!`);
+  if (a.save > 0) lines.push(`🌱 Your Save jar grew by $${a.save}!`);
+  if (a.give > 0) lines.push(`❤️ You made someone smile with $${a.give}!`);
+  return `
+    <div class="celebrate">✨</div>
+    <div class="title">Nice choices!</div>
+    <div class="card">${lines.map(l => `<p class="subtitle" style="margin-bottom:8px;">${l}</p>`).join('')}</div>
+    <button class="btn" data-action="activity-continue">Continue</button>
+  `;
 }
 
 const SCREENS = {
@@ -153,9 +145,9 @@ const SCREENS = {
     const hasProfile = !!state.child.name;
     return `
       <div class="screen">
-        <div class="emoji-hero">🪙</div>
-        <div class="title">Welcome to MyKidsMoney</div>
-        <div class="subtitle">Let's learn how money works!</div>
+        <div class="emoji-hero">🦊🌳</div>
+        <div class="title">Welcome to Sprout Valley</div>
+        <div class="subtitle">A world of money adventures — let's explore!</div>
         ${hasProfile
           ? `<button class="btn" data-action="continue-profile">Continue as ${state.child.avatar} ${escapeHtml(state.child.name)}</button>
              <button class="btn secondary" data-action="new-profile">Start Over</button>`
@@ -166,9 +158,9 @@ const SCREENS = {
 
   profile: () => `
     <div class="screen">
-      <div class="title">Who are you?</div>
+      <div class="title">Who's exploring today?</div>
       <div class="card">
-        <div class="subtitle" style="margin-bottom:10px;">Pick an avatar</div>
+        <div class="subtitle" style="margin-bottom:10px;">Pick your traveller</div>
         <div class="grid">
           ${AVATARS.map(a => `<div class="choice-tile ${a === state.child.avatar ? 'selected' : ''}" data-action="pick-avatar" data-value="${a}">${a}</div>`).join('')}
         </div>
@@ -180,245 +172,162 @@ const SCREENS = {
       <div class="card">
         <div class="subtitle" style="margin-bottom:10px;">How old are you?</div>
         <div class="age-picker">
-          ${[5,6,7,8].map(a => `<div class="age-pill ${a === state.child.age ? 'selected' : ''}" data-action="pick-age" data-value="${a}">${a}</div>`).join('')}
+          ${[5, 6, 7, 8].map(a => `<div class="age-pill ${a === state.child.age ? 'selected' : ''}" data-action="pick-age" data-value="${a}">${a}</div>`).join('')}
         </div>
       </div>
       <button class="btn" data-action="save-profile">Let's Go!</button>
     </div>
   `,
 
-  journey: () => {
-    const { current, next } = levelInfo(state.xp);
-    const pct = next ? Math.min(100, Math.round(((state.xp - current.xpRequired) / (next.xpRequired - current.xpRequired)) * 100)) : 100;
+  valley: () => {
+    const complete = state.coinbrook.bossUnlocked;
     return `
       <div class="screen">
-        <div class="emoji-hero">${state.child.avatar}</div>
-        <div class="title">Your Financial Journey</div>
-        <div class="card">
-          <div class="stats-row">
-            <div class="stat"><div class="value">${state.child.age}</div><div class="label">Real Age</div></div>
-            <div class="stat"><div class="value">${financialAge()}</div><div class="label">Financial Age</div></div>
-          </div>
+        <div class="title">Sprout Valley</div>
+        <div class="subtitle">Your journey through the world of money</div>
+        <div class="valley-map">
+          <div class="valley-path"></div>
+          ${VALLEY_WORLDS.map(w => {
+            const cls = w.built ? (complete ? 'done' : 'current') : 'locked';
+            return `<div class="valley-node ${cls}" data-action="${w.built ? 'go-coinbrook' : ''}">
+              ${cls === 'current' ? `<div class="valley-avatar">${state.child.avatar}</div>` : ''}
+              <div class="valley-dot">${w.built ? w.icon : '❔'}</div>
+              <div class="valley-label">${w.name}</div>
+            </div>`;
+          }).join('')}
         </div>
-        <div class="card">
-          <div class="subtitle" style="margin-bottom:8px;">Level ${current.id} — ${current.name}</div>
-          <div class="progress-wrap"><div class="progress-fill" style="width:${pct}%"></div></div>
-        </div>
-        <button class="btn" data-action="start-lesson">Start Level 1</button>
+        <button class="btn secondary" data-action="go-museum">🏛️ Money Museum</button>
       </div>
     `;
   },
 
-  'lesson-money': () => `
-    <div class="screen">
-      <div class="title">What is Money?</div>
-      <div class="card" style="text-align:center;">
-        <div class="emoji-hero">🪙💵</div>
-        <p class="subtitle">Money is coins and notes. You can use it to buy things, save it, or give it away.</p>
-      </div>
-      <button class="btn" data-action="goto:jars-intro">Got it!</button>
-    </div>
-  `,
-
-  'jars-intro': () => {
-    const seen = state.session.jarsSeen || [];
-    const allSeen = seen.length >= 3;
+  coinbrook: () => {
+    const stages = WORLD1.stages;
+    const completed = state.coinbrook.completedStages;
+    const nextIdx = stages.findIndex(s => !completed.includes(s.id));
+    const allDone = nextIdx === -1;
+    const g = goalDef();
     return `
       <div class="screen">
-        <div class="title">The Three Jars</div>
-        <div class="subtitle">Tap each jar to learn what it's for</div>
-        <div class="jars-row">
-          <div class="jar spend" data-action="see-jar" data-value="spend">
-            <div class="jar-icon">💰</div><div class="jar-name">SPEND</div>
-          </div>
-          <div class="jar save" data-action="see-jar" data-value="save">
-            <div class="jar-icon">🏦</div><div class="jar-name">SAVE</div>
-          </div>
-          <div class="jar give" data-action="see-jar" data-value="give">
-            <div class="jar-icon">❤️</div><div class="jar-name">GIVE</div>
+        <div class="title">Coinbrook</div>
+        <div class="subtitle">Tap a stage to begin</div>
+        <div class="valley-map">
+          <div class="valley-path"></div>
+          ${stages.map((s, i) => {
+            const done = completed.includes(s.id);
+            const cls = done ? 'done' : (i === nextIdx ? 'current' : 'locked');
+            return `<div class="valley-node ${cls}" data-action="${cls !== 'locked' ? 'enter-stage' : ''}" data-value="${s.id}">
+              ${cls === 'current' ? `<div class="valley-avatar">${state.child.avatar}</div>` : ''}
+              <div class="valley-dot">${done ? '🌳' : s.icon}</div>
+              <div class="valley-label">${escapeHtml(s.name)}</div>
+            </div>`;
+          }).join('')}
+          <div class="valley-node ${allDone ? 'current' : 'locked'}" data-action="${allDone ? 'enter-boss' : ''}">
+            ${allDone ? `<div class="valley-avatar">${state.child.avatar}</div>` : ''}
+            <div class="valley-dot">👑</div>
+            <div class="valley-label">The Big Day</div>
           </div>
         </div>
-        <div class="card">
-          <p class="subtitle">${jarExplainer(state.session.lastJarSeen)}</p>
-        </div>
-        <button class="btn" data-action="goto:first-money" ${allSeen ? '' : 'disabled'}>Continue</button>
+        ${g ? `
+          <div class="card">
+            <div class="subtitle" style="margin-bottom:6px;">${g.icon} Saving for a ${g.name}</div>
+            <div class="progress-wrap"><div class="progress-fill" style="width:${goalProgressPct()}%"></div></div>
+            <p class="subtitle" style="margin-top:6px;">$${state.wallet.save} of $${g.target}</p>
+          </div>
+        ` : ''}
+        <button class="btn secondary" data-action="go-valley">← Back to Sprout Valley</button>
       </div>
     `;
   },
 
-  'first-money': () => {
-    const s = state.session;
-    const coins = Array.from({ length: s.coinsLeft });
+  activity: () => {
+    const stage = WORLD1.stages.find(s => s.id === currentStageId);
+    const activity = stage.activities[currentActivityIndex];
+    const dots = stage.activities.map((a, i) => i <= currentActivityIndex ? '●' : '○').join(' ');
     return `
       <div class="screen">
-        <div class="title">Your First Money</div>
-        <div class="subtitle">You have $10! Tap a jar to put a coin in it.</div>
-        <div class="card">
-          <div class="coin-pile">${coins.map(() => `<div class="coin">$1</div>`).join('')}</div>
-        </div>
-        <div class="jars-row">
-          <div class="jar spend" data-action="drop-coin" data-value="spend">
-            <div class="jar-icon">💰</div><div class="jar-name">SPEND</div>
-            <div class="jar-amount spend">$${s.allocated.spend}</div>
-          </div>
-          <div class="jar save" data-action="drop-coin" data-value="save">
-            <div class="jar-icon">🏦</div><div class="jar-name">SAVE</div>
-            <div class="jar-amount save">$${s.allocated.save}</div>
-          </div>
-          <div class="jar give" data-action="drop-coin" data-value="give">
-            <div class="jar-icon">❤️</div><div class="jar-name">GIVE</div>
-            <div class="jar-amount give">$${s.allocated.give}</div>
-          </div>
-        </div>
-        <button class="btn" data-action="goto:consequence" ${s.coinsLeft === 0 ? '' : 'disabled'}>See What Happens</button>
+        <div class="stage-progress mono">${stage.icon} ${escapeHtml(stage.name)} &nbsp; ${dots}</div>
+        <div class="title" style="font-size:22px;">${escapeHtml(activity.title)}</div>
+        ${renderActivityBody(activity)}
       </div>
     `;
   },
 
-  consequence: () => {
-    const a = state.session.allocated;
-    const lines = [];
-    if (a.spend > 0) lines.push({ icon: '🎉', text: `You bought something fun with $${a.spend}!` });
-    if (a.save > 0) lines.push({ icon: '🌱', text: `Your Save jar is growing with $${a.save}!` });
-    if (a.give > 0) lines.push({ icon: '❤️', text: `You made someone smile with $${a.give}!` });
+  boss: () => {
+    const activity = bossBeats[bossBeatIndex];
     return `
       <div class="screen">
-        <div class="celebrate">✨</div>
-        <div class="title">Nice choices!</div>
-        <div class="card">
-          ${lines.map(l => `<p class="subtitle" style="margin-bottom:8px;">${l.icon} ${l.text}</p>`).join('')}
-        </div>
-        <div style="text-align:center;"><span class="xp-badge">⭐ +20 XP</span></div>
-        <button class="btn" data-action="goto:needs-wants">Continue</button>
+        <div class="stage-progress mono">🌅 The Big Day &nbsp; ${bossBeatIndex + 1}/${bossBeats.length}</div>
+        ${renderActivityBody(activity)}
       </div>
     `;
   },
 
-  'needs-wants': () => {
-    const i = state.session.nwIndex;
-    if (i >= NEEDS_WANTS_ITEMS.length) {
-      return `
-        <div class="screen">
-          <div class="emoji-hero">✅</div>
-          <div class="title">Great job!</div>
-          <p class="subtitle" style="text-align:center;">You got ${state.session.nwCorrect} out of ${NEEDS_WANTS_ITEMS.length} right.</p>
-          <button class="btn" data-action="goto:goal">Continue</button>
+  'boss-recap': () => {
+    const unlocked = state.coinbrook.bossUnlocked;
+    const touched = ['EARNING', 'NEEDS_WANTS', 'TRADE_OFFS', 'VALUE', 'JAR_LITERACY', 'PATIENCE', 'GOALS'];
+    const lines = touched.filter(s => (state.mastery[s] || 0) > 0).map(s => `• You ${CONFIG.skillDescriptors[s]}`);
+    return `
+      <div class="screen">
+        <div class="celebrate">${unlocked ? '🏆' : '🌱'}</div>
+        <div class="title">${unlocked ? 'What a day!' : 'What a day!'}</div>
+        <div class="card">
+          <p class="subtitle" style="margin-bottom:8px;">Here's what Miro saw today:</p>
+          ${lines.map(l => `<p class="subtitle" style="text-align:left; margin-bottom:6px;">${escapeHtml(l)}</p>`).join('')}
         </div>
-      `;
-    }
-    const item = NEEDS_WANTS_ITEMS[i];
-    const ans = state.session.nwAnswered;
-    if (ans) {
-      const label = ans.answer === 'need' ? 'a Need' : 'a Want';
-      return `
-        <div class="screen">
-          <div class="title">Need or Want?</div>
+        ${unlocked ? `
           <div class="card" style="text-align:center;">
-            <div class="celebrate" style="font-size:48px;">${ans.correct ? '✅' : '💡'}</div>
-            <p class="subtitle" style="margin-top:8px;">${item.name} is ${label}!</p>
+            <div class="emoji-hero">🌫️➡️🏦</div>
+            <p class="subtitle">You're ready! The fog is lifting over The Bank — World 2 is on the way.</p>
           </div>
-          <button class="btn" data-action="next-nw">Next</button>
-        </div>
-      `;
-    }
-    return `
-      <div class="screen">
-        <div class="title">Need or Want?</div>
-        <div class="card" style="text-align:center;">
-          <div class="emoji-hero">${item.icon}</div>
-          <p class="subtitle">${item.name}</p>
-        </div>
-        <div class="btn-row">
-          <button class="btn secondary" data-action="answer-nw" data-value="need">Need</button>
-          <button class="btn secondary" data-action="answer-nw" data-value="want">Want</button>
-        </div>
-      </div>
-    `;
-  },
-
-  goal: () => {
-    const g = state.goal;
-    if (g) {
-      const goalDef = GOALS.find(x => x.id === g.id);
-      const pct = Math.min(100, Math.round((g.current / goalDef.target) * 100));
-      return `
-        <div class="screen">
-          <div class="title">Save for a Goal</div>
+        ` : `
           <div class="card" style="text-align:center;">
-            <div class="emoji-hero">${goalDef.icon}</div>
-            <p class="subtitle">Saving for a ${goalDef.name}</p>
-            <div class="progress-wrap" style="margin-top:12px;"><div class="progress-fill" style="width:${pct}%"></div></div>
-            <p class="subtitle" style="margin-top:8px;">$${g.current} of $${goalDef.target}</p>
+            <p class="subtitle">You're getting more confident every day! Explore Coinbrook a little more, then come back for another Big Day.</p>
           </div>
-          <button class="btn" data-action="goto:challenge">Continue</button>
-        </div>
-      `;
-    }
-    return `
-      <div class="screen">
-        <div class="title">Save for a Goal</div>
-        <div class="subtitle">What do you want to save for?</div>
-        <div class="grid">
-          ${GOALS.map(g => `<div class="choice-tile" data-action="pick-goal" data-value="${g.id}">${g.icon}<div class="label">${g.name}</div></div>`).join('')}
-        </div>
+        `}
+        <button class="btn" data-action="boss-recap-continue">${unlocked ? 'Back to Sprout Valley' : 'Practice More'}</button>
       </div>
     `;
   },
 
-  challenge: () => {
-    if (state.session.challengeAnswered) {
-      return `
-        <div class="screen">
-          <div class="celebrate">${state.session.challengeCorrect ? '🎉' : '💡'}</div>
-          <div class="title">${state.session.challengeCorrect ? 'Great value!' : 'Good try!'}</div>
-          <p class="subtitle" style="text-align:center;">4 small bags for $5 each gives you more snacks for your $20!</p>
-          <div style="text-align:center;"><span class="xp-badge">⭐ +15 XP</span></div>
-          <button class="btn" data-action="goto:complete">Continue</button>
-        </div>
-      `;
-    }
-    return `
-      <div class="screen">
-        <div class="title">Money Challenge</div>
-        <div class="card" style="text-align:center;">
-          <div class="emoji-hero">🍿</div>
-          <p class="subtitle">${CHALLENGE.prompt}</p>
-        </div>
-        ${CHALLENGE.options.map(o => `<button class="btn secondary" data-action="answer-challenge" data-value="${o.id}">${o.label}</button>`).join('')}
-      </div>
-    `;
-  },
-
-  complete: () => {
-    const { current } = levelInfo(state.xp);
-    const newAch = state.session.newAchievements.map(id => ACHIEVEMENTS.find(a => a.id === id)).filter(Boolean);
+  'goal-celebration': () => {
+    const g = goalDef();
     return `
       <div class="screen">
         ${confettiHtml()}
-        <div class="celebrate">🏆</div>
-        <div class="title">Level Complete!</div>
+        <div class="celebrate">🎁</div>
+        <div class="title">Goal Reached!</div>
         <div class="card" style="text-align:center;">
-          <span class="xp-badge pop">⭐ +${state.session.xpGainedThisLesson} XP earned</span>
-          <p class="subtitle" style="margin-top:12px;">Financial Age: ${financialAge()} · ${current.name}</p>
+          <div class="emoji-hero">${g.icon}</div>
+          <p class="subtitle">You saved up for your ${g.name}!</p>
         </div>
-        ${newAch.map((a, i) => `
-          <div class="achievement-card" style="animation-delay:${0.15 + i * 0.12}s">
-            <div class="icon">${a.icon}</div>
-            <div><div class="title" style="font-size:16px;">${a.title}</div><div class="desc">${a.desc}</div></div>
-          </div>
-        `).join('')}
-        <div class="card" style="text-align:center;">
-          <div class="emoji-hero">🔒</div>
-          <p class="subtitle">Lesson 2 is coming soon!</p>
-        </div>
-        <button class="btn" data-action="goto:journey">Back to Journey</button>
+        <button class="btn" data-action="goal-celebration-continue">Continue</button>
       </div>
     `;
   },
+
+  museum: () => `
+    <div class="screen">
+      <div class="title">🏛️ Money Museum</div>
+      <div class="subtitle">Everything you've discovered so far</div>
+      <div class="museum-grid">
+        ${ACHIEVEMENT_DEFS.map(a => {
+          const rec = state.achievements[a.id];
+          return `<div class="museum-card ${rec.earned ? 'earned' : 'locked'}">
+            <div class="museum-icon">${rec.earned ? a.icon : '🔒'}</div>
+            <div class="museum-title">${escapeHtml(a.title)}</div>
+            <div class="museum-desc">${escapeHtml(a.desc)}</div>
+            ${rec.earned ? `<div class="museum-date mono">${rec.earnedDate}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="btn secondary" data-action="go-valley">← Back to Sprout Valley</button>
+    </div>
+  `,
 };
 
 function confettiHtml() {
-  const colors = ['#ffb703', '#ff6b6b', '#2ec4b6', '#ff7fb0', '#7b6cf6'];
+  const colors = ['#f3b23e', '#ff7a5c', '#3f9c5c', '#e05b8f', '#5b9bd5'];
   let pieces = '';
   for (let i = 0; i < 20; i++) {
     const left = Math.round(Math.random() * 100);
@@ -444,153 +353,232 @@ function pulseJar(jarKey) {
   el.appendChild(floater);
 }
 
-function jarExplainer(jar) {
-  if (jar === 'spend') return '💰 SPEND is money for things you want right now.';
-  if (jar === 'save') return '🏦 SAVE is money for things you want later.';
-  if (jar === 'give') return '❤️ GIVE is money to help other people.';
-  return 'Tap a jar above to find out what it does!';
+// ---------- Activity completion & progression ----------
+
+function finishActivity() {
+  const activity = currentActivity();
+  const boss = state.screen === 'boss';
+
+  if (activity.type === 'allocate') {
+    state.wallet.spend += rt.allocated.spend;
+    state.wallet.save += rt.allocated.save;
+    state.wallet.give += rt.allocated.give;
+    lastAllocation = { ...rt.allocated };
+    if (activity.id === 'first-ten') grantAchievement('first-jar');
+  }
+  if (activity.id === 'spend-or-save') {
+    if (rt.answered === 'save') state.wallet.save += 6; else state.wallet.spend += 6;
+  }
+  if (activity.id === 'chore-board') grantAchievement('first-earn');
+  if (activity.id === 'sort-it-out') grantAchievement('needs-wants-sorter');
+  if (activity.id === 'apple-trap' && rt.answered === 'small-bags') grantAchievement('value-spotter');
+
+  grantEvidence(activity.skills);
+  if (!boss && activity.xpTier) activityXP(activity.id, activity.xpTier);
+
+  const goalJustCompleted = checkGoalComplete();
+  const proceed = () => { boss ? advanceBoss() : advanceStage(); };
+  if (goalJustCompleted) {
+    grantAchievement('goal-reached');
+    addXP(CONFIG.xp.goalComplete);
+    Sound.fanfare();
+    pendingResume = proceed;
+    goToScreen('goal-celebration');
+  } else {
+    proceed();
+  }
+}
+
+function advanceStage() {
+  currentActivityIndex++;
+  const stage = WORLD1.stages.find(s => s.id === currentStageId);
+  if (currentActivityIndex >= stage.activities.length) {
+    if (!state.coinbrook.completedStages.includes(currentStageId)) {
+      state.coinbrook.completedStages.push(currentStageId);
+      Sound.fanfare();
+      if (coinbrookComplete()) grantAchievement('coinbrook-explorer');
+    }
+    goToScreen('coinbrook');
+  } else {
+    rt = {};
+    goToScreen('activity');
+  }
+}
+
+function advanceBoss() {
+  bossBeatIndex++;
+  if (bossBeatIndex >= bossBeats.length) {
+    finishBoss();
+  } else {
+    rt = {};
+    render();
+  }
+}
+
+function finishBoss() {
+  state.coinbrook.bossAttempts++;
+  grantAchievement('big-day-complete');
+  addXP(CONFIG.xp.bossComplete);
+  if (worldUnlockCheck() && !state.coinbrook.bossUnlocked) {
+    state.coinbrook.bossUnlocked = true;
+    state.avatarCosmetic = 'badge';
+    grantAchievement('money-explorer-trophy');
+  }
+  Sound.fanfare();
+  goToScreen('boss-recap');
 }
 
 // ---------- Actions ----------
 
 app.addEventListener('input', (e) => {
-  if (e.target.id === 'name-input') {
-    state.child.name = e.target.value;
-  }
+  if (e.target.id === 'name-input') state.child.name = e.target.value;
 });
 
 app.addEventListener('click', (e) => {
   const target = e.target.closest('[data-action]');
-  if (!target || target.disabled) return;
-  const action = target.getAttribute('data-action');
-  const value = target.getAttribute('data-value');
-  handleAction(action, value);
+  if (!target || target.disabled || !target.getAttribute('data-action')) return;
+  handleAction(target.getAttribute('data-action'), target.getAttribute('data-value'));
 });
 
 function handleAction(action, value) {
   switch (action) {
     case 'toggle-sound':
       state.settings.sound = !state.settings.sound;
-      save();
       render();
       break;
-    case 'start':
-      goTo('profile');
-      break;
-    case 'continue-profile':
-      goTo('journey');
-      break;
+
+    case 'start': goToScreen('profile'); break;
+    case 'continue-profile': goToScreen('valley'); break;
     case 'new-profile': {
       const keepAge = state.child.age;
       state = freshState();
       state.child.age = keepAge;
-      goTo('profile');
+      goToScreen('profile');
       break;
     }
-    case 'pick-avatar':
-      state.child.avatar = value;
-      render();
-      break;
-    case 'pick-age':
-      state.child.age = Number(value);
-      render();
-      break;
+    case 'pick-avatar': state.child.avatar = value; render(); break;
+    case 'pick-age': state.child.age = Number(value); render(); break;
     case 'save-profile': {
       const name = state.child.name.trim() || 'Explorer';
       state.child.name = name.slice(0, 16);
-      goTo('journey');
+      goToScreen('valley');
       break;
     }
-    case 'start-lesson':
-      state.session = { coinsLeft: 10, allocated: { spend: 0, save: 0, give: 0 }, nwIndex: 0, nwCorrect: 0, newAchievements: [], xpGainedThisLesson: 0, jarsSeen: [] };
-      goTo('lesson-money');
+
+    case 'go-valley': goToScreen('valley'); break;
+    case 'go-coinbrook': goToScreen('coinbrook'); break;
+    case 'go-museum': goToScreen('museum'); break;
+
+    case 'enter-stage': {
+      const stages = WORLD1.stages;
+      const idx = stages.findIndex(s => s.id === value);
+      const nextIdx = stages.findIndex(s => !state.coinbrook.completedStages.includes(s.id));
+      const available = state.coinbrook.completedStages.includes(value) || idx === nextIdx || nextIdx === -1;
+      if (!available) return;
+      currentStageId = value; currentActivityIndex = 0; rt = {};
+      goToScreen('activity');
       break;
-    case 'see-jar': {
-      const seen = state.session.jarsSeen || (state.session.jarsSeen = []);
-      if (!seen.includes(value)) seen.push(value);
-      state.session.lastJarSeen = value;
+    }
+    case 'enter-boss': {
+      if (!coinbrookComplete()) return;
+      bossBeats = buildBossBeats(); bossBeatIndex = 0; rt = {};
+      goToScreen('boss');
+      break;
+    }
+    case 'boss-recap-continue':
+      goToScreen(state.coinbrook.bossUnlocked ? 'valley' : 'coinbrook');
+      break;
+    case 'goal-celebration-continue': {
+      const fn = pendingResume; pendingResume = null;
+      if (fn) fn();
+      break;
+    }
+
+    case 'reveal-next': {
+      const activity = currentActivity();
+      const isLast = (rt.index || 0) >= activity.content.cards.length - 1;
+      if (isLast) finishActivity(); else { rt.index = (rt.index || 0) + 1; render(); }
+      break;
+    }
+    case 'sort-pick': {
+      const [itemId, zone] = value.split(':');
+      rt.answers = rt.answers || {};
+      rt.answers[itemId] = zone;
+      Sound.pop();
       render();
       break;
     }
-    case 'drop-coin': {
-      const s = state.session;
-      if (s.coinsLeft <= 0) return;
-      s.allocated[value] += 1;
-      s.coinsLeft -= 1;
+    case 'jar-explore-tap': {
+      rt.seen = rt.seen || [];
+      if (!rt.seen.includes(value)) rt.seen.push(value);
+      rt.lastSeen = value;
+      render();
+      break;
+    }
+    case 'allocate-drop': {
+      rt.allocated = rt.allocated || { spend: 0, save: 0, give: 0 };
+      if (rt.coinsLeft === undefined) rt.coinsLeft = currentActivity().content.amount;
+      if (rt.coinsLeft <= 0) return;
+      rt.allocated[value] += 1;
+      rt.coinsLeft -= 1;
       Sound.pop();
       render();
       pulseJar(value);
       break;
     }
-    case 'answer-nw': {
-      const item = NEEDS_WANTS_ITEMS[state.session.nwIndex];
-      const isCorrect = item.answer === value;
-      if (isCorrect) {
-        state.session.nwCorrect += 1;
-        grantXP(5);
-        Sound.correct();
-      } else {
-        Sound.gentle();
-      }
-      state.session.nwAnswered = { chosen: value, correct: isCorrect, answer: item.answer };
-      if (state.session.nwCorrect >= 2) grantAchievement('smart-shopper');
+    case 'choose-pick': {
+      const activity = currentActivity();
+      const opt = activity.content.options.find(o => o.id === value);
+      rt.answered = value;
+      if (opt.best === true) Sound.correct(); else if (opt.best === false) Sound.gentle(); else Sound.correct();
       render();
       break;
     }
-    case 'next-nw':
-      state.session.nwIndex += 1;
-      state.session.nwAnswered = null;
+    case 'choose-followup-pick': {
+      const activity = currentActivity();
+      const fo = activity.content.followup.options.find(o => o.id === value);
+      rt.followupAnswered = value;
+      fo.correct ? Sound.correct() : Sound.gentle();
       render();
       break;
-    case 'pick-goal':
-      state.goal = { id: value, current: state.session.allocated.save };
-      grantAchievement('first-goal');
-      render();
-      break;
-    case 'answer-challenge': {
-      const opt = CHALLENGE.options.find(o => o.id === value);
-      state.session.challengeAnswered = true;
-      state.session.challengeCorrect = !!opt.best;
-      grantXP(15);
-      if (opt.best) grantAchievement('smart-shopper');
+    }
+    case 'compare-pick': {
+      const activity = currentActivity();
+      const opt = activity.content.options.find(o => o.id === value);
+      rt.answered = value;
       opt.best ? Sound.correct() : Sound.gentle();
       render();
       break;
     }
-    case 'goto:jars-intro':
-      goTo('jars-intro');
-      break;
-    case 'goto:first-money':
-      goTo('first-money');
-      break;
-    case 'goto:consequence': {
-      const a = state.session.allocated;
-      grantXP(20);
-      if (a.save > 0) grantAchievement('first-save');
-      if (a.give > 0) grantAchievement('first-give');
-      state.jars.spend += a.spend;
-      state.jars.save += a.save;
-      state.jars.give += a.give;
-      goTo('consequence');
-      Sound.correct();
+    case 'chore-tap': {
+      const activity = currentActivity();
+      const chore = activity.content.chores.find(c => c.id === value);
+      rt.taps = rt.taps || {};
+      rt.taps[value] = (rt.taps[value] || 0) + 1;
+      Sound.pop();
+      render();
       break;
     }
-    case 'goto:needs-wants':
-      goTo('needs-wants');
+    case 'goal-pick': {
+      state.goal = value;
+      grantAchievement('first-goal-set');
+      const activity = currentActivity();
+      grantEvidence(activity.skills);
+      if (activity.xpTier) activityXP(activity.id, activity.xpTier);
+      const goalJustCompleted = checkGoalComplete();
+      if (goalJustCompleted) {
+        grantAchievement('goal-reached');
+        addXP(CONFIG.xp.goalComplete);
+        Sound.fanfare();
+        pendingResume = advanceStage;
+        goToScreen('goal-celebration');
+      } else {
+        advanceStage();
+      }
       break;
-    case 'goto:goal':
-      goTo('goal');
-      break;
-    case 'goto:challenge':
-      goTo('challenge');
-      break;
-    case 'goto:complete':
-      grantAchievement('explorer');
-      goTo('complete');
-      Sound.fanfare();
-      break;
-    case 'goto:journey':
-      goTo('journey');
+    }
+    case 'activity-continue':
+      finishActivity();
       break;
   }
 }

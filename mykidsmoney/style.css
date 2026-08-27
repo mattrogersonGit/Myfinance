@@ -349,3 +349,140 @@ input[type="text"]:focus { outline: none; border-color: var(--sun); }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ===== Sprout Valley — map, stages, mini-games, museum ===== */
+
+.mono { font-family: 'Courier New', Courier, monospace; }
+
+.stage-progress {
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+}
+
+/* Valley / Coinbrook map */
+.valley-map {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  position: relative;
+  padding: 30px 4px 10px 4px;
+  overflow-x: auto;
+}
+.valley-path {
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  bottom: 46px;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--sun) 0 10px, transparent 10px 16px);
+  border-radius: 2px;
+  opacity: 0.5;
+}
+.valley-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 78px;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+}
+.valley-dot {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background: var(--card);
+  box-shadow: 0 3px 0 rgba(34,34,59,0.15);
+}
+.valley-node.done .valley-dot { background: var(--save); color: white; }
+.valley-node.current .valley-dot { background: var(--sun); color: white; box-shadow: 0 0 0 5px rgba(255,183,3,0.25), 0 3px 0 var(--sun-dark); }
+.valley-node.locked .valley-dot { background: rgba(34,34,59,0.08); color: var(--ink-soft); box-shadow: none; cursor: default; }
+.valley-label { font-size: 11px; font-weight: 700; text-align: center; max-width: 76px; }
+.valley-node.locked .valley-label { color: var(--ink-soft); }
+.valley-node.locked { cursor: default; }
+.valley-avatar {
+  position: absolute;
+  top: -22px;
+  font-size: 22px;
+  animation: bob 1.8s ease-in-out infinite;
+}
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+/* Sort board */
+.sort-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.sort-tile {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 12px 10px;
+  text-align: center;
+}
+.sort-icon { font-size: 30px; }
+.sort-name { font-size: 13px; font-weight: 700; margin: 4px 0 8px 0; }
+.sort-btns { display: flex; gap: 6px; justify-content: center; }
+.mini-btn {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 3px 0 rgba(34,34,59,0.12);
+  cursor: pointer;
+}
+.mini-btn:active { transform: translateY(2px); box-shadow: none; }
+.sort-tile.answered .sort-result { font-size: 12px; font-weight: 700; margin-top: 6px; }
+
+/* Chore board */
+.chore-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.chore-tile {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+}
+.chore-tile.done { background: #fff6e0; cursor: default; }
+.chore-icon { font-size: 30px; }
+.chore-name { font-size: 12px; font-weight: 700; margin: 4px 0; }
+.chore-progress { font-size: 14px; color: var(--sun-dark); font-weight: 700; letter-spacing: 2px; }
+.chore-tile.done .chore-progress { color: var(--save-dark); letter-spacing: normal; }
+
+/* Museum */
+.museum-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
+.museum-card {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  text-align: center;
+}
+.museum-card.locked { opacity: 0.55; }
+.museum-icon { font-size: 32px; }
+.museum-title { font-size: 13px; font-weight: 800; margin: 6px 0 4px 0; }
+.museum-desc { font-size: 11px; color: var(--ink-soft); }
+.museum-date { font-size: 10px; color: var(--ink-soft); margin-top: 6px; }
