@@ -1,21 +1,22 @@
 :root {
-  --bg: #fef6e4;
+  --navy: #16233D;
+  --navy-dark: #0d1526;
+  --sky: #EAF6FB;
+  --bg: var(--sky);
   --card: #ffffff;
-  --ink: #22223b;
-  --ink-soft: #5a5a72;
-  --sun: #ffb703;
-  --sun-dark: #e09600;
-  --spend: #ff6b6b;
-  --spend-dark: #e14d4d;
-  --save: #2ec4b6;
-  --save-dark: #1fa89b;
-  --give: #ff7fb0;
-  --give-dark: #e85e94;
-  --grape: #7b6cf6;
-  --grass: #4caf50;
+  --ink: #16233D;
+  --ink-soft: #54637f;
+  --sun: #F5B942;       /* money / reward accent, kept as --sun for existing rules */
+  --sun-dark: #D89A1F;
+  --spend: #2EC4C4;     /* teal */
+  --spend-dark: #1FA3A3;
+  --save: #3FBF8F;      /* mint */
+  --save-dark: #2F9E73;
+  --give: #FF7A8A;      /* coral */
+  --give-dark: #E35B6D;
   --radius: 24px;
   --radius-sm: 16px;
-  --shadow: 0 8px 0 rgba(34,34,59,0.12);
+  --shadow: 0 8px 0 rgba(22,35,61,0.12);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -30,12 +31,123 @@ html, body {
 
 #app {
   min-height: 100vh;
+}
+
+/* ===== Shell: canvas + persistent My Money Life panel + nav bar ===== */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.canvas {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  padding: 24px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+  background:
+    radial-gradient(ellipse at 18% 0%, rgba(255,255,255,0.55), transparent 55%),
+    radial-gradient(ellipse at 82% 8%, rgba(255,255,255,0.4), transparent 50%),
+    var(--sky);
 }
+
+.life-panel {
+  width: 280px;
+  flex: none;
+  background: var(--navy);
+  color: #fff;
+  padding: 30px 22px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.life-panel-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.life-char { line-height: 0; }
+.life-name { font-size: 19px; font-weight: 800; }
+.life-sub { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 600; }
+.life-panel .mini-btn { background: rgba(255,255,255,0.12); color: #fff; box-shadow: none; margin-top: 6px; }
+
+.bottom-nav {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  background: var(--navy);
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+}
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.62);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+.nav-item .nav-icon { font-size: 22px; }
+.nav-item.active { color: var(--sun); }
+.nav-item.home { transform: scale(1.08); }
+
+.me-btn { display: none; }
+.panel-backdrop { display: none; }
+
+@media (max-width: 759px) {
+  .app-shell { display: block; }
+  .life-panel {
+    position: fixed;
+    left: 0; right: 0; bottom: 0; top: auto;
+    width: auto;
+    height: auto;
+    max-height: 72vh;
+    border-radius: 20px 20px 0 0;
+    transform: translateY(105%);
+    transition: transform 0.25s ease;
+    z-index: 45;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  }
+  .life-panel.open { transform: translateY(0); }
+  .me-btn {
+    display: flex;
+    position: fixed;
+    right: 14px;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--sun);
+    border: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 0 var(--sun-dark);
+    z-index: 40;
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+  }
+  .panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 21, 38, 0.45);
+    z-index: 40;
+  }
+}
+
+/* Character creator */
+.char-preview { display: flex; justify-content: center; margin: 4px 0; }
+.swatch-tile { padding: 12px 6px; }
+.swatch-tile .swatch { width: 34px; height: 34px; border-radius: 50%; margin: 0 auto 6px; border: 2px solid rgba(22,35,61,0.12); }
+.swatch-tile .label { font-size: 11px; }
 
 .screen {
   width: 100%;
@@ -306,18 +418,6 @@ html, body {
 .achievement-card .icon { font-size: 40px; }
 .achievement-card .title { font-weight: 800; font-size: 16px; }
 .achievement-card .desc { font-size: 13px; color: var(--ink-soft); }
-
-.top-hud {
-  width: 100%;
-  max-width: 480px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-  font-weight: 700;
-}
-.top-hud .hud-item { display: flex; align-items: center; gap: 4px; font-size: 15px; }
-.top-hud .sound-toggle { cursor: pointer; font-size: 18px; padding: 4px; }
 
 input[type="text"] {
   font-size: 18px;

@@ -1,7 +1,7 @@
 // MyKidsMoney — progression engine. Pure state/logic: no DOM, no rendering.
 // Renderers and app.js call into this; this file never reaches into them.
 
-const SAVE_KEY = 'mkm_state_v3';
+const SAVE_KEY = 'mkm_state_v4';
 const SKILL_IDS = ['MONEY_SENSE', 'JAR_LITERACY', 'NEEDS_WANTS', 'PATIENCE', 'TRADE_OFFS', 'GOALS', 'VALUE', 'EARNING'];
 
 function freshState() {
@@ -10,13 +10,15 @@ function freshState() {
   const achievements = {};
   ACHIEVEMENT_DEFS.forEach(a => { achievements[a.id] = { earned: false, earnedDate: null }; });
   return {
-    child: { name: '', avatar: AVATARS[0], age: 6 },
+    child: { name: '', age: 6 },
+    character: { ...DEFAULT_CHARACTER },
     settings: { sound: true },
     xp: 0,
     mastery,
     cash: 0,                          // undecided wallet money
     jars: { spend: 0, save: 0, give: 0 }, // persistent, purposeful
     goal: null,                        // goal id, or null between goals
+    myStuff: [],                       // [{ id, icon, name, dateAcquired }] — populated on goal completion
     achievements,
     avatarCosmetic: null,
     coinbrook: {
@@ -141,6 +143,7 @@ function checkGoalComplete() {
   if (state.jars.save >= g.target) {
     state.jars.save -= g.target;
     state.goal = null;
+    state.myStuff.push({ id: g.id, icon: g.icon, name: g.name, dateAcquired: new Date().toISOString().slice(0, 10) });
     return true;
   }
   return false;
@@ -165,7 +168,9 @@ function bigDayReady() {
 // ---------- Weekly calendar ----------
 
 function currentDay() {
-  return state.coinbrook.days[state.coinbrook.dayIndex];
+  // Falls back gracefully if a child navigates to Home before onboarding's
+  // startNewWeek() has run — the unconditional nav bar makes that reachable.
+  return state.coinbrook.days[state.coinbrook.dayIndex] || { type: 'none', done: true };
 }
 
 function startNewWeek() {

@@ -5,7 +5,7 @@
 // Reload safety: only a handful of screens don't depend on transient,
 // non-persisted queue state (activityQueue etc). Anything else falls back to
 // Home (or Welcome, if onboarding was never finished) — no mid-scene resume.
-const SAFE_RELOAD_SCREENS = ['welcome', 'profile', 'home', 'jobboard', 'museum', 'valley'];
+const SAFE_RELOAD_SCREENS = ['welcome', 'profile', 'home', 'jobboard', 'museum', 'journey', 'money', 'stuff'];
 if (!SAFE_RELOAD_SCREENS.includes(state.screen)) {
   state.screen = state.coinbrook.onboarded ? 'home' : 'welcome';
 }
@@ -51,6 +51,7 @@ let rt = {};
 let pendingResume = null;
 let lastCompletedGoal = null;
 let lastRenderKey = null;
+let lifePanelOpen = false;
 
 function runQueue(list, heading, onDone) {
   activityQueue = list;
@@ -243,10 +244,21 @@ function render() {
   const isNewScreen = key !== lastRenderKey;
   lastRenderKey = key;
   app.innerHTML = '';
-  const hud = shouldShowHud() ? renderHud() : '';
   let screenHtml = SCREENS[state.screen] ? SCREENS[state.screen]() : SCREENS.home();
   if (!isNewScreen) screenHtml = screenHtml.replace('class="screen"', 'class="screen no-anim"').replace('class="screen home-screen"', 'class="screen home-screen no-anim"');
-  app.innerHTML = hud + screenHtml;
+  if (shouldShowShell()) {
+    app.innerHTML = `
+      <div class="app-shell">
+        <div class="canvas">${screenHtml}</div>
+        <aside class="life-panel ${lifePanelOpen ? 'open' : ''}">${renderLifePanel()}</aside>
+      </div>
+      ${lifePanelOpen ? `<div class="panel-backdrop" data-action="toggle-life-panel"></div>` : ''}
+      <button class="me-btn" data-action="toggle-life-panel">${renderCharacterSvg(state.character, 30)}</button>
+      ${renderNavBar()}
+    `;
+  } else {
+    app.innerHTML = screenHtml;
+  }
   if (isNewScreen) window.scrollTo(0, 0);
   persist();
 }
@@ -256,19 +268,34 @@ function goToScreen(screen) {
   render();
 }
 
-function shouldShowHud() { return !['welcome', 'profile'].includes(state.screen); }
+function shouldShowShell() { return !['welcome', 'profile', 'character-creator'].includes(state.screen); }
 
-function renderHud() {
+function renderLifePanel() {
   const { current } = rankInfo(state.xp);
   const badge = state.avatarCosmetic === 'badge' ? ' 🎖️' : '';
   return `
-    <div class="top-hud">
-      <div class="hud-item">${state.child.avatar}${badge} ${escapeHtml(state.child.name)}</div>
-      <div class="hud-item">⭐ ${state.xp} XP</div>
-      <div class="hud-item">${current.name}</div>
-      <div class="hud-item sound-toggle" data-action="toggle-sound">${state.settings.sound ? '🔊' : '🔇'}</div>
+    <div class="life-panel-inner">
+      <div class="life-char">${renderCharacterSvg(state.character, 100)}</div>
+      <div class="life-name">${escapeHtml(state.child.name)}${badge}</div>
+      <div class="life-sub">${current.name} · ⭐ ${state.xp} XP</div>
+      <button class="mini-btn" data-action="toggle-sound">${state.settings.sound ? '🔊 Sound on' : '🔇 Sound off'}</button>
     </div>
   `;
+}
+
+const NAV_ITEMS = [
+  { id: 'home', icon: '🏠', label: 'Home' },
+  { id: 'journey', icon: '🗺️', label: 'Journey' },
+  { id: 'money', icon: '💰', label: 'Money' },
+  { id: 'stuff', icon: '🎒', label: 'Stuff' },
+  { id: 'museum', icon: '🏆', label: 'Museum' },
+];
+
+function renderNavBar() {
+  return `<nav class="bottom-nav">${NAV_ITEMS.map(it => `
+    <button class="nav-item ${it.id}${state.screen === it.id ? ' active' : ''}" data-action="nav-go" data-value="${it.id}">
+      <span class="nav-icon">${it.icon}</span><span class="nav-label">${it.label}</span>
+    </button>`).join('')}</nav>`;
 }
 
 function renderActivityBody(activity) {
@@ -309,7 +336,7 @@ const SCREENS = {
         <div class="title">Welcome to Sprout Valley</div>
         <div class="subtitle">Miro's waiting to show you around.</div>
         ${hasProfile
-          ? `<button class="btn" data-action="continue-profile">Continue as ${state.child.avatar} ${escapeHtml(state.child.name)}</button>
+          ? `<button class="btn" data-action="continue-profile">Continue as ${escapeHtml(state.child.name)}</button>
              <button class="btn secondary" data-action="new-profile">Start Over</button>`
           : `<button class="btn" data-action="start">Start</button>`}
       </div>
@@ -320,12 +347,6 @@ const SCREENS = {
     <div class="screen">
       <div class="title">Who's exploring today?</div>
       <div class="card">
-        <div class="subtitle" style="margin-bottom:10px;">Pick your traveller</div>
-        <div class="grid">
-          ${AVATARS.map(a => `<div class="choice-tile ${a === state.child.avatar ? 'selected' : ''}" data-action="pick-avatar" data-value="${a}">${a}</div>`).join('')}
-        </div>
-      </div>
-      <div class="card">
         <div class="subtitle" style="margin-bottom:10px;">What's your name?</div>
         <input type="text" id="name-input" placeholder="Type your name" value="${escapeHtml(state.child.name)}" maxlength="16">
       </div>
@@ -335,7 +356,27 @@ const SCREENS = {
           ${[5, 6, 7, 8].map(a => `<div class="age-pill ${a === state.child.age ? 'selected' : ''}" data-action="pick-age" data-value="${a}">${a}</div>`).join('')}
         </div>
       </div>
-      <button class="btn" data-action="save-profile">Let's Go!</button>
+      <button class="btn" data-action="save-profile">Next: Make your traveller</button>
+    </div>
+  `,
+
+  'character-creator': () => `
+    <div class="screen">
+      <div class="title">Make your traveller</div>
+      <div class="char-preview">${renderCharacterSvg(state.character, 160)}</div>
+      ${CHARACTER_SLOTS.map(slot => `
+        <div class="card">
+          <div class="subtitle" style="margin-bottom:10px;">${slot.label}</div>
+          <div class="grid">
+            ${CHARACTER_OPTIONS[slot.id].map(opt => `
+              <div class="choice-tile swatch-tile ${state.character[slot.id] === opt.id ? 'selected' : ''}" data-action="pick-character" data-value="${slot.id}:${opt.id}">
+                <div class="swatch" style="background:${opt.swatch};"></div>
+                <div class="label">${escapeHtml(opt.label)}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+      `).join('')}
+      <button class="btn" data-action="confirm-character">Let's Go!</button>
     </div>
   `,
 
@@ -365,7 +406,6 @@ const SCREENS = {
           </div>`;
         }).join('')}
       </div>
-      <button class="btn secondary" data-action="go-home">← Back Home</button>
     </div>
   `,
 
@@ -384,11 +424,10 @@ const SCREENS = {
           </div>`;
         }).join('')}
       </div>
-      <button class="btn secondary" data-action="go-home">← Back Home</button>
     </div>
   `,
 
-  valley: () => {
+  journey: () => {
     const complete = state.coinbrook.bossUnlocked;
     return `
       <div class="screen">
@@ -399,16 +438,48 @@ const SCREENS = {
           ${VALLEY_WORLDS.map(w => {
             const cls = w.built ? (complete ? 'done' : 'current') : 'locked';
             return `<div class="valley-node ${cls}" data-action="${w.built ? 'go-home' : ''}">
-              ${cls === 'current' ? `<div class="valley-avatar">${state.child.avatar}</div>` : ''}
+              ${cls === 'current' ? `<div class="valley-avatar">${renderCharacterSvg(state.character, 26)}</div>` : ''}
               <div class="valley-dot">${w.built ? w.icon : '❔'}</div>
               <div class="valley-label">${w.name}</div>
             </div>`;
           }).join('')}
         </div>
-        <button class="btn secondary" data-action="go-home">← Back Home</button>
       </div>
     `;
   },
+
+  money: () => `
+    <div class="screen">
+      <div class="title">💰 Your Money</div>
+      <div class="card" style="text-align:center;">
+        <div class="stat"><div class="value">$${state.cash}</div><div class="label">Wallet — not decided yet</div></div>
+      </div>
+      <div class="jars-row">
+        <div class="jar spend"><div class="jar-icon">🛍️</div><div class="jar-name">Spend</div><div class="jar-amount spend">$${state.jars.spend}</div></div>
+        <div class="jar save"><div class="jar-icon">🐷</div><div class="jar-name">Save</div><div class="jar-amount save">$${state.jars.save}</div></div>
+        <div class="jar give"><div class="jar-icon">❤️</div><div class="jar-name">Give</div><div class="jar-amount give">$${state.jars.give}</div></div>
+      </div>
+      <div class="card"><p class="subtitle" style="text-align:left;">🛍️ <b>Spend</b> — money for things you want now.</p></div>
+      <div class="card"><p class="subtitle" style="text-align:left;">🐷 <b>Save</b> — money that grows toward your goal.</p></div>
+      <div class="card"><p class="subtitle" style="text-align:left;">❤️ <b>Give</b> — money to help someone else.</p></div>
+    </div>
+  `,
+
+  stuff: () => `
+    <div class="screen">
+      <div class="title">🎒 Your Stuff</div>
+      ${state.myStuff.length ? `
+        <div class="museum-grid">
+          ${state.myStuff.map(item => `
+            <div class="museum-card earned">
+              <div class="museum-icon">${item.icon}</div>
+              <div class="museum-title">${escapeHtml(item.name)}</div>
+              <div class="museum-date mono">${item.dateAcquired}</div>
+            </div>`).join('')}
+        </div>
+      ` : `<div class="card" style="text-align:center;"><p class="subtitle">Nothing here yet — reach a goal to add your first item!</p></div>`}
+    </div>
+  `,
 
   home: () => {
     const day = currentDay();
@@ -466,11 +537,11 @@ const SCREENS = {
             ${state.cash > 0 ? `<button class="btn" data-action="go-decide" style="margin-top:12px;">🪙 Decide what to do with $${state.cash}</button>` : ''}
           </div>
 
-          <div class="hb-card hb-museum" data-action="go-museum">
-            <div class="subtitle">🏛️ Museum</div>
+          <div class="hb-card hb-museum" data-action="nav-go" data-value="museum">
+            <div class="subtitle">🏆 Museum</div>
           </div>
 
-          <div class="hb-card hb-valley" data-action="go-valley">
+          <div class="hb-card hb-valley" data-action="nav-go" data-value="journey">
             <div class="subtitle">🗺️ Sprout Valley</div>
           </div>
         </div>
@@ -607,7 +678,7 @@ function handleAction(action, value) {
 
     case 'start': goToScreen('profile'); break;
     case 'continue-profile':
-      state.coinbrook.onboarded ? goToScreen('home') : enterOnboarding();
+      state.coinbrook.onboarded ? goToScreen('home') : goToScreen('character-creator');
       break;
     case 'new-profile': {
       const keepAge = state.child.age;
@@ -616,18 +687,28 @@ function handleAction(action, value) {
       goToScreen('profile');
       break;
     }
-    case 'pick-avatar': state.child.avatar = value; render(); break;
     case 'pick-age': state.child.age = Number(value); render(); break;
     case 'save-profile': {
       const name = state.child.name.trim() || 'Explorer';
       state.child.name = name.slice(0, 16);
-      enterOnboarding();
+      goToScreen('character-creator');
       break;
     }
+    case 'pick-character': {
+      const [slot, optId] = value.split(':');
+      state.character[slot] = optId;
+      render();
+      break;
+    }
+    case 'confirm-character': enterOnboarding(); break;
+
+    case 'nav-go':
+      lifePanelOpen = false;
+      goToScreen(value);
+      break;
+    case 'toggle-life-panel': lifePanelOpen = !lifePanelOpen; render(); break;
 
     case 'go-home': goToScreen('home'); break;
-    case 'go-valley': goToScreen('valley'); break;
-    case 'go-museum': goToScreen('museum'); break;
     case 'go-jobboard':
       if (currentDay().type !== 'choice' || currentDay().done) return;
       goToScreen('jobboard');
@@ -682,7 +763,7 @@ function handleAction(action, value) {
       break;
     }
     case 'boss-recap-continue':
-      goToScreen(state.coinbrook.bossUnlocked ? 'valley' : 'home');
+      goToScreen(state.coinbrook.bossUnlocked ? 'journey' : 'home');
       break;
 
     case 'reveal-next': {
