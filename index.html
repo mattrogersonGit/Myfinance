@@ -471,6 +471,19 @@
     .mkt-card-featured p { font-size: 14.5px; }
     .mkt-play-badge img { display: block; height: 54px; width: auto; }
     .mkt-price-list li b.mkt-num { color: var(--text); background: rgba(29,184,138,0.12); padding: 1px 6px; border-radius: 5px; }
+
+    /* MyKidsMoney homepage promo strip */
+    .mkt-kids-promo { background: #16233D; border-bottom: 0.5px solid var(--border); }
+    .mkt-kids-promo-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; flex-wrap: wrap; }
+    .mkt-kids-promo-text { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: rgba(255,255,255,0.82); line-height: 1.4; }
+    .mkt-kids-promo-heading { font-weight: 800; color: #F5B942; font-size: 14px; white-space: nowrap; }
+    .mkt-kids-promo-sub { color: rgba(255,255,255,0.5); font-size: 12px; white-space: nowrap; }
+    .mkt-kids-promo-btn { background: #F5B942; color: #16233D; font-weight: 700; font-size: 13px; padding: 8px 16px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
+    .mkt-kids-promo-btn:hover { background: #ffcb5c; }
+    @media (max-width: 700px) {
+      .mkt-kids-promo-row { flex-direction: column; align-items: flex-start; padding: 12px 0; }
+      .mkt-kids-promo-btn { align-self: stretch; text-align: center; }
+    }
   </style>
 </head>
 <body>
@@ -489,6 +502,7 @@
       <div class="mkt-nav-links">
         <a href="#features">Features</a>
         <a href="#how-it-works">How it works</a>
+        <a href="/guides/">Guides</a>
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
       </div>
@@ -498,6 +512,18 @@
       </div>
     </div>
   </nav>
+
+  <!-- MyKidsMoney promo -->
+  <div class="mkt-kids-promo">
+    <div class="mkt-wrap mkt-kids-promo-row">
+      <div class="mkt-kids-promo-text">
+        <span class="mkt-kids-promo-heading">🧒 MyKidsMoney</span>
+        <span>Helping kids learn about money through spending, saving, goals and real-world financial decisions.</span>
+        <span class="mkt-kids-promo-sub">For parents &amp; kids</span>
+      </div>
+      <a class="mkt-kids-promo-btn" href="/mykidsmoney/">Explore MyKidsMoney</a>
+    </div>
+  </div>
 
   <!-- Hero -->
   <section class="mkt-hero">
@@ -804,6 +830,9 @@
           <a href="#features">Features</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
+          <a href="/budget-app-nz/">Budget App NZ</a>
+          <a href="/guides/">Guides</a>
+          <a href="/mykidsmoney/">MyKidsMoney</a>
           <a href="/help/">Help</a>
           <a href="/privacy.html">Privacy</a>
           <a href="/terms/">Terms</a>

@@ -1,6 +1,6 @@
 User-agent: *
 Allow: /
 Disallow: /app/
-Disallow: /mykidsmoney/
+Disallow: /mykidsmoney/game/
 
 Sitemap: https://getmyfinance.app/sitemap.xml

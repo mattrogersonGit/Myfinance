@@ -1,20 +1,400 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
-<title>MyKidsMoney — Learn Money</title>
-<link rel="stylesheet" href="style.css">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-DQ6QE7NYH1"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-DQ6QE7NYH1');
+  </script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyKidsMoney | Teaching Kids About Money | NZ</title>
+  <meta name="description" content="MyKidsMoney is a practical financial education resource for NZ parents and kids — pocket money guides, money lessons and a game-based learning journey.">
+  <link rel="canonical" href="https://getmyfinance.app/mykidsmoney/">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <script>
+    (function () {
+      var pref = localStorage.getItem('myfinance_theme') || 'system';
+      var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "MyFinance", "item": "https://getmyfinance.app/" },
+      { "@type": "ListItem", "position": 2, "name": "MyKidsMoney", "item": "https://getmyfinance.app/mykidsmoney/" }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "MyKidsMoney | Teaching Kids About Money | NZ",
+    "description": "MyKidsMoney is a practical financial education resource for NZ parents and kids — pocket money guides, money lessons and a game-based learning journey.",
+    "url": "https://getmyfinance.app/mykidsmoney/",
+    "isPartOf": { "@type": "WebSite", "name": "MyFinance", "url": "https://getmyfinance.app/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is MyKidsMoney?",
+        "acceptedAnswer": { "@type": "Answer", "text": "MyKidsMoney is a financial education resource for New Zealand families — practical guides for parents, and eventually a game-based learning experience for kids, built around the idea that children learn money skills best by making real decisions." }
+      },
+      {
+        "@type": "Question",
+        "name": "What age is MyKidsMoney for?",
+        "acceptedAnswer": { "@type": "Answer", "text": "There's no single right age. Younger children can start with the basics — recognising coins, and simple spend/save/give ideas — while older children can move on to budgeting, earning, interest and eventually more advanced concepts." }
+      },
+      {
+        "@type": "Question",
+        "name": "How can I start teaching my child about money?",
+        "acceptedAnswer": { "@type": "Answer", "text": "A simple starting point is giving your child a small amount of pocket money and a way to split it — for example, a Spend, Save and Give system with three jars or containers. Our pocket money guide walks through one family's real approach." }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the Spend, Save & Give method?",
+        "acceptedAnswer": { "@type": "Answer", "text": "It's a simple way to split pocket money into three purposes: Spend (money to use freely), Save (money set aside for a specific goal), and Give (money set aside for charitable giving)." }
+      },
+      {
+        "@type": "Question",
+        "name": "Is the MyKidsMoney game available yet?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Not yet — the game is still in development. This page will be updated with a link once it's ready to play." }
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a;
+      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+      --text: #f0f2f8; --text2: #a8adc4; --text3: #7a7f96;
+      --teal: #1db88a; --teal2: #15a076;
+      --navy: #16233D; --gold: #F5B942; --gold-dark: #D89A1F;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f6f8; --bg2: #ffffff; --bg3: #eef0f4;
+      --border: rgba(0,0,0,0.08); --border2: rgba(0,0,0,0.14);
+      --text: #14161f; --text2: #565b70; --text3: #8489a0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+    a { text-decoration: none; color: inherit; }
+    img { max-width: 100%; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+    section { padding: 56px 0; }
+    .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold-dark); margin-bottom: 10px; }
+    :root[data-theme="light"] .eyebrow { color: #b8860b; }
+    h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.3px; margin: 0 0 12px; color: var(--text); }
+    h3 { margin: 0 0 6px; color: var(--text); }
+    .sub { font-size: 15px; color: var(--text2); max-width: 680px; margin: 0 0 28px; line-height: 1.6; }
+    .center { text-align: center; margin-left: auto; margin-right: auto; }
+    .prose { max-width: 720px; }
+    .prose p { margin: 0 0 16px; }
+    p { color: var(--text2); }
+
+    /* Nav (matches rest of site) */
+    .nav { position: sticky; top: 0; z-index: 50; background: rgba(15,17,23,0.9); backdrop-filter: blur(10px); border-bottom: 0.5px solid var(--border); }
+    :root[data-theme="light"] .nav { background: rgba(245,246,248,0.9); }
+    .nav-row { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .logo { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); }
+    .logo span { color: var(--teal); }
+    .nav-links { display: flex; align-items: center; gap: 24px; font-size: 14px; font-weight: 500; color: var(--text2); }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta { display: flex; align-items: center; gap: 10px; }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 22px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; white-space: nowrap; }
+    .btn-primary { background: var(--teal); color: #fff; }
+    .btn-primary:hover { background: var(--teal2); }
+    .btn-secondary { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
+    .btn-text { background: none; color: var(--text2); padding: 12px 10px; }
+    .btn-lg { padding: 15px 26px; font-size: 15px; }
+
+    /* Hero — navy/gold MyKidsMoney identity */
+    .hero { padding: 64px 0 60px; text-align: center; background: radial-gradient(ellipse at 50% 0%, rgba(245,185,66,0.08), transparent 60%); }
+    .hero h1 { font-size: 44px; line-height: 1.1; font-weight: 800; letter-spacing: -0.8px; margin: 0 auto 14px; color: var(--text); }
+    .hero-sub { font-size: 19px; font-weight: 700; color: var(--gold-dark); max-width: 620px; margin: 0 auto 16px; line-height: 1.4; }
+    :root[data-theme="light"] .hero-sub { color: #b8860b; }
+    .hero-body { font-size: 15px; color: var(--text2); max-width: 600px; margin: 0 auto 28px; line-height: 1.6; }
+    .hero-ctas { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+    .coming-soon-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(22,35,61,0.55); color: rgba(245,185,66,0.75); font-weight: 700; font-size: 14px;
+      padding: 13px 24px; border-radius: 10px; border: 0.5px solid rgba(245,185,66,0.3);
+      cursor: default; pointer-events: none;
+    }
+    :root[data-theme="light"] .coming-soon-btn { background: rgba(22,35,61,0.08); color: #8a6d1f; border-color: rgba(184,134,11,0.3); }
+
+    /* Tiles */
+    .tile-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    @media (max-width: 960px) { .tile-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .tile-grid { grid-template-columns: 1fr; } }
+    .tile { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 20px; padding: 26px 22px; display: flex; flex-direction: column; min-height: 220px; }
+    .tile-icon { font-size: 34px; margin-bottom: 14px; }
+    .tile h3 { font-size: 17px; font-weight: 800; margin-bottom: 8px; }
+    .tile p { font-size: 13.5px; flex: 1; margin: 0 0 16px; }
+    .tile-badge { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 10px; border-radius: 100px; margin-bottom: 12px; align-self: flex-start; }
+    .tile-badge-live { background: rgba(29,184,138,0.15); color: var(--teal); }
+    .tile-badge-soon { background: rgba(245,185,66,0.15); color: var(--gold-dark); }
+    :root[data-theme="light"] .tile-badge-soon { color: #b8860b; }
+    .tile-cta { font-size: 13.5px; font-weight: 700; color: var(--teal); margin-top: auto; }
+    .tile-cta.muted { color: var(--text3); }
+    .tile.featured { border-color: var(--gold); background: linear-gradient(180deg, rgba(245,185,66,0.06), var(--bg2) 40%); }
+    .tile-live-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--teal); color: #fff; font-weight: 700; font-size: 13.5px; padding: 10px 16px; border-radius: 10px; margin-top: auto; }
+    .tile-soon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: rgba(245,185,66,0.18); color: var(--gold-dark); font-weight: 700; font-size: 13.5px; padding: 10px 16px; border-radius: 10px; margin-top: auto; cursor: default; }
+    :root[data-theme="light"] .tile-soon-btn { color: #8a6d1f; }
+
+    /* Grids / cards */
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+    .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 16px; padding: 22px; }
+    .card h3 { font-size: 16px; font-weight: 700; }
+    .card p { font-size: 13.5px; margin: 0; }
+    .card ul { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--text2); }
+    .card li { margin-bottom: 5px; }
+
+    /* Roadmap row */
+    .roadmap-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .roadmap-chip { display: flex; align-items: center; gap: 6px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 100px; padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--text2); }
+    .roadmap-chip.built { border-color: var(--teal); color: var(--teal); }
+    .roadmap-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* Our approach box */
+    .approach-box { background: var(--navy); border-radius: 24px; padding: 32px; color: #fff; }
+    .approach-box .eyebrow { color: var(--gold); }
+    .approach-box p { color: rgba(255,255,255,0.82); }
+    .approach-pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 20px; }
+    .approach-pill { background: rgba(255,255,255,0.08); border: 0.5px solid rgba(255,255,255,0.15); border-radius: 100px; padding: 6px 12px; font-size: 12.5px; color: rgba(255,255,255,0.85); }
+    .approach-box .cta-link { display: inline-flex; align-items: center; gap: 6px; color: var(--gold); font-weight: 700; font-size: 14px; }
+
+    /* FAQ */
+    .faq-item { border-bottom: 0.5px solid var(--border); padding: 16px 0; }
+    .faq-item summary { cursor: pointer; font-size: 15px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text); }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::after { content: '+'; font-size: 20px; color: var(--text3); font-weight: 400; }
+    .faq-item[open] summary::after { content: '\2212'; }
+    .faq-item p { font-size: 13.5px; line-height: 1.6; margin: 10px 0 0; }
+
+    /* Footer */
+    .footer { border-top: 0.5px solid var(--border); padding: 36px 0; }
+    .footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13.5px; color: var(--text2); }
+    .footer-links a:hover { color: var(--text); }
+    .footer-bottom { font-size: 12.5px; color: var(--text3); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  </style>
 </head>
 <body>
-<div id="app"></div>
-<script src="config.js"></script>
-<script src="worlds.js"></script>
-<script src="achievements.js"></script>
-<script src="curriculum.js"></script>
-<script src="character.js"></script>
-<script src="engine.js"></script>
-<script src="renderers.js"></script>
-<script src="app.js"></script>
+
+  <nav class="nav">
+    <div class="wrap nav-row">
+      <a class="logo" href="/">My<span>Finance</span></a>
+      <div class="nav-links">
+        <a href="/#features">Features</a>
+        <a href="/guides/">Guides</a>
+        <a href="/pricing/">Pricing</a>
+        <a href="/help/">Help</a>
+      </div>
+      <div class="nav-cta">
+        <a class="btn btn-text" href="/">Sign in</a>
+        <a class="btn btn-primary" href="/">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="wrap">
+        <h1>MyKidsMoney</h1>
+        <p class="hero-sub">Helping kids learn about money — one small decision at a time.</p>
+        <p class="hero-body">MyKidsMoney is being built to help children build good money habits and understand financial concepts through practical, age-appropriate learning — starting with the idea that kids learn best by actually making decisions, setting goals, and seeing what happens next.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary btn-lg" href="#explore">Explore MyKidsMoney</a>
+          <span class="coming-soon-btn">🎮 Play MyKidsMoney — Coming Soon</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tile hub -->
+    <section id="explore">
+      <div class="wrap">
+        <div class="eyebrow" style="text-align:center">Get started</div>
+        <h2 class="center">Where would you like to start?</h2>
+        <p class="sub center">Guides for parents, and a game world for kids — all built around the same simple ideas.</p>
+        <div class="tile-grid">
+          <div class="tile">
+            <div class="tile-badge tile-badge-live">Guide</div>
+            <div class="tile-icon">🏺</div>
+            <h3>Pocket Money</h3>
+            <p>Learn about our family's practical Spend, Save &amp; Give approach to teaching kids about money.</p>
+            <a class="tile-live-btn" href="/guides/pocket-money-kids/">Read the guide</a>
+          </div>
+          <div class="tile">
+            <div class="tile-badge tile-badge-live">Hub</div>
+            <div class="tile-icon">🧑‍🤝‍🧑</div>
+            <h3>Parents &amp; Money</h3>
+            <p>Practical ideas for teaching kids about money at home — pocket money, saving, earning and giving.</p>
+            <a class="tile-live-btn" href="/mykidsmoney/parents/">Explore for parents</a>
+          </div>
+          <div class="tile">
+            <div class="tile-badge tile-badge-live">Guide</div>
+            <div class="tile-icon">🎯</div>
+            <h3>Goals &amp; Saving</h3>
+            <p>Give your money a purpose — help children understand saving through goals they've actually chosen for themselves.</p>
+            <a class="tile-live-btn" href="/mykidsmoney/saving-goals/">Read the guide</a>
+          </div>
+          <div class="tile">
+            <div class="tile-badge tile-badge-live">Library</div>
+            <div class="tile-icon">📚</div>
+            <h3>Money Lessons</h3>
+            <p>A growing library of lessons — from what money is to saving, earning, budgeting and beyond.</p>
+            <a class="tile-live-btn" href="/mykidsmoney/lessons/">Browse lessons</a>
+          </div>
+          <div class="tile featured">
+            <div class="tile-badge tile-badge-soon">Coming soon</div>
+            <div class="tile-icon">🎮</div>
+            <h3>MyKidsMoney Game</h3>
+            <p>An interactive journey where children learn about money by making decisions, completing challenges and progressing through financial concepts.</p>
+            <span class="tile-soon-btn">Play MyKidsMoney — Coming Soon</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- About MyKidsMoney -->
+    <section>
+      <div class="wrap">
+        <div class="eyebrow">The philosophy</div>
+        <h2>About MyKidsMoney</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3>What we believe</h3>
+            <ul>
+              <li>Start financial education young</li>
+              <li>Make money tangible and understandable</li>
+              <li>Let children make age-appropriate decisions</li>
+              <li>Teach spending and saving through real goals</li>
+              <li>Introduce giving and generosity</li>
+              <li>Gradually add more complex concepts as children get older</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>The roadmap</h3>
+            <p>MyKidsMoney is being built starting from the basics and progressing toward more advanced financial concepts — what is money, spending, saving, giving, needs vs wants, goals, earning, banks, interest, budgeting, investing, and beyond.</p>
+            <p style="margin-top:10px">The game currently begins in <strong>Coinbrook</strong> — money sense, coins, and the jar system. The vision is to keep building new worlds from there.</p>
+          </div>
+        </div>
+        <div class="roadmap-row">
+          <span class="roadmap-chip built"><span class="dot"></span>Coinbrook — Money Explorer</span>
+          <span class="roadmap-chip">The Bank — Banking</span>
+          <span class="roadmap-chip">Working Wharf — Earning</span>
+          <span class="roadmap-chip">Grow Hollow — Growing Money</span>
+          <span class="roadmap-chip">Crossroads — Borrowing</span>
+          <span class="roadmap-chip">Investor Isles — Investing</span>
+          <span class="roadmap-chip">Hometown Heights — Home &amp; Protection</span>
+          <span class="roadmap-chip">The Frontier — Advanced Money</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Our approach -->
+    <section>
+      <div class="wrap">
+        <div class="approach-box">
+          <div class="eyebrow">A real family approach</div>
+          <p>MyKidsMoney is being developed alongside a real family's approach to teaching children about money — not just theory.</p>
+          <div class="approach-pill-row">
+            <span class="approach-pill">Spend / Save / Give</span>
+            <span class="approach-pill">$1 coins</span>
+            <span class="approach-pill">Physical jars</span>
+            <span class="approach-pill">Savings goals</span>
+            <span class="approach-pill">Giving to charity</span>
+            <span class="approach-pill">Earning through jobs</span>
+            <span class="approach-pill">Simple interest as a teaching tool</span>
+          </div>
+          <a class="cta-link" href="/guides/pocket-money-kids/">Read how we do it &#8594;</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Parents + Kids -->
+    <section>
+      <div class="wrap">
+        <div class="eyebrow">Built for both</div>
+        <h2>For parents, and for kids</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3>🧑‍🤝‍🧑 For parents</h3>
+            <ul>
+              <li>Practical guidance based on a real approach</li>
+              <li>Ideas for conversations about money</li>
+              <li>Simple activities to try at home</li>
+            </ul>
+            <p style="margin-top:10px"><a href="/mykidsmoney/parents/" style="color:var(--teal);font-weight:600">Explore the Parents section &#8594;</a></p>
+          </div>
+          <div class="card">
+            <h3>🧒 For kids <span style="font-size:11px;color:var(--gold-dark);font-weight:700;text-transform:uppercase;letter-spacing:0.04em">once the game launches</span></h3>
+            <ul>
+              <li>Interactive, game-based learning</li>
+              <li>Challenges tied to real money concepts</li>
+              <li>Goals to work toward</li>
+              <li>Decisions that shape their own progress</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <div class="wrap" style="max-width:720px">
+        <div class="eyebrow">Questions</div>
+        <h2>Frequently asked questions</h2>
+        <div style="margin-top:16px">
+          <details class="faq-item"><summary>What is MyKidsMoney?</summary><p>MyKidsMoney is a financial education resource for New Zealand families — practical guides for parents, and eventually a game-based learning experience for kids, built around the idea that children learn money skills best by making real decisions.</p></details>
+          <details class="faq-item"><summary>What age is MyKidsMoney for?</summary><p>There's no single right age. Younger children can start with the basics — recognising coins, and simple spend/save/give ideas — while older children can move on to budgeting, earning, interest and eventually more advanced concepts.</p></details>
+          <details class="faq-item"><summary>How can I start teaching my child about money?</summary><p>A simple starting point is giving your child a small amount of pocket money and a way to split it — for example, a Spend, Save and Give system with three jars or containers. Our pocket money guide walks through one family's real approach.</p></details>
+          <details class="faq-item"><summary>What is the Spend, Save &amp; Give method?</summary><p>It's a simple way to split pocket money into three purposes: Spend (money to use freely), Save (money set aside for a specific goal), and Give (money set aside for charitable giving).</p></details>
+          <details class="faq-item"><summary>Is the MyKidsMoney game available yet?</summary><p>Not yet — the game is still in development. This page will be updated with a link once it's ready to play.</p></details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-row">
+        <a class="logo" href="/">My<span>Finance</span></a>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/budget-app-nz/">Budget App NZ</a>
+          <a href="/guides/">Guides</a>
+          <a href="/guides/pocket-money-kids/">Pocket Money Guide</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/help/">Help</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 My Finance</span>
+        <span>Built in New Zealand</span>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-DQ6QE7NYH1"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-DQ6QE7NYH1');
+  </script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money & Budgeting Guides NZ | MyFinance</title>
+  <meta name="description" content="Practical money and budgeting guides for New Zealand households — how to track spending, export bank transactions to CSV, and more, from MyFinance.">
+  <link rel="canonical" href="https://getmyfinance.app/guides/">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <script>
+    (function () {
+      var pref = localStorage.getItem('myfinance_theme') || 'system';
+      var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "MyFinance", "item": "https://getmyfinance.app/" },
+      { "@type": "ListItem", "position": 2, "name": "Guides", "item": "https://getmyfinance.app/guides/" }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "Money & Budgeting Guides NZ",
+    "description": "Practical money and budgeting guides for New Zealand households — how to track spending, export bank transactions to CSV, and more, from MyFinance.",
+    "url": "https://getmyfinance.app/guides/",
+    "isPartOf": { "@type": "WebSite", "name": "MyFinance", "url": "https://getmyfinance.app/" },
+    "hasPart": [
+      { "@type": "Article", "headline": "How to Track Your Spending in New Zealand", "url": "https://getmyfinance.app/guides/track-spending-nz/" },
+      { "@type": "Article", "headline": "How to Export Bank Transactions to CSV in NZ", "url": "https://getmyfinance.app/guides/bank-csv-import-nz/" }
+    ]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a;
+      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+      --text: #f0f2f8; --text2: #a8adc4; --text3: #7a7f96;
+      --teal: #1db88a; --teal2: #15a076;
+      --navy: #16233D; --gold: #F5B942; --gold-dark: #D89A1F;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f6f8; --bg2: #ffffff; --bg3: #eef0f4;
+      --border: rgba(0,0,0,0.08); --border2: rgba(0,0,0,0.14);
+      --text: #14161f; --text2: #565b70; --text3: #8489a0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+    a { text-decoration: none; color: inherit; }
+    img { max-width: 100%; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+    section { padding: 48px 0; }
+    .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--teal); margin-bottom: 10px; }
+    h2 { font-size: 25px; font-weight: 700; letter-spacing: -0.3px; margin: 0 0 12px; color: var(--text); }
+    h3 { margin: 0 0 6px; color: var(--text); }
+    .sub { font-size: 15px; color: var(--text2); max-width: 680px; margin: 0 0 24px; line-height: 1.6; }
+    .center { text-align: center; margin-left: auto; margin-right: auto; }
+    p { color: var(--text2); }
+
+    /* Nav (matches rest of site) */
+    .nav { position: sticky; top: 0; z-index: 50; background: rgba(15,17,23,0.9); backdrop-filter: blur(10px); border-bottom: 0.5px solid var(--border); }
+    :root[data-theme="light"] .nav { background: rgba(245,246,248,0.9); }
+    .nav-row { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .logo { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); }
+    .logo span { color: var(--teal); }
+    .nav-links { display: flex; align-items: center; gap: 24px; font-size: 14px; font-weight: 500; color: var(--text2); }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta { display: flex; align-items: center; gap: 10px; }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 22px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; white-space: nowrap; }
+    .btn-primary { background: var(--teal); color: #fff; }
+    .btn-primary:hover { background: var(--teal2); }
+    .btn-secondary { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
+    .btn-text { background: none; color: var(--text2); padding: 12px 10px; }
+    .btn-lg { padding: 15px 26px; font-size: 15px; }
+
+    /* Hero */
+    .hero { padding: 48px 0 40px; }
+    .hero h1 { font-size: 38px; line-height: 1.15; font-weight: 800; letter-spacing: -0.7px; margin: 0 0 14px; max-width: 720px; color: var(--text); }
+    .hero-body { font-size: 15.5px; color: var(--text2); line-height: 1.6; max-width: 620px; margin: 0; }
+    @media (max-width: 860px) { .hero h1 { font-size: 30px; } }
+
+    /* Guide cards */
+    .guide-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    @media (max-width: 700px) { .guide-grid { grid-template-columns: 1fr; } }
+    .guide-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 20px; padding: 28px; display: flex; flex-direction: column; }
+    .guide-card-icon { font-size: 30px; margin-bottom: 14px; }
+    .guide-card h3 { font-size: 19px; font-weight: 800; margin-bottom: 8px; }
+    .guide-card p { font-size: 14px; flex: 1; margin: 0 0 18px; }
+    .guide-card-cta { font-size: 13.5px; font-weight: 700; color: var(--teal); }
+
+    /* MyKidsMoney callout */
+    .kids-callout { background: var(--navy); border-radius: 24px; padding: 32px; color: #fff; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+    .kids-callout-icon { font-size: 40px; flex-shrink: 0; }
+    .kids-callout-body { flex: 1; min-width: 240px; }
+    .kids-callout .eyebrow { color: var(--gold); margin-bottom: 6px; }
+    .kids-callout p { color: rgba(255,255,255,0.82); margin: 0 0 14px; font-size: 14px; }
+    .kids-callout-cta { display: inline-flex; align-items: center; gap: 6px; background: var(--gold); color: var(--navy); font-weight: 800; font-size: 14px; padding: 11px 20px; border-radius: 12px; }
+    .kids-callout-cta:hover { background: #ffcb5c; }
+
+    /* Footer */
+    .footer { border-top: 0.5px solid var(--border); padding: 36px 0; }
+    .footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13.5px; color: var(--text2); }
+    .footer-links a:hover { color: var(--text); }
+    .footer-bottom { font-size: 12.5px; color: var(--text3); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="wrap nav-row">
+      <a class="logo" href="/">My<span>Finance</span></a>
+      <div class="nav-links">
+        <a href="/#features">Features</a>
+        <a href="/guides/">Guides</a>
+        <a href="/pricing/">Pricing</a>
+        <a href="/help/">Help</a>
+      </div>
+      <div class="nav-cta">
+        <a class="btn btn-text" href="/">Sign in</a>
+        <a class="btn btn-primary" href="/">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="wrap">
+        <div class="eyebrow">Guides</div>
+        <h1>Money &amp; Budgeting Guides</h1>
+        <p class="hero-body">A collection of practical guides to help New Zealand households understand spending, budgeting and managing their money.</p>
+      </div>
+    </section>
+
+    <!-- Guide cards -->
+    <section>
+      <div class="wrap">
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-card-icon">📊</div>
+            <h3>Track Spending in NZ</h3>
+            <p>A practical guide to understanding where your household money is going, identifying spending patterns and taking control of your budget.</p>
+            <a class="guide-card-cta" href="/guides/track-spending-nz/">Read the guide &#8594;</a>
+          </div>
+          <div class="guide-card">
+            <div class="guide-card-icon">📄</div>
+            <h3>Export Bank Transactions to CSV in NZ</h3>
+            <p>A step-by-step guide to exporting your bank transaction history as a CSV file, and using it to track spending — no bank connection required.</p>
+            <a class="guide-card-cta" href="/guides/bank-csv-import-nz/">Read the guide &#8594;</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MyKidsMoney callout -->
+    <section>
+      <div class="wrap">
+        <div class="kids-callout">
+          <div class="kids-callout-icon">🧒</div>
+          <div class="kids-callout-body">
+            <div class="eyebrow">Teaching kids about money</div>
+            <p><strong>MyKidsMoney</strong> is our financial education experience for children and parents — practical guides on pocket money and money habits, plus a game-based learning journey we're building for kids.</p>
+            <a class="kids-callout-cta" href="/mykidsmoney/">Explore MyKidsMoney &#8594;</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section>
+      <div class="wrap">
+        <div class="guide-card center" style="max-width:640px;text-align:center">
+          <h3 style="margin-bottom:8px">Want to put these guides into practice?</h3>
+          <p style="margin-bottom:18px">MyFinance helps NZ households track spending, budgets, debt, investments and net worth — no bank connection required.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center">
+            <a class="btn btn-primary btn-lg" href="/">Try MyFinance</a>
+            <a class="btn btn-secondary btn-lg" href="/download/">Download for Android</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-row">
+        <a class="logo" href="/">My<span>Finance</span></a>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/budget-app-nz/">Budget App NZ</a>
+          <a href="/mykidsmoney/">MyKidsMoney</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/download/">Download</a>
+          <a href="/help/">Help</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 My Finance</span>
+        <span>Built in New Zealand</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
