@@ -17,8 +17,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="MyFinance">
   <meta name="theme-color" content="#0f1117" id="meta-theme-color">
-  <title>My Finance — Track Spending, Budgets &amp; Net Worth (NZ)</title>
-  <meta name="description" content="My Finance helps New Zealanders track spending, budgets, savings, debt, investments and net worth — without connecting your bank. Import a CSV, get your full financial picture.">
+  <title>MyFinance – Budgeting App NZ | Simple Budget Tracker</title>
+  <meta name="description" content="MyFinance is a simple budgeting app for NZ households. Track spending, budgets, savings, debt, investments and net worth — without connecting your bank.">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -29,6 +29,17 @@
       var dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
       document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     })();
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "MyFinance",
+    "url": "https://getmyfinance.app/",
+    "applicationCategory": "FinanceApplication",
+    "operatingSystem": "Web, Android",
+    "description": "MyFinance is a budgeting app for New Zealand households. Track spending, budgets, savings, debt, investments and net worth by importing your bank transactions from a CSV file — no bank account connection required."
+  }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -530,9 +541,9 @@
     <div class="mkt-wrap mkt-hero-grid">
       <div>
         <div class="mkt-hero-badge">🔒 No bank login. No open banking. Ever.</div>
-        <h1>Know where your money is going.</h1>
-        <div class="mkt-hero-sub">Your complete financial picture — without connecting your bank.</div>
-        <p class="mkt-hero-body">Download a CSV from your bank, import it, and see your spending, budgets, debt, investments and net worth — all in one place.</p>
+        <h1>A Simple Budgeting App for NZ Households</h1>
+        <div class="mkt-hero-sub">A simple budget tracker for spending, saving and your full financial picture.</div>
+        <p class="mkt-hero-body">MyFinance is a budgeting app built for New Zealand households. Download a CSV from your bank, import it, and see your spending, budgets, debt, investments and net worth — all in one place.</p>
         <div class="mkt-hero-ctas">
           <button class="mkt-btn mkt-btn-primary mkt-btn-lg" onclick="enterAuth('signup')">Start for free</button>
           <a class="mkt-btn mkt-btn-secondary mkt-btn-lg" href="https://play.google.com/store/apps/details?id=app.getmyfinance.twa" target="_blank" rel="noopener">Download for Android</a>
@@ -699,6 +710,7 @@
         <span class="mkt-bank-chip">Westpac</span>
         <span class="mkt-bank-chip mkt-bank-chip-generic">+ any other NZ bank (generic CSV)</span>
       </div>
+      <p style="margin-top:24px"><a href="/budget-app-nz/" style="color:var(--teal);font-weight:600">Looking for a budget app in NZ? See why MyFinance is built for NZ households &#8594;</a></p>
     </div>
   </section>
 
