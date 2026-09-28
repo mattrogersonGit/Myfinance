@@ -1346,6 +1346,7 @@
           </div>
 
         </div>
+        <div id="app-version" style="text-align:center;font-size:11px;color:var(--text3);padding:18px 0 6px"></div>
       </div>
     </div>
   </div>
@@ -1682,6 +1683,10 @@ function paywallHtml(reason) {
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+// Shown at the bottom of Settings so it's obvious which build a device is
+// running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
+const APP_VERSION = '2026.09.28.2';
+document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
 // roughly the first half of their day. Read the local calendar fields directly
