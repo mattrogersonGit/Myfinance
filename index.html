@@ -2630,16 +2630,17 @@ function openUpdateOtherDebt(id) {
     // (balance included) just because the name field came back blank -- keep
     // whatever name it already had rather than aborting with no feedback.
     if (!f.name) f.name = d.name;
-    const prevBal = d.balance;
     Object.assign(d, f);
     if (!d.history) d.history = [];
-    // Only add history entry if balance changed
-    if (f.balance !== prevBal) {
-      const entryDate = document.getElementById('od-date').value || today;
-      const latest = insertHistoryEntry(d.history, {date: entryDate, value: f.balance});
-      d.updatedAt = latest.date;
-      d.balance = latest.value;
-    }
+    // Always record the entry, even when the balance is unchanged -- the form
+    // asks for "Balance as of", so saving the same figure is a confirmation
+    // for that date. Skipping it left updatedAt stuck on the old date, and a
+    // cloud merge (which re-derives balance/updatedAt from history) would
+    // revert anything that wasn't in history.
+    const entryDate = document.getElementById('od-date').value || today;
+    const latest = insertHistoryEntry(d.history, {date: entryDate, value: f.balance});
+    d.updatedAt = latest.date;
+    d.balance = latest.value;
     closeModal(); renderDebt(); scheduleSave();
   };
   document.getElementById('modal').classList.add('open');
