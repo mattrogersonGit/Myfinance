@@ -1685,7 +1685,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.09.28.2';
+const APP_VERSION = '2026.10.29.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3182,7 +3182,10 @@ function renderPendingList() {
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div class="${t.amount>=0?'pos':'neg'}" style="font-size:14px;font-weight:600;white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
-        <button onclick="rejectPending(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✕ remove</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button onclick="acceptPending(${t.id})" style="font-size:10px;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 0;font-weight:600">✓ commit</button>
+          <button onclick="rejectPending(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✕ remove</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -3269,6 +3272,25 @@ function rejectPending(id) {
   document.getElementById('modal-body').innerHTML = renderPendingList();
   document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
   scheduleSave();
+}
+function acceptPending(id) {
+  const t = pendingTxns.find(x=>x.id===id);
+  if (!t) return;
+  // Tombstone for the same reason as acceptAllPending: stops a stale device
+  // from resurrecting this row into the pending queue after it's committed.
+  tombstone('pendingTxns', id);
+  pendingTxns = pendingTxns.filter(x=>x.id!==id);
+  transactions = transactions.concat(t).sort((a,b)=>b.date-a.date);
+  if (!pendingTxns.length) closeModal();
+  else {
+    document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
+    document.getElementById('modal-body').innerHTML = renderPendingList();
+    document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
+  }
+  renderPendingBanner();
+  scheduleSave();
+  if (currentPage==='transactions') renderTransactions();
+  else if (currentPage==='overview') renderOverview();
 }
 function acceptAllPending() {
   // Without tombstoning these ids, a device/tab that hasn't loaded this commit
