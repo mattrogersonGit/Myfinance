@@ -1070,6 +1070,13 @@
         <div class="metric"><div class="metric-label">Mortgages</div><div class="metric-value" style="font-size:17px" id="mort-mortgage-total">—</div></div>
         <div class="metric"><div class="metric-label">Other</div><div class="metric-value" style="font-size:17px" id="mort-other-total">—</div></div>
       </div>
+      <div class="metric" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div><div class="metric-label" id="mort-paid-label">Paid off this year</div><div class="metric-value pos" style="font-size:17px" id="mort-paid-year">—</div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="btn" style="padding:4px 10px" onclick="changeDebtPaidYear(-1)" aria-label="Previous year">‹</button>
+          <button class="btn" style="padding:4px 10px" onclick="changeDebtPaidYear(1)" aria-label="Next year">›</button>
+        </div>
+      </div>
       <div id="mort-cards"></div>
     </div>
 
@@ -1685,7 +1692,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.10.29.1';
+const APP_VERSION = '2026.10.29.2';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2452,6 +2459,11 @@ function mortgageCardHtml(m, key, isFirst, isLast) {
     ${hasHistory?`<div class="chart-wrap" style="height:120px;margin-top:14px"><canvas id="mort-chart-${m.id}"></canvas></div>`:''}
   </div>`;
 }
+let debtPaidYear = new Date().getFullYear();
+function changeDebtPaidYear(delta) {
+  debtPaidYear += delta;
+  renderDebt();
+}
 function renderDebt() {
   initDebtOrder();
   const n = debtOrder.length;
@@ -2474,6 +2486,23 @@ function renderDebt() {
   document.getElementById('mort-grand-total').textContent = fmtM(mortTotal+otherTotal);
   document.getElementById('mort-mortgage-total').textContent = fmtM(mortTotal);
   document.getElementById('mort-other-total').textContent = fmtM(otherTotal);
+  // Paid off in a year = balance at the start of the year minus the balance at its
+  // end (or the latest, for the current year), summed across debts. Start balance is
+  // the last history entry before 1 Jan, or the first entry that year for debts
+  // added during it.
+  const yr = debtPaidYear, yrStart = `${yr}-01-01`, yrEnd = `${yr}-12-31`;
+  const paidFor = (hist, key) => {
+    if (!hist || !hist.length) return 0;
+    const sorted = hist.slice().sort((a,b)=>a.date<b.date?-1:1);
+    const before = sorted.filter(h=>h.date<yrStart);
+    const inYear = sorted.filter(h=>h.date>=yrStart && h.date<=yrEnd);
+    if (!inYear.length) return 0;
+    const base = before.length ? before[before.length-1] : inYear[0];
+    return base[key] - inYear[inYear.length-1][key];
+  };
+  const paid = mortgages.reduce((s,m)=>s+paidFor(m.history,'total'),0) + otherDebts.reduce((s,d)=>s+paidFor(d.history,'value'),0);
+  document.getElementById('mort-paid-label').textContent = `Paid off in ${yr}`;
+  document.getElementById('mort-paid-year').textContent = fmtM(paid);
 }
 function drawAllDebtCharts() {
   mortgages.forEach(m => {
