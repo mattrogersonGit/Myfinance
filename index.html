@@ -1623,6 +1623,7 @@ let activeCatFilter = null;
 let txnAccountFilter = 'all';
 let streamFilter = 'all'; // 'all' | 'personal' | <otherIncomeStreams id>
 let _splitTxnId = null;
+let _splitPending = false;
 let _splits = [];
 let accounts = [
   {id:'everyday',   name:'Everyday',    icon:'🏦', fixed:true},
@@ -1692,7 +1693,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.10.29.2';
+const APP_VERSION = '2026.10.29.3';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3212,6 +3213,7 @@ function renderPendingList() {
       <div style="text-align:right;flex-shrink:0">
         <div class="${t.amount>=0?'pos':'neg'}" style="font-size:14px;font-weight:600;white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button onclick="openSplitTxn(${t.id},true)" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✂ split</button>
           <button onclick="acceptPending(${t.id})" style="font-size:10px;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 0;font-weight:600">✓ commit</button>
           <button onclick="rejectPending(${t.id})" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 0">✕ remove</button>
         </div>
@@ -3703,8 +3705,16 @@ function renderNetWorthChart() {
 }
 
 // ─── Split transactions ───────────────────────────────────────────────────────
-function openSplitTxn(id) {
-  const t = transactions.find(x=>x.id===id);
+// Splits work on either committed transactions or rows still in import review
+// (pending=true). A pending split stays in review so each part can be edited/committed.
+function splitSource() { return _splitPending ? pendingTxns : transactions; }
+function splitCats(t) {
+  const st = t && t.stream && t.stream!=='personal' ? otherIncomeStreams.find(s=>s.id===t.stream) : null;
+  return st ? (st.cats||[]) : CATS;
+}
+function openSplitTxn(id, pending) {
+  _splitPending = !!pending;
+  const t = splitSource().find(x=>x.id===id);
   if (!t) return;
   _splitTxnId = id;
   const half  = +(t.amount/2).toFixed(2);
@@ -3733,7 +3743,7 @@ function openSplitTxn(id) {
 function renderSplitRows(total) {
   const el = document.getElementById('split-rows');
   if (!el) return;
-  const catOpts = CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
+  const catOpts = splitCats(splitSource().find(x=>x.id===_splitTxnId)).map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
   el.innerHTML = _splits.map((s,i) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <select style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:8px 10px;outline:none"
@@ -3750,7 +3760,7 @@ function renderSplitRows(total) {
   updateSplitRemaining(total);
 }
 function addSplitRow() {
-  const t = transactions.find(x=>x.id===_splitTxnId);
+  const t = splitSource().find(x=>x.id===_splitTxnId);
   if (!t) return;
   _splits.push({cat: t.cat, amount: 0});
   renderSplitRows(t.amount);
@@ -3767,14 +3777,23 @@ function updateSplitRemaining(total) {
   if (btn) btn.disabled = Math.abs(rem)>=0.01;
 }
 function commitSplit() {
-  const t = transactions.find(x=>x.id===_splitTxnId);
+  const t = splitSource().find(x=>x.id===_splitTxnId);
   if (!t || _splits.length < 2) return;
   const total = _splits.reduce((s,sp)=>s+sp.amount,0);
   if (Math.abs(total - t.amount) >= 0.01) return;
   const base = Date.now();
   const newTxns = _splits.map((sp,i) => ({
-    id: base+i, date: t.date, desc: t.desc, amount: sp.amount, account: t.account, cat: sp.cat
+    ...t, id: base+i, amount: sp.amount, cat: sp.cat
   }));
+  if (_splitPending) {
+    tombstone('pendingTxns', t.id);
+    // Replace in place so the review list keeps its order.
+    const at = pendingTxns.findIndex(x=>x.id===t.id);
+    pendingTxns.splice(at, 1, ...newTxns);
+    _splitTxnId = null; _splits = []; _splitPending = false;
+    scheduleSave(); renderPendingBanner(); openPendingReview();
+    return;
+  }
   transactions = transactions.filter(x=>x.id!==_splitTxnId);
   transactions = [...transactions, ...newTxns].sort((a,b)=>b.date-a.date);
   _splitTxnId = null; _splits = [];
