@@ -1721,7 +1721,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.05.2';
+const APP_VERSION = '2026.11.05.3';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4380,34 +4380,93 @@ function propReviewHtml(s) {
   const newOpts = Object.entries(PROP_NEW_CAT_NAMES).filter(([, n]) => !have.has(n));
   const catOpts = (sel, selNew) => (s.cats || []).map(c => `<option value="move:${escH(c.name)}" ${sel===c.name?'selected':''}>Move → ${escH(c.name)}</option>`).join('')
     + newOpts.map(([line, n]) => `<option value="new:${line}" ${selNew===line?'selected':''}>Move → ${escH(n)} (new)</option>`).join('');
+  const kept = propReviewKept(s), moved = propReviewMoved(s);
+  const view = propReviewView;
+  const amt = t => `<span class="${t.amount<0?'neg':'pos'}" style="white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</span>`;
+  const head = t => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.desc)}</span>${amt(t)}</div>`;
+  const small = 'padding:4px 10px;font-size:12px;white-space:nowrap';
+  let content;
+  if (view === 'kept') {
+    content = kept.length ? kept.map(t => `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:11px;color:var(--text3);flex:1">${fmtDay(dateToIso(t.date))} · left in Personal</span>
+        <button class="btn btn-secondary" style="${small}" onclick="propReviewReopen(${t.id})">Review again</button></div></div>`).join('')
+      : '<div class="empty" style="padding:8px 0">Nothing left in Personal yet.</div>';
+  } else if (view === 'moved') {
+    content = moved.length ? moved.map(t => `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:11px;color:var(--text3);flex:1">${fmtDay(dateToIso(t.date))} · in ${escH(t.cat)}</span>
+        <button class="btn btn-secondary" style="${small}" onclick="propReviewMoveBack(${t.id})">Move back</button></div></div>`).join('')
+      : '<div class="empty" style="padding:8px 0">Nothing moved to the property yet.</div>';
+  } else {
+    content = list.length ? `<div id="prop-review-list">${list.map(t => {
+      const sug = propReviewSuggestion(s, t, matches);
+      return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtDay(dateToIso(t.date))}${sug.keep ? ' · ' + sug.why : ''}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <select data-txn="${t.id}" onchange="propReviewDirty=true" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
+            <option value="keep" ${sug.keep?'selected':''}>Leave in Personal</option>${catOpts(sug.keep ? null : sug.cat, sug.keep ? null : sug.newLine)}
+          </select>
+          <button class="btn btn-primary" style="${small}" onclick="applyPropReview([${t.id}])">✓ Save</button>
+        </div></div>`;
+    }).join('')}</div>
+    <button class="btn btn-secondary btn-block" style="margin-top:12px" onclick="applyPropReview()">Save all ${list.length} as shown</button>`
+      : '<div class="empty" style="padding:8px 0">Nothing left to review in this category.</div>';
+  }
+  const vtab = (id, label, n) => `<button class="tab ${view===id?'active':''}" onclick="setPropReviewView('${id}')">${label} (${n})</button>`;
   return `<div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
       <div class="card-title">Review personal transactions</div>
-      <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="setPropTab('home')">Done</button>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="propReviewDone()">Done</button>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Move real property costs paid from personal accounts onto ${escH(s.name)}. Leave platform payouts and transfers to the property account in Personal, otherwise they'd be counted twice.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Move real property costs paid from personal accounts onto ${escH(s.name)}. Leave platform payouts and transfers to the property account in Personal, otherwise they'd be counted twice. Each row is saved on its own, so you can stop at any time.</div>
     <div class="input-group"><label>Personal category to review</label>
-      <select onchange="propReviewCat=this.value;renderProperty()">${srcCats.map(c => `<option ${c===propReviewCat?'selected':''}>${escH(c)}</option>`).join('')}</select></div>
-    ${list.length ? `<div id="prop-review-list">${list.map(t => {
-      const sug = propReviewSuggestion(s, t, matches);
-      return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.desc)}</span><span class="${t.amount<0?'neg':'pos'}" style="white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-          <span style="font-size:11px;color:var(--text3);flex:1">${fmtDay(dateToIso(t.date))}${sug.keep ? ' · ' + sug.why : ''}</span>
-          <select data-txn="${t.id}" style="max-width:190px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
-            <option value="keep" ${sug.keep?'selected':''}>Leave in Personal</option>${catOpts(sug.keep ? null : sug.cat, sug.keep ? null : sug.newLine)}
-          </select>
-        </div></div>`;
-    }).join('')}</div>
-    <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="applyPropReview()">Apply ${list.length} decision${list.length===1?'':'s'}</button>`
-    : '<div class="empty" style="padding:8px 0">Nothing left to review in this category.</div>'}
+      <select onchange="propReviewCat=this.value;propReviewDirty=false;renderProperty()">${srcCats.map(c => `<option ${c===propReviewCat?'selected':''}>${escH(c)}</option>`).join('')}</select></div>
+    <div class="tabs" style="flex-wrap:wrap">${vtab('todo','To review',list.length)}${vtab('kept','Left in Personal',kept.length)}${vtab('moved','Moved to property',moved.length)}</div>
+    ${content}
   </div>`;
 }
-function applyPropReview() {
+let propReviewView = 'todo';
+let propReviewDirty = false; // a To-review dropdown was changed but not saved
+function propReviewConfirmLeave() {
+  if (!propReviewDirty) return true;
+  if (!confirm("You've changed some choices without pressing ✓ Save. Leave without saving them?")) return false;
+  propReviewDirty = false; return true;
+}
+function setPropReviewView(v) { if (propReviewConfirmLeave()) { propReviewView = v; renderProperty(); } }
+function propReviewDone() { if (propReviewConfirmLeave()) { propReviewView = 'todo'; setPropTab('home'); } }
+// Left in Personal from this category's review.
+function propReviewKept(s) {
+  return transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === propReviewCat && t.propReviewed === s.id).sort((a,b) => a.date - b.date);
+}
+// Moved onto the property from Personal. propMovedFrom is recorded on every
+// move; the account check also catches moves made before it existed (a
+// transaction on the property whose bank account isn't the property's).
+function propReviewMoved(s) {
+  // Only infer older moves from the account when the property's own account
+  // is actually known -- otherwise every property transaction would look moved.
+  const propAcc = new Set(accounts.filter(a => a.stream === s.id).map(a => a.id));
+  const setupAcc = propSettings(s).accountId; if (setupAcc) propAcc.add(setupAcc);
+  return transactions.filter(t => t.stream === s.id && (t.propMovedFrom != null || (propAcc.size && !propAcc.has(t.account)))).sort((a,b) => a.date - b.date);
+}
+function propReviewReopen(id) {
+  const t = transactions.find(x => x.id === id); if (!t) return;
+  delete t.propReviewed;
+  scheduleSave(); renderProperty();
+}
+function propReviewMoveBack(id) {
+  const t = transactions.find(x => x.id === id); if (!t) return;
+  const back = t.propMovedFrom || propReviewCat || 'Other';
+  t.stream = 'personal'; t.cat = back; delete t.propMovedFrom; delete t.propReviewed;
+  scheduleSave(); renderProperty(); renderIncomeStreams();
+}
+// Applies the given rows (by txn id), or every row shown when called with none.
+function applyPropReview(ids) {
   const s = currentPropStream(); if (!s) return;
-  const sels = [...document.querySelectorAll('#prop-review-list select[data-txn]')];
-  const moves = sels.filter(el => el.value !== 'keep');
-  if (!confirm(`Move ${moves.length} transaction${moves.length===1?'':'s'} to ${s.name} and leave ${sels.length - moves.length} in Personal?`)) return;
+  let sels = [...document.querySelectorAll('#prop-review-list select[data-txn]')];
+  if (ids) sels = sels.filter(el => ids.includes(Number(el.dataset.txn)));
+  else {
+    const moves = sels.filter(el => el.value !== 'keep').length;
+    if (!confirm(`Save all ${sels.length} rows as shown? ${moves} will move to ${s.name} and ${sels.length - moves} will stay in Personal. You can undo any of them under "Left in Personal" or "Moved to property".`)) return;
+  }
   let catLines = { ...(propSettings(s).catLines || {}) };
   sels.forEach(el => {
     const t = transactions.find(x => String(x.id) === el.dataset.txn);
@@ -4423,14 +4482,21 @@ function applyPropReview() {
       }
       catLines[cat] = line;
     } else cat = el.value.slice(5);
+    t.propMovedFrom = t.cat;
     t.stream = s.id; t.cat = cat; delete t.propReviewed;
   });
   s.property = { ...propSettings(s), catLines };
+  // Unsaved changes on rows that weren't part of this save are kept on screen
+  // only until the re-render below, so carry them across.
+  const pending = [...document.querySelectorAll('#prop-review-list select[data-txn]')]
+    .filter(el => !sels.includes(el)).map(el => [el.dataset.txn, el.value]);
   scheduleSave(); renderProperty(); renderIncomeStreams(); renderCatMgmtTabs();
+  pending.forEach(([id, v]) => { const el = document.querySelector(`#prop-review-list select[data-txn="${id}"]`); if (el) el.value = v; });
+  if (!ids) propReviewDirty = false;
 }
 function openPropReview(streamId) {
   if (streamId) propStreamId = streamId;
-  propTab = 'review';
+  propTab = 'review'; propReviewView = 'todo';
   openPropertyModule();
 }
 
