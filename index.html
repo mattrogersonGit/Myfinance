@@ -1177,6 +1177,12 @@
         </div>
       </div>
 
+      <div class="card" style="padding:0 16px;display:none" id="prop-entry-card">
+        <div class="s-row" onclick="openPropertyModule()">
+          <span class="s-icon">🏖️</span><span class="s-label">Property <span style="font-size:10px;font-weight:600;color:var(--teal)">BETA</span></span><span class="s-meta">Bookings · tax</span><span class="s-chev">›</span>
+        </div>
+      </div>
+
       <div class="card" style="padding:0 16px">
         <div class="s-row" onclick="toggleSettings('s-cats')">
           <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
@@ -1355,6 +1361,20 @@
         </div>
         <div id="app-version" style="text-align:center;font-size:11px;color:var(--text3);padding:18px 0 6px"></div>
       </div>
+    </div>
+
+    <!-- Property module (beta). Opened from Settings only while it's being built;
+         the Settings row is hidden unless the household has the 'property' add-on. -->
+    <div id="page-property" class="page">
+      <div class="section-header" style="gap:8px">
+        <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="closePropertyModule()">← MyFinance</button>
+        <div class="section-title" style="flex:1;text-align:center">Property <span style="font-size:10px;font-weight:600;color:var(--teal);vertical-align:middle">BETA</span></div>
+        <span style="width:92px"></span>
+      </div>
+      <div id="prop-picker"></div>
+      <div class="tabs" id="prop-tabs" style="flex-wrap:wrap"></div>
+      <div id="prop-body"></div>
+      <input type="file" id="prop-csv-input" accept=".csv" style="display:none" onchange="handlePropCSV(this)">
     </div>
   </div>
 
@@ -1557,9 +1577,12 @@ const DEFAULT_STREAM_CATS = () => [
 // Profit or Loss, so a stream set up this way is ready for a future tax-report
 // calculation without a category migration later. taxTreatment records how
 // each category should be treated by that (not-yet-built) calculation:
-// 'income' (this year's rent), 'apportioned' (needs mixed-use-%/home-office-%
-// apportionment applied), 'direct' (100% deductible as-is). Stored per-category
-// rather than inferred from the name because category names are user-editable.
+// 'income' (this year's rent), 'apportioned' (a shared holding cost -- only
+// reduced when the property's deduction basis is set to mixed-use in the
+// Property module; at the default 100% basis it's fully deductible like
+// 'direct'), 'direct' (incurred solely to earn income, always 100%). Stored
+// per-category rather than inferred from the name because category names are
+// user-editable.
 const PROPERTY_STREAM_CATS = () => [
   {name:'Income',               emoji:'💰', fixed:true,  taxTreatment:'income'},
   {name:'Insurance',            emoji:'🛡️', fixed:true,  taxTreatment:'apportioned'},
@@ -1615,6 +1638,11 @@ function isTombDead(raw) {
 let debtOrder = [];
 let pendingTxns = [];
 let recurring = [];
+// Property module: bookings imported from platform CSVs (one record per
+// confirmation code, id '<platform>:<code>') and the platform's payout
+// transfers (id '<platform>:<reference>'). Dates are 'YYYY-MM-DD' strings.
+let bookings = [];
+let propPayouts = [];
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
 let bvaFilter = 'all';
@@ -1693,7 +1721,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.10.29.3';
+const APP_VERSION = '2026.11.05.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -1833,6 +1861,7 @@ function rerenderPage() {
   if (currentPage==='overview')     renderOverview();
   if (currentPage==='transactions') renderTransactions();
   if (currentPage==='pnl')          renderPNL();
+  if (currentPage==='property')     renderProperty();
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
@@ -1847,7 +1876,8 @@ function navTo(page, el) {
   if (page==='pnl') renderPNL();
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
-  if (page==='import') { renderImportZones(); renderAccounts(); renderIncomeStreams(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); renderThemeControl(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
+  document.getElementById('bottom-nav').style.display = '';
+  if (page==='import') { renderPropertyEntry(); renderImportZones(); renderAccounts(); renderIncomeStreams(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); renderThemeControl(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -2767,7 +2797,12 @@ function openUpdateIncomeStream(id) {
 function deleteIncomeStream(id) {
   const s = otherIncomeStreams.find(x=>x.id===id);
   if (!s) return;
-  if (!confirm(`Delete "${s.name}"? Its transactions and debts will be reassigned to Personal.`)) return;
+  const nBookings = bookings.filter(b=>b.streamId===id).length;
+  if (!confirm(`Delete "${s.name}"? Its transactions and debts will be reassigned to Personal.${nBookings?` Its ${nBookings} imported booking${nBookings===1?'':'s'} will be deleted.`:''}`)) return;
+  bookings.filter(b=>b.streamId===id).forEach(b=>tombstone('bookings', b.id));
+  propPayouts.filter(p=>p.streamId===id).forEach(p=>tombstone('propPayouts', p.id));
+  bookings = bookings.filter(b=>b.streamId!==id);
+  propPayouts = propPayouts.filter(p=>p.streamId!==id);
   transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
   otherDebts.forEach(d => { if (d.stream===id) d.stream='personal'; });
   otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
@@ -3845,6 +3880,418 @@ function deleteRecurring(i) {
   scheduleSave();
 }
 
+// ─── Property module (beta) ──────────────────────────────────────────────────
+// Add-ons are separate from plan ('free'/'pro') so a module can be sold on its
+// own. Loaded with a separate query, deliberately NOT added to the
+// household_members select in sbLoadHousehold: until the addons column
+// migration has run, that select would error, and an error there makes the
+// app think there's no household and create a new one.
+let sbAddons = [];
+async function sbLoadAddons() {
+  sbAddons = [];
+  if (sbConn && sbHousehold) {
+    try {
+      const { data, error } = await sbConn.from('households').select('addons').eq('id', sbHousehold.id).maybeSingle();
+      if (!error && Array.isArray(data?.addons)) sbAddons = data.addons;
+    } catch(e) {}
+  }
+  renderPropertyEntry();
+  if (currentPage === 'property') renderProperty();
+}
+// The localStorage override is a beta/testing convenience only (e.g. to try
+// the module in local-only mode) -- remove it before the module is sold.
+function hasAddon(name) {
+  if (sbAddons.includes(name)) return true;
+  try { return localStorage.getItem('myfinance_beta_' + name) === '1'; } catch(e) { return false; }
+}
+function renderPropertyEntry() {
+  const el = document.getElementById('prop-entry-card');
+  if (el) el.style.display = hasAddon('property') ? '' : 'none';
+}
+
+const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const round2 = n => Math.round(n * 100) / 100;
+// 'YYYY-MM-DD' helpers -- string dates avoid timezone drift entirely.
+const isoToDate = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const dateToIso = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+const daysBetween = (a, b) => Math.round((isoToDate(b) - isoToDate(a)) / 86400000);
+const fmtDay = s => s ? isoToDate(s).toLocaleDateString('en-NZ', {day:'numeric', month:'short', year:'numeric'}) : '—';
+function taxYearRange(y) { return { start: `${y-1}-04-01`, end: `${y}-04-01` }; } // end exclusive
+
+let propStreamId = null;
+let propTab = 'home';
+let propTaxYear = currentTaxYear();
+
+function propertyStreams() { return otherIncomeStreams.filter(s => s.type === 'Investment Property'); }
+function currentPropStream() { return propertyStreams().find(s => s.id === propStreamId) || null; }
+function defaultPropSettings() {
+  return { owners: [{name:'Owner 1', share:50}, {name:'Owner 2', share:50}], purchaseDate: '', accountId: '', travelKm: null, deductionBasis: 'full' };
+}
+function propSettings(s) { return { ...defaultPropSettings(), ...(s.property || {}) }; }
+
+function openPropertyModule() {
+  if (!hasAddon('property')) return;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-property').classList.add('active');
+  document.getElementById('bottom-nav').style.display = 'none';
+  currentPage = 'property';
+  if (!currentPropStream()) propStreamId = propertyStreams()[0]?.id ?? null;
+  renderProperty();
+  document.getElementById('page-container').scrollTop = 0;
+}
+function closePropertyModule() {
+  const btn = document.querySelector(`.nav-item[onclick^="navTo('import'"]`);
+  navTo('import', btn);
+}
+function setPropTab(t) { propTab = t; renderProperty(); }
+function setPropStream(id) { propStreamId = Number(id); renderProperty(); }
+function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
+
+const PROP_TABS = [
+  {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
+  {id:'calendar', label:'Calendar', soon:true}, {id:'cashflow', label:'Cash flow', soon:true},
+  {id:'tax', label:'Tax', soon:true}, {id:'setup', label:'Setup'},
+];
+function renderProperty() {
+  const picker = document.getElementById('prop-picker');
+  const tabsEl = document.getElementById('prop-tabs');
+  const body   = document.getElementById('prop-body');
+  if (!picker) return;
+  const props = propertyStreams();
+  const s = currentPropStream();
+  if (!s) {
+    picker.innerHTML = ''; tabsEl.innerHTML = '';
+    body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px">
+      <div style="font-size:28px;margin-bottom:10px">🏖️</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px">Add your first property</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px">A property is an Other Income stream of type "Investment Property". Already have one set up as a different type? Change its type in Settings → Other Income.</div>
+      <button class="btn btn-primary" onclick="openAddProperty()">+ Add property</button>
+    </div>`;
+    return;
+  }
+  picker.innerHTML = props.length > 1
+    ? `<select onchange="setPropStream(this.value)" style="width:100%;margin-bottom:10px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 12px">
+        ${props.map(p => `<option value="${p.id}" ${p.id===s.id?'selected':''}>${escH(p.name)}</option>`).join('')}</select>`
+    : `<div style="font-size:15px;font-weight:600;margin-bottom:10px;text-align:center">${escH(s.name)}</div>`;
+  tabsEl.innerHTML = PROP_TABS.map(t => `<button class="tab ${propTab===t.id?'active':''}" onclick="setPropTab('${t.id}')" ${t.soon?'style="opacity:0.55"':''}>${t.label}</button>`).join('');
+  if (propTab === 'home')          body.innerHTML = propHomeHtml(s);
+  else if (propTab === 'bookings') body.innerHTML = propBookingsHtml(s);
+  else if (propTab === 'setup')    body.innerHTML = propSetupHtml(s);
+  else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
+}
+
+function openAddProperty() {
+  document.getElementById('modal-title').textContent = 'Add property';
+  document.getElementById('modal-body').innerHTML = `<div class="input-group"><label>Name</label><input type="text" id="prop-new-name" placeholder="e.g. Beach house"></div>`;
+  document.getElementById('modal-confirm').textContent = 'Add';
+  document.getElementById('modal-confirm').onclick = () => {
+    const name = document.getElementById('prop-new-name').value.trim();
+    if (!name) return;
+    const s = {id:Date.now(), name, type:'Investment Property', linkedDebtId:null, cats:PROPERTY_STREAM_CATS(), budgets:{}, property:defaultPropSettings()};
+    otherIncomeStreams.push(s);
+    propStreamId = s.id; propTab = 'setup';
+    closeModal(); renderProperty(); renderIncomeStreams(); renderCatMgmtTabs(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+
+// ── Tax year figures ──
+// Nights of a booking falling in [start,end) -- a stay that crosses 31 March is
+// split between tax years pro rata by night rather than all landing in one.
+function bookingShareInRange(b, start, end) {
+  // A zero-night record (e.g. an adjustment-only entry) belongs wholly to the
+  // year its date falls in.
+  if (!b.nights) return { share: (b.checkIn >= start && b.checkIn < end) ? 1 : 0, nights: 0 };
+  const s = b.checkIn > start ? b.checkIn : start;
+  const e = b.checkOut < end ? b.checkOut : end;
+  const n = Math.max(0, daysBetween(s, e));
+  return { share: n / b.nights, nights: n };
+}
+function propYearSummary(streamId, taxYear) {
+  const {start, end} = taxYearRange(taxYear);
+  const blank = () => ({count:0, nights:0, gross:0, fees:0, hostTax:0, adjustments:0, payout:0});
+  const out = { completed: blank(), upcoming: blank() };
+  bookings.filter(b => b.streamId === streamId && !b.cancelled).forEach(b => {
+    const { share, nights } = bookingShareInRange(b, start, end);
+    if (!share) return;
+    const t = out[b.status === 'completed' ? 'completed' : 'upcoming'];
+    t.count++;
+    t.nights      += nights;
+    t.gross       += b.gross * share;
+    t.fees        += b.serviceFee * share;
+    t.hostTax     += b.hostTax * share;
+    t.adjustments += b.adjustments * share;
+    t.payout      += b.payout * share;
+  });
+  out.daysInYear = daysBetween(start, end);
+  return out;
+}
+
+function propYearNavHtml() {
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:4px 0 12px">
+    <button onclick="shiftPropTaxYear(-1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px">&#8249;</button>
+    <span style="font-size:14px;font-weight:600;min-width:110px;text-align:center">Tax year ${taxYearLabel(propTaxYear)}</span>
+    <button onclick="shiftPropTaxYear(1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px">&#8250;</button>
+  </div>`;
+}
+
+function propHomeHtml(s) {
+  const y = propYearSummary(s.id, propTaxYear);
+  const c = y.completed, u = y.upcoming;
+  const bookedNights = c.nights + u.nights;
+  const occ = y.daysInYear ? Math.round(bookedNights / y.daysInYear * 100) : 0;
+  const today = todayLocal();
+  const next = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.checkIn >= today).sort((a,b)=>a.checkIn.localeCompare(b.checkIn))[0];
+  const futurePayout = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.status==='upcoming').reduce((a,b)=>a+b.payout, 0);
+  const has = bookings.some(b => b.streamId===s.id);
+  if (!has) return `${propYearNavHtml()}<div class="card" style="text-align:center;padding:24px 20px">
+    <div style="font-size:13px;color:var(--text3);margin-bottom:14px">No bookings yet. Import your Airbnb CSVs to get started.</div>
+    <button class="btn btn-primary" onclick="setPropTab('bookings')">Go to Bookings</button></div>`;
+  return `${propYearNavHtml()}
+    <div class="metrics">
+      <div class="metric"><div class="metric-label">Gross earnings</div><div class="metric-value pos" style="font-size:17px">${fmt(c.gross + u.gross)}</div></div>
+      <div class="metric"><div class="metric-label">Platform fees</div><div class="metric-value neg" style="font-size:17px">${fmt(c.fees + u.fees)}</div></div>
+      <div class="metric"><div class="metric-label">Nights booked</div><div class="metric-value" style="font-size:17px">${bookedNights}</div></div>
+      <div class="metric"><div class="metric-label">Occupancy</div><div class="metric-value" style="font-size:17px">${occ}%</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">This tax year</div>
+      ${propRow('Completed bookings', `${c.count} · ${c.nights} nights`)}
+      ${propRow('Upcoming bookings', `${u.count} · ${u.nights} nights`)}
+      ${propRow('Gross earnings', fmt(c.gross + u.gross))}
+      ${propRow('Host Remitted Tax (flat-rate credit)', fmt(c.hostTax + u.hostTax))}
+      ${(c.adjustments + u.adjustments) ? propRow('Adjustments', fmtSigned(c.adjustments + u.adjustments)) : ''}
+      ${propRow('Platform service fees', '−' + fmt(c.fees + u.fees))}
+      ${propRow('<strong>Paid / to be paid to you</strong>', `<strong>${fmt(c.payout + u.payout)}</strong>`)}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Stays that cross 31 March are split between tax years by night.</div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">Coming up</div>
+      ${propRow('Next check-in', next ? `${fmtDay(next.checkIn)} · ${next.nights} night${next.nights===1?'':'s'}` : 'None booked')}
+      ${propRow('All upcoming payouts', fmt(futurePayout))}
+    </div>`;
+}
+function propRow(label, val) {
+  return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="color:var(--text2)">${label}</span><span style="text-align:right">${val}</span></div>`;
+}
+
+function propBookingsHtml(s) {
+  const {start, end} = taxYearRange(propTaxYear);
+  const list = bookings.filter(b => b.streamId===s.id && b.checkIn < end && (b.checkOut || b.checkIn) > start)
+    .sort((a,b) => a.checkIn.localeCompare(b.checkIn));
+  const up = list.filter(b => b.status==='upcoming');
+  const done = list.filter(b => b.status==='completed').reverse();
+  const row = b => `<div onclick="openBookingDetail('${escH(b.id)}')" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;${b.cancelled?'opacity:0.45':''}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:500">${fmtDay(b.checkIn)} · ${b.nights} night${b.nights===1?'':'s'}${b.cancelled?' · <span style="color:var(--red,#e5484d)">cancelled?</span>':''}</div>
+        <div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(b.platform==='airbnb'?'Airbnb':b.platform)} · ${escH(b.guest || b.code)}</div>
+      </div>
+      <div style="text-align:right"><div style="font-size:14px;font-weight:600">${fmt(b.payout)}</div><div style="font-size:11px;color:var(--text3)">gross ${fmt(b.gross)}</div></div>
+    </div>`;
+  return `<div class="card">
+      <div class="card-title" style="margin-bottom:6px">Import bookings</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Airbnb: export the <strong>completed</strong> (paid) and <strong>upcoming</strong> (pending) earnings CSVs and import either one. The type is detected automatically. Re-importing updates bookings rather than duplicating them.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="document.getElementById('prop-csv-input').click()">Import Airbnb CSV</button>
+        <button class="btn btn-secondary" disabled style="opacity:0.5">Booking.com (coming soon)</button>
+      </div>
+    </div>
+    ${propYearNavHtml()}
+    <div class="card"><div class="card-title" style="margin-bottom:4px">Upcoming (${up.length})</div>${up.length ? up.map(row).join('') : '<div class="empty" style="padding:8px 0">None in this tax year</div>'}</div>
+    <div class="card"><div class="card-title" style="margin-bottom:4px">Completed (${done.length})</div>${done.length ? done.map(row).join('') : '<div class="empty" style="padding:8px 0">None in this tax year</div>'}</div>`;
+}
+
+function openBookingDetail(id) {
+  const b = bookings.find(x => x.id === id);
+  if (!b) return;
+  document.getElementById('modal-title').textContent = `${b.platform==='airbnb'?'Airbnb':b.platform} · ${b.code}`;
+  document.getElementById('modal-body').innerHTML = `
+    ${propRow('Guest', escH(b.guest || '—'))}
+    ${propRow('Status', b.cancelled ? 'Possibly cancelled' : (b.status==='completed' ? 'Completed (paid)' : 'Upcoming'))}
+    ${propRow('Booked', fmtDay(b.bookedOn))}
+    ${propRow('Stay', `${fmtDay(b.checkIn)} → ${fmtDay(b.checkOut)} (${b.nights} night${b.nights===1?'':'s'})`)}
+    ${propRow('Gross earnings', fmt(b.gross))}
+    ${b.cleaningFee ? propRow('&nbsp;&nbsp;incl. cleaning fee', fmt(b.cleaningFee)) : ''}
+    ${propRow('Service fee', '−' + fmt(b.serviceFee))}
+    ${propRow('Host Remitted Tax', fmt(b.hostTax))}
+    ${b.adjustments ? propRow('Adjustments', fmtSigned(b.adjustments)) : ''}
+    ${propRow('<strong>Payout</strong>', `<strong>${fmt(b.payout)}</strong>`)}
+    ${b.platformTax ? propRow('GST remitted by platform (info)', fmt(b.platformTax)) : ''}
+    ${(b.payments||[]).length > 1 ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">Paid in ${b.payments.length} parts: ${b.payments.map(p=>`${fmtDay(p.date)} ${fmt(p.amount)}`).join(' · ')}</div>` : ''}`;
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Delete booking';
+  btn.onclick = () => {
+    if (!confirm('Delete this booking? Re-importing the CSV will bring it back.')) return;
+    bookings = bookings.filter(x => x.id !== id);
+    tombstone('bookings', id);
+    closeModal(); renderProperty(); scheduleSave();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+
+// ── Setup ──
+function propSetupHtml(s) {
+  const p = propSettings(s);
+  const owners = [...p.owners, {name:'',share:''}, {name:'',share:''}].slice(0, Math.max(4, p.owners.length));
+  const accOpts = accounts.map(a => `<option value="${escH(a.id)}" ${p.accountId===a.id?'selected':''}>${escH(a.name)}</option>`).join('');
+  const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 10px;outline:none';
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:10px">Property settings</div>
+    <div class="input-group"><label>Owners and ownership share (%)</label>
+      ${owners.map((o,i) => `<div style="display:flex;gap:8px;margin-bottom:6px">
+        <input type="text" id="ps-owner-${i}" value="${escH(o.name)}" placeholder="Owner name" style="flex:1;${inp}">
+        <input type="number" id="ps-share-${i}" value="${o.share===''?'':o.share}" min="0" max="100" step="0.01" placeholder="%" style="width:80px;${inp}">
+      </div>`).join('')}
+      <div style="font-size:11px;color:var(--text3)">Used to split the property's profit or loss between owners. Leave unused rows blank.</div>
+    </div>
+    <div class="input-group"><label>Purchase date</label><input type="date" id="ps-purchase" value="${escH(p.purchaseDate)}"></div>
+    <div class="input-group"><label>Property bank account</label><select id="ps-account"><option value="">— Not set —</option>${accOpts}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">The account rent is paid into and bills come out of. Used for the cash flow forecast.</div></div>
+    <div class="input-group"><label>Return trip distance, home → property (km)</label><input type="number" id="ps-km" value="${p.travelKm ?? ''}" min="0" step="1" placeholder="e.g. 200"></div>
+    <div class="input-group"><label>Expense deduction basis</label>
+      <select id="ps-basis">
+        <option value="full" ${p.deductionBasis==='full'?'selected':''}>100% deductible</option>
+        <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (apportion by income vs personal days)</option>
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
+    <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
+  </div>`;
+}
+function savePropSetup() {
+  const s = currentPropStream();
+  if (!s) return;
+  const owners = [];
+  for (let i = 0; document.getElementById('ps-owner-'+i); i++) {
+    const name = document.getElementById('ps-owner-'+i).value.trim();
+    const share = parseFloat(document.getElementById('ps-share-'+i).value);
+    if (name || !isNaN(share)) owners.push({ name: name || `Owner ${owners.length+1}`, share: isNaN(share) ? 0 : share });
+  }
+  const total = owners.reduce((a,o) => a+o.share, 0);
+  if (owners.length && Math.abs(total - 100) > 0.01 && !confirm(`Ownership shares add up to ${round2(total)}%, not 100%. Save anyway?`)) return;
+  const km = parseFloat(document.getElementById('ps-km').value);
+  s.property = {
+    ...propSettings(s),
+    owners,
+    purchaseDate: document.getElementById('ps-purchase').value,
+    accountId: document.getElementById('ps-account').value,
+    travelKm: isNaN(km) ? null : km,
+    deductionBasis: document.getElementById('ps-basis').value,
+  };
+  scheduleSave();
+  propTab = 'home'; renderProperty();
+}
+
+// ── Airbnb CSV import ──
+// Two Airbnb exports share most columns: the completed/paid earnings report
+// has 'Paid out' + 'Arriving by date' (and Payout rows); the pending/upcoming
+// one doesn't. Rows are per money movement, not per booking -- a booking has a
+// Reservation row plus a Host Remitted Tax row (the GST flat-rate credit), and
+// long stays are paid monthly, giving several Reservation rows with the same
+// confirmation code and dates. So everything is grouped by confirmation code.
+function parseUSDate(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((s || '').trim());
+  return m ? `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}` : null;
+}
+function parseAirbnbCSV(text) {
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+  if (!headers.includes('confirmation code') || !headers.includes('gross earnings') || !headers.includes('type')) return null;
+  const kind = headers.includes('paid out') ? 'completed' : 'upcoming';
+  const num = v => parseFloat(String(v ?? '').replace(/[$,\s]/g, '')) || 0;
+  const byCode = new Map(), payouts = [];
+  lines.slice(1).forEach(line => {
+    const c = parseCSVLine(line), r = {};
+    headers.forEach((h, i) => r[h] = c[i] ?? '');
+    const type = r['type'];
+    if (type === 'Payout') {
+      if (r['reference code']) payouts.push({ ref: r['reference code'], date: parseUSDate(r['date']), arriveBy: parseUSDate(r['arriving by date']), amount: num(r['paid out']) });
+      return;
+    }
+    const code = r['confirmation code'];
+    if (!code) return;
+    let b = byCode.get(code);
+    if (!b) { b = { code, guest:'', listing:'', bookedOn:null, checkIn:null, checkOut:null, gross:0, serviceFee:0, cleaningFee:0, hostTax:0, adjustments:0, platformTax:0, payout:0, payments:{} }; byCode.set(code, b); }
+    b.guest    = b.guest    || r['guest'];
+    b.listing  = b.listing  || r['listing'];
+    b.bookedOn = b.bookedOn || parseUSDate(r['booking date']);
+    b.checkIn  = b.checkIn  || parseUSDate(r['start date']);
+    b.checkOut = b.checkOut || parseUSDate(r['end date']);
+    const amt = num(r['amount']);
+    if (type === 'Reservation') {
+      b.gross       += num(r['gross earnings']);
+      b.serviceFee  += num(r['service fee']) + num(r['fast pay fee']);
+      b.cleaningFee += num(r['cleaning fee']);
+      b.platformTax += num(r['airbnb remitted tax']);
+    } else if (type === 'Host Remitted Tax') {
+      b.hostTax += amt;
+    } else {
+      b.adjustments += amt; // Resolution Adjustment and any other money row
+    }
+    b.payout += amt;
+    const d = parseUSDate(r['date']);
+    if (d) b.payments[d] = (b.payments[d] || 0) + amt;
+  });
+  const list = [...byCode.values()].filter(b => b.checkIn).map(b => ({
+    ...b,
+    nights: b.checkOut ? Math.max(0, daysBetween(b.checkIn, b.checkOut)) : 0,
+    gross: round2(b.gross), serviceFee: round2(b.serviceFee), cleaningFee: round2(b.cleaningFee),
+    hostTax: round2(b.hostTax), adjustments: round2(b.adjustments), platformTax: round2(b.platformTax), payout: round2(b.payout),
+    payments: Object.entries(b.payments).sort().map(([date, amount]) => ({ date, amount: round2(amount) })),
+  }));
+  return { kind, bookings: list, payouts };
+}
+async function handlePropCSV(input) {
+  const file = input.files[0];
+  input.value = '';
+  const s = currentPropStream();
+  if (!file || !s) return;
+  const parsed = parseAirbnbCSV(await file.text());
+  if (!parsed) { alert("This doesn't look like an Airbnb earnings CSV. Export it from Airbnb → Earnings → Transaction history (completed or upcoming)."); return; }
+  importAirbnbBookings(parsed, s);
+}
+function importAirbnbBookings(parsed, s) {
+  let added = 0, updated = 0, kept = 0, otherProp = 0;
+  const seen = new Set();
+  parsed.bookings.forEach(p => {
+    const id = 'airbnb:' + p.code;
+    seen.add(id);
+    const ex = bookings.find(b => b.id === id);
+    if (ex && ex.streamId !== s.id) { otherProp++; return; }
+    // Never let an older upcoming export downgrade a booking already paid out.
+    if (ex && ex.status === 'completed' && parsed.kind === 'upcoming') { kept++; return; }
+    const rec = { ...(ex || {}), id, streamId: s.id, platform: 'airbnb', ...p, status: parsed.kind, cancelled: false, importedAt: todayLocal() };
+    if (ex) { Object.assign(ex, rec); updated++; } else { bookings.push(rec); added++; }
+    reviveTombstone('bookings', id);
+  });
+  parsed.payouts.forEach(p => {
+    const id = 'airbnb:' + p.ref;
+    const rec = { id, streamId: s.id, platform: 'airbnb', date: p.date, arriveBy: p.arriveBy, amount: round2(p.amount) };
+    const ex = propPayouts.find(x => x.id === id);
+    if (ex) Object.assign(ex, rec); else propPayouts.push(rec);
+    reviveTombstone('propPayouts', id);
+  });
+  // A future booking that was in an earlier upcoming export but has vanished
+  // from this one was most likely cancelled. Ask rather than delete, since a
+  // partial export would otherwise wipe real bookings.
+  let flagged = 0;
+  if (parsed.kind === 'upcoming') {
+    const today = todayLocal();
+    const missing = bookings.filter(b => b.streamId===s.id && b.platform==='airbnb' && b.status==='upcoming' && !b.cancelled && b.checkIn >= today && !seen.has(b.id));
+    if (missing.length && confirm(`${missing.length} upcoming booking${missing.length===1?' is':'s are'} no longer in this export:\n\n${missing.map(b=>`${fmtDay(b.checkIn)} · ${b.nights} nights · ${fmt(b.payout)}`).join('\n')}\n\nMark ${missing.length===1?'it':'them'} as cancelled? (They'll be left out of totals and forecasts.)`)) {
+      missing.forEach(b => b.cancelled = true); flagged = missing.length;
+    }
+  }
+  scheduleSave();
+  propTab = 'bookings';
+  renderProperty();
+  alert(`Airbnb ${parsed.kind} export imported:\n\n${added} new booking${added===1?'':'s'}, ${updated} updated` +
+    (kept ? `\n${kept} already completed (left as-is)` : '') +
+    (otherProp ? `\n${otherProp} skipped (already belong to another property)` : '') +
+    (flagged ? `\n${flagged} marked as cancelled` : '') +
+    (parsed.payouts.length ? `\n${parsed.payouts.length} payout transfer${parsed.payouts.length===1?'':'s'} recorded` : ''));
+}
+
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
 function scheduleSave() {
@@ -3887,6 +4334,7 @@ function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
+    bookings, propPayouts,
     cats: CATS,
     tombstones,
     savedAt: new Date().toISOString()
@@ -3933,6 +4381,8 @@ function loadDataObj(obj) {
     if (!s.budgets) s.budgets = (obj.otherBudgets && Object.keys(obj.otherBudgets).length) ? JSON.parse(JSON.stringify(obj.otherBudgets)) : {};
   });
   if (obj.debtOrder) debtOrder = obj.debtOrder;
+  if (obj.bookings) bookings = obj.bookings;
+  if (obj.propPayouts) propPayouts = obj.propPayouts;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
@@ -4265,6 +4715,7 @@ async function sbLoadHousehold() {
   if (data?.households) {
     sbHousehold = data.households;
     await sbLoadData();
+    await sbLoadAddons();
   } else {
     const tok = sessionStorage.getItem('pendingInvite');
     if (tok) await sbAcceptInvite(tok);
@@ -4333,6 +4784,7 @@ async function sbAcceptInvite(token) {
   sbHousehold = data[0];
   renderAccountSection();
   await sbLoadData();
+  await sbLoadAddons();
 }
 
 async function sbLoadData() {
@@ -4454,6 +4906,8 @@ function mergeWithCloud(data, cloud) {
   data.otherDebts         = mergeArraysById(data.otherDebts, cloud.otherDebts, 'id', 'otherDebts', tomb);
   data.investments        = mergeArraysById(data.investments, cloud.investments, 'id', 'investments', tomb);
   data.recurring          = mergeArraysById(data.recurring, cloud.recurring, 'id', 'recurring', tomb);
+  data.bookings           = mergeArraysById(data.bookings, cloud.bookings, 'id', 'bookings', tomb);
+  data.propPayouts        = mergeArraysById(data.propPayouts, cloud.propPayouts, 'id', 'propPayouts', tomb);
   data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
   data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
