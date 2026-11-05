@@ -1721,7 +1721,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.05.1';
+const APP_VERSION = '2026.11.05.2';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2818,7 +2818,7 @@ function renderIncomeStreams() {
   el.innerHTML = otherIncomeStreams.map(s => {
     const debt = resolveLinkedDebt(s.linkedDebtId);
     const beachCount = s.type==='Investment Property'
-      ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach').length
+      ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach' && t.propReviewed!==s.id).length
       : 0;
     return `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
@@ -2829,7 +2829,9 @@ function renderIncomeStreams() {
         <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openUpdateIncomeStream(${s.id})">Edit</button>
         <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
       </div>
-      ${beachCount ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="bulkMoveBeachTxns(${s.id})">Move ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} here →</button>` : ''}
+      ${beachCount ? (hasAddon('property')
+        ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="openPropReview(${s.id})">Review ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} →</button>`
+        : `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="bulkMoveBeachTxns(${s.id})">Move ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} here →</button>`) : ''}
     </div>`;
   }).join('');
 }
@@ -3950,7 +3952,7 @@ function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 const PROP_TABS = [
   {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
   {id:'calendar', label:'Calendar', soon:true}, {id:'cashflow', label:'Cash flow', soon:true},
-  {id:'tax', label:'Tax', soon:true}, {id:'setup', label:'Setup'},
+  {id:'tax', label:'Tax'}, {id:'setup', label:'Setup'},
 ];
 function renderProperty() {
   const picker = document.getElementById('prop-picker');
@@ -3977,6 +3979,8 @@ function renderProperty() {
   if (propTab === 'home')          body.innerHTML = propHomeHtml(s);
   else if (propTab === 'bookings') body.innerHTML = propBookingsHtml(s);
   else if (propTab === 'setup')    body.innerHTML = propSetupHtml(s);
+  else if (propTab === 'tax')      body.innerHTML = propTaxHtml(s);
+  else if (propTab === 'review')   body.innerHTML = propReviewHtml(s);
   else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
 }
 
@@ -4044,15 +4048,20 @@ function propHomeHtml(s) {
   const next = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.checkIn >= today).sort((a,b)=>a.checkIn.localeCompare(b.checkIn))[0];
   const futurePayout = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.status==='upcoming').reduce((a,b)=>a+b.payout, 0);
   const has = bookings.some(b => b.streamId===s.id);
-  if (!has) return `${propYearNavHtml()}<div class="card" style="text-align:center;padding:24px 20px">
+  const reviewCount = transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach' && t.propReviewed!==s.id).length;
+  const reviewCard = reviewCount ? `<div class="card" style="display:flex;align-items:center;gap:10px;border-color:var(--teal)">
+      <div style="flex:1;font-size:13px">${reviewCount} personal "Beach" transaction${reviewCount===1?'':'s'} may belong to this property.</div>
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>` : '';
+  if (!has) return `${propYearNavHtml()}${reviewCard}<div class="card" style="text-align:center;padding:24px 20px">
     <div style="font-size:13px;color:var(--text3);margin-bottom:14px">No bookings yet. Import your Airbnb CSVs to get started.</div>
     <button class="btn btn-primary" onclick="setPropTab('bookings')">Go to Bookings</button></div>`;
-  return `${propYearNavHtml()}
+  const pnl = computePropPnL(s, propTaxYear);
+  return `${propYearNavHtml()}${reviewCard}
     <div class="metrics">
-      <div class="metric"><div class="metric-label">Gross earnings</div><div class="metric-value pos" style="font-size:17px">${fmt(c.gross + u.gross)}</div></div>
-      <div class="metric"><div class="metric-label">Platform fees</div><div class="metric-value neg" style="font-size:17px">${fmt(c.fees + u.fees)}</div></div>
-      <div class="metric"><div class="metric-label">Nights booked</div><div class="metric-value" style="font-size:17px">${bookedNights}</div></div>
-      <div class="metric"><div class="metric-label">Occupancy</div><div class="metric-value" style="font-size:17px">${occ}%</div></div>
+      <div class="metric"><div class="metric-label">Rent received</div><div class="metric-value pos" style="font-size:17px">${fmt(pnl.rent)}</div></div>
+      <div class="metric"><div class="metric-label">Expenses</div><div class="metric-value neg" style="font-size:17px">${fmt(pnl.totalExpenses)}</div></div>
+      <div class="metric"><div class="metric-label">Net profit${pnl.hasUpcoming?' (forecast)':''}</div><div class="metric-value ${pnl.net>=0?'pos':'neg'}" style="font-size:17px">${fmtSigned(pnl.net)}</div></div>
+      <div class="metric"><div class="metric-label">Occupancy</div><div class="metric-value" style="font-size:17px">${occ}% · ${bookedNights} nts</div></div>
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:8px">This tax year</div>
@@ -4081,13 +4090,24 @@ function propBookingsHtml(s) {
     .sort((a,b) => a.checkIn.localeCompare(b.checkIn));
   const up = list.filter(b => b.status==='upcoming');
   const done = list.filter(b => b.status==='completed').reverse();
-  const row = b => `<div onclick="openBookingDetail('${escH(b.id)}')" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;${b.cancelled?'opacity:0.45':''}">
+  const matches = computePayoutMatches(s);
+  const {start: ys, end: ye} = taxYearRange(propTaxYear);
+  const yrPayouts = propPayouts.filter(p => p.streamId===s.id && p.date >= ys && p.date < ye);
+  const missingPayouts = yrPayouts.filter(p => !matches.payoutTxn.has(p.id));
+  const bankCard = yrPayouts.length ? `<div class="card">
+      <div class="card-title" style="margin-bottom:6px">Payouts in the bank</div>
+      ${propRow('Airbnb payouts this tax year', `${yrPayouts.length} · ${fmt(yrPayouts.reduce((a,p)=>a+p.amount,0))}`)}
+      ${propRow('Found in your bank transactions', `<span style="color:var(--teal)">${yrPayouts.length - missingPayouts.length}</span>`)}
+      ${propRow('Not found', missingPayouts.length ? `<span style="color:var(--red,#e5484d)">${missingPayouts.length} · ${fmt(missingPayouts.reduce((a,p)=>a+p.amount,0))}</span>` : '0')}
+      ${missingPayouts.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">Not found: ${missingPayouts.slice(0,8).map(p=>`${fmtDay(p.arriveBy||p.date)} ${fmt(p.amount)}`).join(', ')}${missingPayouts.length>8?'…':''}. Import the bank statement for the account Airbnb pays into to match these.</div>` : ''}
+    </div>` : '';
+  const row = b => { const bank = bookingBankStatus(b, matches); return `<div onclick="openBookingDetail('${escH(b.id)}')" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;${b.cancelled?'opacity:0.45':''}">
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:500">${fmtDay(b.checkIn)} · ${b.nights} night${b.nights===1?'':'s'}${b.cancelled?' · <span style="color:var(--red,#e5484d)">cancelled?</span>':''}</div>
+        <div style="font-size:14px;font-weight:500">${fmtDay(b.checkIn)} · ${b.nights} night${b.nights===1?'':'s'}${b.cancelled?' · <span style="color:var(--red,#e5484d)">cancelled?</span>':''}${bank==='found'?' <span title="Payout found in bank" style="color:var(--teal);font-size:12px">✓ bank</span>':bank==='missing'?' <span title="Payout not found in bank" style="color:var(--red,#e5484d);font-size:12px">⚠ bank</span>':''}</div>
         <div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(b.platform==='airbnb'?'Airbnb':b.platform)} · ${escH(b.guest || b.code)}</div>
       </div>
       <div style="text-align:right"><div style="font-size:14px;font-weight:600">${fmt(b.payout)}</div><div style="font-size:11px;color:var(--text3)">gross ${fmt(b.gross)}</div></div>
-    </div>`;
+    </div>`; };
   return `<div class="card">
       <div class="card-title" style="margin-bottom:6px">Import bookings</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Airbnb: export the <strong>completed</strong> (paid) and <strong>upcoming</strong> (pending) earnings CSVs and import either one. The type is detected automatically. Re-importing updates bookings rather than duplicating them.</div>
@@ -4097,6 +4117,7 @@ function propBookingsHtml(s) {
       </div>
     </div>
     ${propYearNavHtml()}
+    ${bankCard}
     <div class="card"><div class="card-title" style="margin-bottom:4px">Upcoming (${up.length})</div>${up.length ? up.map(row).join('') : '<div class="empty" style="padding:8px 0">None in this tax year</div>'}</div>
     <div class="card"><div class="card-title" style="margin-bottom:4px">Completed (${done.length})</div>${done.length ? done.map(row).join('') : '<div class="empty" style="padding:8px 0">None in this tax year</div>'}</div>`;
 }
@@ -4129,6 +4150,290 @@ function openBookingDetail(id) {
   document.getElementById('modal').classList.add('open');
 }
 
+// ── Money: report lines, payout matching, P&L ──
+// Every category on the property's stream maps to one line of the
+// accountant's Statement of Profit or Loss (or to income / transfer). Stored
+// per property as catLines[categoryName]; unmapped categories get a guess
+// from their name, which the user can override in Setup.
+const PROP_LINES = [
+  {id:'income',      label:'Rental income (bank deposits)', kind:'income'},
+  {id:'transfer',    label:'Transfer (not income or expense)', kind:'none'},
+  {id:'commissions', label:'Commissions',              kind:'expense'},
+  {id:'insurance',   label:'Insurance',                kind:'expense'},
+  {id:'interest',    label:'Interest on loans',        kind:'expense'},
+  {id:'power',       label:'Light, power & heating',   kind:'expense'},
+  {id:'management',  label:'Management fees',          kind:'expense'},
+  {id:'purchases',   label:'Purchases & consumables',  kind:'expense'},
+  {id:'rates',       label:'Rates',                    kind:'expense'},
+  {id:'rm',          label:'Repairs & maintenance',    kind:'expense'},
+  {id:'phone',       label:'Telephone & internet',     kind:'expense'},
+  {id:'cleaning',    label:'Cleaning',                 kind:'expense'},
+  {id:'travel',      label:'Travel',                   kind:'expense'},
+  {id:'accountancy', label:'Accountancy',              kind:'expense'},
+  {id:'other',       label:'Other expenses',           kind:'expense'},
+];
+const PROP_LINE_GUESSES = [
+  ['transfer',    /equity|transfer|top.?up|drawing|principal|saving/i],
+  ['commissions', /commission|platform|service fee/i],
+  ['income',      /income|rent|airbnb|booking|bach|guest/i],
+  ['insurance',   /insur/i],
+  ['interest',    /interest|mortgage/i],
+  ['power',       /power|gas|electric|heat|lpg|firewood/i],
+  ['rates',       /rates|water/i],
+  ['phone',       /internet|phone|broadband|spark|wifi/i],
+  ['cleaning',    /clean|laundry|linen/i],
+  ['rm',          /repair|maint|r ?& ?m/i],
+  ['purchases',   /purchase|homeware|consumable|furnish|supplies/i],
+  ['management',  /manage/i],
+  ['accountancy', /account/i],
+  ['travel',      /travel|vehicle|fuel|mileage|petrol/i],
+];
+function guessPropLine(cat) {
+  if (cat?.taxTreatment === 'income') return 'income';
+  const name = cat?.name || '';
+  for (const [line, re] of PROP_LINE_GUESSES) if (re.test(name)) return line;
+  return 'other';
+}
+function propLineFor(s, catName) {
+  const p = propSettings(s);
+  if (p.catLines && p.catLines[catName]) return p.catLines[catName];
+  return guessPropLine((s.cats || []).find(c => c.name === catName) || { name: catName });
+}
+const propLineKind = id => (PROP_LINES.find(l => l.id === id) || {kind:'expense'}).kind;
+
+// Airbnb pays to whichever bank account the host chose -- often a personal
+// one -- and the money may then be forwarded to the property account. Each
+// payout is matched to the original deposit (any account, amount to the cent,
+// around its arrival date), and then to a forwarded deposit of the same
+// amount on the property's stream within the following month, so neither is
+// mistaken for extra rent. Computed on the fly, never stored.
+function computePayoutMatches(s) {
+  const payoutTxn = new Map();     // payout id -> original deposit txn
+  const matchedTxnIds = new Set(); // every txn explained by a payout
+  const cents = n => Math.round(n * 100);
+  const pos = transactions.filter(t => t.amount > 0);
+  const byCents = new Map();
+  pos.forEach(t => { const k = cents(t.amount); if (!byCents.has(k)) byCents.set(k, []); byCents.get(k).push(t); });
+  const payouts = propPayouts.filter(p => p.streamId === s.id && p.amount > 0).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  payouts.forEach(p => {
+    const cands = (byCents.get(cents(p.amount)) || []).filter(t => !matchedTxnIds.has(t.id));
+    const lo = p.date, hiD = isoToDate(p.arriveBy || p.date); hiD.setDate(hiD.getDate() + 7);
+    const hi = dateToIso(hiD);
+    const inWin = cands.filter(t => { const d = dateToIso(t.date); return d >= lo && d <= hi; });
+    const orig = inWin.find(t => /airbnb|payoneer/i.test((t.desc||'') + ' ' + (t.detail||''))) || inWin.find(t => t.stream !== s.id) || inWin[0];
+    if (!orig) return;
+    payoutTxn.set(p.id, orig);
+    matchedTxnIds.add(orig.id);
+    if (orig.stream !== s.id) {
+      const od = dateToIso(orig.date), fwdEnd = new Date(orig.date); fwdEnd.setDate(fwdEnd.getDate() + 31);
+      const fe = dateToIso(fwdEnd);
+      const fwd = cands.find(t => t !== orig && t.stream === s.id && !matchedTxnIds.has(t.id) && dateToIso(t.date) >= od && dateToIso(t.date) <= fe);
+      if (fwd) matchedTxnIds.add(fwd.id);
+    }
+  });
+  return { payoutTxn, matchedTxnIds };
+}
+// A booking is "in the bank" when every payment date it was paid on has a
+// payout that was matched to a deposit.
+function bookingBankStatus(b, matches) {
+  if (b.status !== 'completed' || b.cancelled) return null;
+  const pays = propPayouts.filter(p => p.streamId === b.streamId);
+  const ok = (b.payments || []).every(pm => pays.some(p => p.date === pm.date && matches.payoutTxn.has(p.id)));
+  return ok ? 'found' : 'missing';
+}
+
+function propTxnsInYear(s, ty) {
+  const { start, end } = taxYearRange(ty);
+  return transactions.filter(t => t.stream === s.id && (d => d >= start && d < end)(dateToIso(t.date)));
+}
+function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
+  const y = propYearSummary(s.id, ty);
+  const c = y.completed, u = y.upcoming;
+  const lines = {}; PROP_LINES.forEach(l => lines[l.id] = 0);
+  const lineTxns = {}; PROP_LINES.forEach(l => lineTxns[l.id] = []);
+  let otherIncome = 0; const otherIncomeTxns = [];
+  propTxnsInYear(s, ty).forEach(t => {
+    const line = propLineFor(s, t.cat);
+    const kind = propLineKind(line);
+    if (kind === 'none') return;
+    if (kind === 'income') {
+      if (matches.matchedTxnIds.has(t.id)) return; // already counted via the booking
+      otherIncome += t.amount; otherIncomeTxns.push(t);
+      return;
+    }
+    lines[line] += -t.amount; // expenses are negative amounts; refunds reduce the line
+    lineTxns[line].push(t);
+  });
+  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments;
+  const rent = bookingIncome + otherIncome;
+  const commissions = c.fees + u.fees + lines.commissions;
+  const expenseLines = PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions')
+    .map(l => ({ id: l.id, label: l.label, amount: lines[l.id], txns: lineTxns[l.id] }));
+  const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
+  return {
+    y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
+    net: rent - totalExpenses, hasUpcoming: u.count > 0,
+  };
+}
+
+// ── Tax tab: P&L, owner split, check against the accountant ──
+// The accountant's figures are typed in per tax year and kept in the user's
+// own data (s.property.checks[taxYear]), never in source.
+const PROP_CHECK_LINES = [
+  {id:'rent', label:'Rent received'}, {id:'commissions', label:'Commissions'},
+  ...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions').map(l => ({id:l.id, label:l.label})),
+  {id:'net', label:'Net profit (loss)'},
+];
+function propTaxHtml(s) {
+  const pnl = computePropPnL(s, propTaxYear);
+  const p = propSettings(s);
+  const checks = (p.checks || {})[propTaxYear] || {};
+  const appVal = { rent: pnl.rent, commissions: pnl.commissions, net: pnl.net };
+  pnl.expenseLines.forEach(l => appVal[l.id] = l.amount);
+  const shown = pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005);
+  const owners = p.owners.filter(o => o.share);
+  const inp = 'width:100px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px 6px;text-align:right;outline:none';
+  return `${propYearNavHtml()}
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">Profit or loss</div>
+      ${pnl.hasUpcoming ? '<div style="font-size:11px;color:var(--amber,#b7791f);margin-bottom:6px">Includes upcoming bookings, so this is a forecast until they complete.</div>' : ''}
+      ${propRow('<strong>Rent received</strong>', `<strong>${fmt(pnl.rent)}</strong>`)}
+      ${propRow('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
+      ${pnl.otherIncome ? propRow(`&nbsp;&nbsp;Other bank deposits (${pnl.otherIncomeTxns.length})`, fmt(pnl.otherIncome)) : ''}
+      ${propRow('Commissions', fmt(pnl.commissions))}
+      ${shown.map(l => propRow(escH(l.label), fmt(l.amount))).join('')}
+      ${propRow('Depreciation', '<span style="color:var(--text3)">not yet calculated</span>')}
+      ${propRow('Total expenses', fmt(pnl.totalExpenses))}
+      ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
+      ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.net * o.share / 100))).join('')}` : ''}
+      ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Type in the figures from the accountant's statement for this tax year to see where the app differs. Rent and commissions are reported differently (the accountant uses what guests paid, the app uses the Airbnb CSV), so compare <strong>net profit</strong> for those.</div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 92px 100px;gap:8px;font-size:11px;color:var(--text3);padding-bottom:4px;border-bottom:0.5px solid var(--border)"><span>Line</span><span style="text-align:right">App</span><span style="text-align:right">Accountant</span></div>
+      ${PROP_CHECK_LINES.map(l => {
+        const a = appVal[l.id] || 0, has = checks[l.id] != null && checks[l.id] !== '';
+        const d = has ? a - Number(checks[l.id]) : null;
+        const diff = d == null ? '' : Math.abs(d) < 1
+          ? '<div style="font-size:11px;color:var(--teal)">✓ Matches</div>'
+          : `<div style="font-size:11px;color:var(--red,#e5484d)">App is ${fmt(d)} ${d > 0 ? 'higher' : 'lower'}</div>`;
+        return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 92px 100px;gap:8px;align-items:center;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+          <div style="color:var(--text2);min-width:0">${l.id==='net'?'<strong>'+l.label+'</strong>':escH(l.label)}${diff}</div>
+          <span style="text-align:right">${a < 0 ? '−' : ''}${fmt(a)}</span>
+          <input type="number" step="0.01" style="${inp}" value="${has ? checks[l.id] : ''}" onchange="setPropCheck('${l.id}', this.value)">
+        </div>`;
+      }).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Depreciation isn't calculated yet, so net profit will differ by the depreciation amount for now.</div>
+    </div>`;
+}
+function setPropCheck(lineId, val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const checks = { ...(p.checks || {}) };
+  const yr = { ...(checks[propTaxYear] || {}) };
+  if (val === '' || isNaN(Number(val))) delete yr[lineId]; else yr[lineId] = Number(val);
+  checks[propTaxYear] = yr;
+  s.property = { ...p, checks };
+  scheduleSave(); renderProperty();
+}
+
+// ── Review personal transactions that belong to the property ──
+// Replaces the old blanket "move all Beach transactions" button: each one is
+// either moved onto the property with a proper category, or left in Personal
+// (typical for Airbnb payouts landing in a personal account, and transfers
+// from personal into the property account -- moving those would double count).
+let propReviewCat = null;
+function propReviewSourceCats() {
+  const used = new Set(transactions.filter(t => (t.stream || 'personal') === 'personal').map(t => t.cat));
+  return [...used].sort();
+}
+function propReviewCandidates(s) {
+  return transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === propReviewCat && t.propReviewed !== s.id)
+    .sort((a,b) => a.date - b.date);
+}
+function propReviewSuggestion(s, t, matches) {
+  const text = (t.desc || '') + ' ' + (t.detail || '');
+  if (matches.matchedTxnIds.has(t.id) || (t.amount > 0 && /airbnb|payoneer|booking\.com|bookabach/i.test(text))) return { keep: true, why: 'Platform payout' };
+  // Transfers between the owners' own accounts usually carry an owner's name
+  // or the property's name -- built from the user's Setup, never hardcoded.
+  const words = [s.name, ...propSettings(s).owners.map(o => o.name)]
+    .flatMap(n => String(n || '').split(/\s+/)).filter(w => w.length >= 4 && !/^owner$/i.test(w))
+    .map(w => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&'));
+  const ownRe = words.length ? new RegExp(words.join('|'), 'i') : null;
+  if ((ownRe && ownRe.test(text)) || /transfer|top.?up/i.test(text) || t.amount > 0) return { keep: true, why: 'Looks like a transfer' };
+  const line = PROP_LINE_GUESSES.find(([, re]) => re.test(text))?.[0];
+  const cats = s.cats || [];
+  const cat = line && cats.find(c => propLineFor(s, c.name) === line);
+  if (cat) return { keep: false, cat: cat.name };
+  // No existing category covers this line -- offer a new one named after it.
+  if (line && propLineKind(line) === 'expense') return { keep: false, newLine: line };
+  return { keep: false, cat: (cats.find(c => c.name === 'Other') || cats[0])?.name };
+}
+const PROP_NEW_CAT_NAMES = { insurance:'Insurance', interest:'Mortgage Interest', power:'Power', rates:'Rates', phone:'Internet', cleaning:'Cleaning', rm:'Repairs & Maintenance', purchases:'Purchases', management:'Property Management', accountancy:'Accountancy Fees', travel:'Travel', commissions:'Platform Commissions', other:'Other' };
+function propReviewHtml(s) {
+  const srcCats = propReviewSourceCats();
+  if (!propReviewCat || !srcCats.includes(propReviewCat)) propReviewCat = srcCats.includes('Beach') ? 'Beach' : srcCats[0];
+  const list = propReviewCandidates(s);
+  const matches = computePayoutMatches(s);
+  const have = new Set((s.cats || []).map(c => c.name));
+  const newOpts = Object.entries(PROP_NEW_CAT_NAMES).filter(([, n]) => !have.has(n));
+  const catOpts = (sel, selNew) => (s.cats || []).map(c => `<option value="move:${escH(c.name)}" ${sel===c.name?'selected':''}>Move → ${escH(c.name)}</option>`).join('')
+    + newOpts.map(([line, n]) => `<option value="new:${line}" ${selNew===line?'selected':''}>Move → ${escH(n)} (new)</option>`).join('');
+  return `<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+      <div class="card-title">Review personal transactions</div>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="setPropTab('home')">Done</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Move real property costs paid from personal accounts onto ${escH(s.name)}. Leave platform payouts and transfers to the property account in Personal, otherwise they'd be counted twice.</div>
+    <div class="input-group"><label>Personal category to review</label>
+      <select onchange="propReviewCat=this.value;renderProperty()">${srcCats.map(c => `<option ${c===propReviewCat?'selected':''}>${escH(c)}</option>`).join('')}</select></div>
+    ${list.length ? `<div id="prop-review-list">${list.map(t => {
+      const sug = propReviewSuggestion(s, t, matches);
+      return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.desc)}</span><span class="${t.amount<0?'neg':'pos'}" style="white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <span style="font-size:11px;color:var(--text3);flex:1">${fmtDay(dateToIso(t.date))}${sug.keep ? ' · ' + sug.why : ''}</span>
+          <select data-txn="${t.id}" style="max-width:190px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
+            <option value="keep" ${sug.keep?'selected':''}>Leave in Personal</option>${catOpts(sug.keep ? null : sug.cat, sug.keep ? null : sug.newLine)}
+          </select>
+        </div></div>`;
+    }).join('')}</div>
+    <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="applyPropReview()">Apply ${list.length} decision${list.length===1?'':'s'}</button>`
+    : '<div class="empty" style="padding:8px 0">Nothing left to review in this category.</div>'}
+  </div>`;
+}
+function applyPropReview() {
+  const s = currentPropStream(); if (!s) return;
+  const sels = [...document.querySelectorAll('#prop-review-list select[data-txn]')];
+  const moves = sels.filter(el => el.value !== 'keep');
+  if (!confirm(`Move ${moves.length} transaction${moves.length===1?'':'s'} to ${s.name} and leave ${sels.length - moves.length} in Personal?`)) return;
+  let catLines = { ...(propSettings(s).catLines || {}) };
+  sels.forEach(el => {
+    const t = transactions.find(x => String(x.id) === el.dataset.txn);
+    if (!t) return;
+    if (el.value === 'keep') { t.propReviewed = s.id; return; } // hide from future reviews
+    let cat;
+    if (el.value.startsWith('new:')) {
+      const line = el.value.slice(4);
+      cat = PROP_NEW_CAT_NAMES[line] || 'Other';
+      if (!(s.cats || []).some(c => c.name === cat)) {
+        s.cats = [...(s.cats || []), { name: cat, emoji: COMMON_CAT_ICONS[cat] || PROPERTY_STREAM_CATS().find(c => c.name === cat)?.emoji || '📌', fixed: false }];
+        reviveTombstone(`cats_stream_${s.id}`, cat);
+      }
+      catLines[cat] = line;
+    } else cat = el.value.slice(5);
+    t.stream = s.id; t.cat = cat; delete t.propReviewed;
+  });
+  s.property = { ...propSettings(s), catLines };
+  scheduleSave(); renderProperty(); renderIncomeStreams(); renderCatMgmtTabs();
+}
+function openPropReview(streamId) {
+  if (streamId) propStreamId = streamId;
+  propTab = 'review';
+  openPropertyModule();
+}
+
 // ── Setup ──
 function propSetupHtml(s) {
   const p = propSettings(s);
@@ -4155,7 +4460,32 @@ function propSetupHtml(s) {
       </select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
     <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
+  </div>
+  ${propCatLinesHtml(s)}`;
+}
+function propCatLinesHtml(s) {
+  const p = propSettings(s);
+  const counts = {};
+  transactions.forEach(t => { if (t.stream === s.id) counts[t.cat] = (counts[t.cat] || 0) + 1; });
+  const names = [...new Set([...(s.cats || []).map(c => c.name), ...Object.keys(counts)])];
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:4px">Categories → report lines</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Where each of ${escH(s.name)}'s categories goes in the profit or loss. Guesses are based on the name. Use <strong>Transfer</strong> for money moving between your own accounts, such as top-ups and loan principal.</div>
+    ${names.map(n => {
+      const cur = propLineFor(s, n), set = !!(p.catLines || {})[n];
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border)">
+        <span style="flex:1;min-width:0;font-size:13px">${escH(n)} <span style="font-size:11px;color:var(--text3)">${counts[n]||0} txn${counts[n]===1?'':'s'}${set?'':' · guessed'}</span></span>
+        <select data-cat="${escH(n)}" onchange="setPropCatLine(this.dataset.cat, this.value)" style="max-width:180px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
+          ${PROP_LINES.map(l => `<option value="${l.id}" ${l.id===cur?'selected':''}>${escH(l.label)}</option>`).join('')}
+        </select></div>`;
+    }).join('')}
   </div>`;
+}
+function setPropCatLine(catName, line) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  s.property = { ...p, catLines: { ...(p.catLines || {}), [catName]: line } };
+  scheduleSave(); renderProperty();
 }
 function savePropSetup() {
   const s = currentPropStream();
