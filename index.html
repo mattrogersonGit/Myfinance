@@ -1643,6 +1643,10 @@ let recurring = [];
 // transfers (id '<platform>:<reference>'). Dates are 'YYYY-MM-DD' strings.
 let bookings = [];
 let propPayouts = [];
+// Calendar marks: {id:'<streamId>:<date>:<type>', streamId, date, type, km?, cost?}
+// type: cleaning | travel | personal | family | booked (a stay from a platform
+// that isn't imported) | blocked.
+let propDays = [];
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
 let bvaFilter = 'all';
@@ -1721,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.05.3';
+const APP_VERSION = '2026.11.05.4';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2801,8 +2805,10 @@ function deleteIncomeStream(id) {
   if (!confirm(`Delete "${s.name}"? Its transactions and debts will be reassigned to Personal.${nBookings?` Its ${nBookings} imported booking${nBookings===1?'':'s'} will be deleted.`:''}`)) return;
   bookings.filter(b=>b.streamId===id).forEach(b=>tombstone('bookings', b.id));
   propPayouts.filter(p=>p.streamId===id).forEach(p=>tombstone('propPayouts', p.id));
+  propDays.filter(d=>d.streamId===id).forEach(d=>tombstone('propDays', d.id));
   bookings = bookings.filter(b=>b.streamId!==id);
   propPayouts = propPayouts.filter(p=>p.streamId!==id);
+  propDays = propDays.filter(d=>d.streamId!==id);
   transactions.forEach(t => { if (t.stream===id) t.stream='personal'; });
   otherDebts.forEach(d => { if (d.stream===id) d.stream='personal'; });
   otherIncomeStreams = otherIncomeStreams.filter(x=>x.id!==id);
@@ -3951,7 +3957,7 @@ function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 
 const PROP_TABS = [
   {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
-  {id:'calendar', label:'Calendar', soon:true}, {id:'cashflow', label:'Cash flow', soon:true},
+  {id:'calendar', label:'Calendar'}, {id:'cashflow', label:'Cash flow', soon:true},
   {id:'tax', label:'Tax'}, {id:'setup', label:'Setup'},
 ];
 function renderProperty() {
@@ -3980,6 +3986,7 @@ function renderProperty() {
   else if (propTab === 'bookings') body.innerHTML = propBookingsHtml(s);
   else if (propTab === 'setup')    body.innerHTML = propSetupHtml(s);
   else if (propTab === 'tax')      body.innerHTML = propTaxHtml(s);
+  else if (propTab === 'calendar') body.innerHTML = propCalendarHtml(s);
   else if (propTab === 'review')   body.innerHTML = propReviewHtml(s);
   else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
 }
@@ -4264,16 +4271,247 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
     lines[line] += -t.amount; // expenses are negative amounts; refunds reduce the line
     lineTxns[line].push(t);
   });
+  // Calendar: logged trips (valued at the IRD km rate) and paid cleans.
+  const trav = propTravelForYear(s, ty);
+  lines.travel += trav.value;
+  const cleanCost = propDaysInYear(s, ty, 'cleaning').reduce((a, d) => a + (Number(d.cost) || 0), 0);
+  lines.cleaning += cleanCost;
+  // Mixed-use basis: shared holding costs are cut to the income-use share;
+  // costs incurred only to earn income (fees, cleaning, travel to service
+  // guests, management, accountancy) stay at 100%.
+  const usage = propUsageForYear(s, ty);
+  const basis = propSettings(s).deductionBasis;
+  const share = basis === 'mixeduse' && usage.share != null ? usage.share : 1;
+  const apportioned = new Set(['insurance','interest','power','rates','rm','phone','purchases','other']);
   const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments;
   const rent = bookingIncome + otherIncome;
   const commissions = c.fees + u.fees + lines.commissions;
   const expenseLines = PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions')
-    .map(l => ({ id: l.id, label: l.label, amount: lines[l.id], txns: lineTxns[l.id] }));
+    .map(l => {
+      const full = lines[l.id], cut = apportioned.has(l.id) && share < 1;
+      let label = l.label;
+      if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
+      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] };
+    });
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
   return {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent - totalExpenses, hasUpcoming: u.count > 0,
+    net: rent - totalExpenses, hasUpcoming: u.count > 0, travel: trav, usage, share, basis,
   };
+}
+
+// ── Calendar: day marks, travel, mixed-use usage ──
+const PROP_DAY_TYPES = {
+  cleaning: { label:'Clean',         icon:'🧹' },
+  travel:   { label:'Travel',        icon:'🚗' },
+  personal: { label:'Personal',      icon:'🏠', bg:'rgba(245,166,35,0.28)',  exclusive:true },
+  family:   { label:'Family',        icon:'👪', bg:'rgba(155,89,182,0.25)',  exclusive:true },
+  booked:   { label:'Other booking', icon:'🛏', bg:'rgba(46,160,67,0.25)',   exclusive:true },
+  blocked:  { label:'Blocked',       icon:'⛔', bg:'rgba(128,128,128,0.25)', exclusive:true },
+};
+const PROP_BOOKING_BG = 'rgba(255,90,95,0.22)'; // imported platform bookings
+function propDaysInYear(s, ty, type) {
+  const { start, end } = taxYearRange(ty);
+  return propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && (!type || d.type === type));
+}
+// IRD kilometre rates are entered per tax year (they change most years):
+// tier 1 covers the first 14,000 km of business travel, tier 2 the rest.
+const KM_TIER1_LIMIT = 14000;
+function propTravelForYear(s, ty) {
+  const p = propSettings(s);
+  const trips = propDaysInYear(s, ty, 'travel');
+  const km = trips.reduce((a, d) => a + (Number(d.km ?? p.travelKm) || 0), 0);
+  const r = (p.kmRates || {})[ty] || {};
+  const t1 = Number(r.t1) || 0, t2 = Number(r.t2 ?? r.t1) || 0;
+  const value = Math.min(km, KM_TIER1_LIMIT) * t1 + Math.max(0, km - KM_TIER1_LIMIT) * t2;
+  return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2 };
+}
+// Days in the tax year by use. Income days are nights booked through an
+// imported platform plus "Other booking" marks; personal includes family.
+function propUsageForYear(s, ty) {
+  const { start, end } = taxYearRange(ty);
+  const days = daysBetween(start, end);
+  const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set();
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights).forEach(b => {
+    for (let d = isoToDate(b.checkIn > start ? b.checkIn : start), e = isoToDate(b.checkOut < end ? b.checkOut : end); d < e; d.setDate(d.getDate() + 1)) income.add(dateToIso(d));
+  });
+  propDaysInYear(s, ty).forEach(d => {
+    if (d.type === 'booked') income.add(d.date);
+    else if (d.type === 'personal') personal.add(d.date);
+    else if (d.type === 'family') family.add(d.date);
+    else if (d.type === 'blocked') blocked.add(d.date);
+  });
+  const today = todayLocal();
+  const plannedPersonal = [...personal, ...family].filter(d => d > today).length;
+  const personalDays = personal.size + family.size;
+  const used = new Set([...income, ...personal, ...family, ...blocked]);
+  const unused = days - used.size;
+  const share = (income.size + personalDays) ? income.size / (income.size + personalDays) : null;
+  return { days, income: income.size, personal: personal.size, family: family.size, personalDays, plannedPersonal, blocked: blocked.size, unused, share };
+}
+
+let propCalMonth = null; // 'YYYY-MM'
+let propCalMode = 'view';
+function shiftPropCalMonth(n) {
+  const [y, m] = propCalMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  propCalMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  propTaxYear = taxYearOf(d);
+  renderProperty();
+}
+function setPropCalMode(m) { propCalMode = m; renderProperty(); }
+function propCalendarHtml(s) {
+  if (!propCalMonth) propCalMonth = todayLocal().slice(0, 7);
+  const [y, m] = propCalMonth.split('-').map(Number);
+  propTaxYear = taxYearOf(new Date(y, m - 1, 1)); // the use summary follows the month shown
+  const first = new Date(y, m - 1, 1), daysIn = new Date(y, m, 0).getDate();
+  const lead = (first.getDay() + 6) % 7; // Monday-first grid
+  const monthStart = `${propCalMonth}-01`, monthEnd = dateToIso(new Date(y, m, 1));
+  const booked = {}; // iso -> booking
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights && b.checkIn < monthEnd && b.checkOut > monthStart).forEach(b => {
+    for (let d = isoToDate(b.checkIn), e = isoToDate(b.checkOut); d < e; d.setDate(d.getDate() + 1)) booked[dateToIso(d)] = b;
+  });
+  const marks = {};
+  propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd).forEach(d => (marks[d.date] = marks[d.date] || []).push(d));
+  const today = todayLocal();
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<div></div>';
+  for (let day = 1; day <= daysIn; day++) {
+    const iso = `${propCalMonth}-${String(day).padStart(2, '0')}`;
+    const ms = marks[iso] || [];
+    const excl = ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive);
+    const b = booked[iso];
+    const bg = b ? PROP_BOOKING_BG : excl ? PROP_DAY_TYPES[excl.type].bg : 'var(--bg3)';
+    const icons = ms.map(d => PROP_DAY_TYPES[d.type]?.icon).join('');
+    const isIn = b && b.checkIn === iso;
+    cells += `<button onclick="propCalTap('${iso}')" style="position:relative;aspect-ratio:1/1;min-width:0;border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};border-radius:8px;background:${bg};color:var(--text);padding:3px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:12px;font-family:inherit">
+      <span style="font-weight:${isIn?'700':'500'}">${day}</span>
+      <span style="font-size:10px;line-height:1;white-space:nowrap;overflow:hidden;max-width:100%">${icons}${isIn ? (b.platform==='airbnb'?'A':'•') : ''}</span>
+    </button>`;
+  }
+  const modes = [['view','👁 View'], ...Object.entries(PROP_DAY_TYPES).map(([k, t]) => [k, `${t.icon} ${t.label}`])];
+  const modeHint = propCalMode === 'view'
+    ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
+    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}`;
+  const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
+  return `<div class="card" style="padding:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <button onclick="shiftPropCalMonth(-1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px">&#8249;</button>
+        <span style="font-size:15px;font-weight:600">${monthLabelTxt}</span>
+        <button onclick="shiftPropCalMonth(1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px">&#8250;</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${modes.map(([k, l]) => `<button onclick="setPropCalMode('${k}')" style="padding:5px 9px;font-size:12px;border-radius:16px;cursor:pointer;font-family:inherit;border:0.5px solid ${propCalMode===k?'var(--teal)':'var(--border2)'};background:${propCalMode===k?'var(--teal)':'var(--bg3)'};color:${propCalMode===k?'#fff':'var(--text)'}">${l}</button>`).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${modeHint}</div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:10px;color:var(--text3);text-align:center;margin-bottom:4px">${['M','T','W','T','F','S','S'].map(d => `<span>${d}</span>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cells}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-top:10px">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_BOOKING_BG};vertical-align:middle"></span> Airbnb (A = check-in)</span>
+        ${['booked','personal','family','blocked'].map(k => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_DAY_TYPES[k].bg};vertical-align:middle"></span> ${PROP_DAY_TYPES[k].label}</span>`).join('')}
+      </div>
+    </div>
+    ${propUsageCardHtml(s)}`;
+}
+function propUsageCardHtml(s) {
+  const u = propUsageForYear(s, propTaxYear);
+  const t = propTravelForYear(s, propTaxYear);
+  const cleans = propDaysInYear(s, propTaxYear, 'cleaning');
+  const inp = 'width:70px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:5px 6px;text-align:right';
+  const mixedNote = u.personalDays && u.income
+    ? `Used both personally and for income${u.unused >= 62 ? `, and unused for ${u.unused} days` : ''}. ${u.unused >= 62 ? 'The mixed-use asset rules may apply' : 'With fewer than 62 unused days the mixed-use rules usually don\'t apply'}. Check with your accountant.`
+    : 'No personal use recorded this tax year.';
+  return `<div class="card">
+      <div class="card-title" style="margin-bottom:8px">Tax year ${taxYearLabel(propTaxYear)} use</div>
+      ${propRow('Income days (booked nights)', u.income)}
+      ${propRow('Personal days', `${u.personal}${u.family ? ` + ${u.family} family` : ''}${u.plannedPersonal ? ` <span style="color:var(--text3)">(${u.plannedPersonal} planned)</span>` : ''}`)}
+      ${propRow('Blocked', u.blocked)}
+      ${propRow('Unused', u.unused)}
+      ${u.share != null && u.personalDays ? propRow('Income share of used days', `${Math.round(u.share * 1000) / 10}%`) : ''}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">${mixedNote} Family stays at a discount can count as personal use.</div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">Trips and cleans</div>
+      ${propRow('Cleans logged', `${cleans.length}${cleans.some(d => d.cost) ? ` · ${fmt(cleans.reduce((a, d) => a + (Number(d.cost) || 0), 0))} paid` : ''}`)}
+      ${propRow('Trips logged', `${t.trips} · ${t.km.toLocaleString('en-NZ')} km`)}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+        <span style="color:var(--text2)">IRD km rate ${taxYearLabel(propTaxYear)}</span>
+        <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="tier 1" value="${t.t1 ?? ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="tier 2" value="${t.t2 ?? ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
+      </div>
+      ${propRow('<strong>Travel claim</strong>', t.rateMissing ? '<span style="color:var(--red,#e5484d)">enter the km rate</span>' : `<strong>${fmt(t.value)}</strong>`)}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tier 1 covers the first 14,000 km of business travel in the year, tier 2 the rest. IRD publishes new rates each year.${propSettings(s).travelKm ? '' : ' Set the default trip distance in Setup.'}</div>
+    </div>`;
+}
+function setPropKmRate(tier, val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const rates = { ...(p.kmRates || {}) };
+  const yr = { ...(rates[propTaxYear] || {}) };
+  if (val === '' || isNaN(Number(val))) delete yr[tier]; else yr[tier] = Number(val);
+  rates[propTaxYear] = yr;
+  s.property = { ...p, kmRates: rates };
+  scheduleSave(); renderProperty();
+}
+function propDayId(s, date, type) { return `${s.id}:${date}:${type}`; }
+function addPropDay(s, date, type, extra = {}) {
+  const id = propDayId(s, date, type);
+  if (propDays.some(d => d.id === id)) return;
+  propDays.push({ id, streamId: s.id, date, type, ...extra });
+  reviveTombstone('propDays', id);
+}
+function removePropDay(id) {
+  if (!propDays.some(d => d.id === id)) return;
+  propDays = propDays.filter(d => d.id !== id);
+  tombstone('propDays', id);
+}
+function propCalTap(iso) {
+  const s = currentPropStream(); if (!s) return;
+  if (propCalMode === 'view') { openPropDay(iso); return; }
+  const type = propCalMode, id = propDayId(s, iso, type);
+  if (propDays.some(d => d.id === id)) {
+    removePropDay(id);
+  } else {
+    // Personal / family / other booking / blocked are mutually exclusive for a day.
+    if (PROP_DAY_TYPES[type].exclusive) Object.keys(PROP_DAY_TYPES).filter(k => PROP_DAY_TYPES[k].exclusive).forEach(k => removePropDay(propDayId(s, iso, k)));
+    addPropDay(s, iso, type);
+    if (type === 'cleaning' && propSettings(s).cleanAddsTravel !== false) addPropDay(s, iso, 'travel');
+  }
+  scheduleSave(); renderProperty();
+}
+function openPropDay(iso) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const b = bookings.find(x => x.streamId === s.id && !x.cancelled && x.nights && x.checkIn <= iso && x.checkOut > iso);
+  const ms = propDays.filter(d => d.streamId === s.id && d.date === iso);
+  const has = t => ms.find(d => d.type === t);
+  const excl = ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive)?.type || '';
+  document.getElementById('modal-title').textContent = fmtDay(iso);
+  document.getElementById('modal-body').innerHTML = `
+    ${b ? `<div style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius-sm)">Airbnb booking · ${fmtDay(b.checkIn)} → ${fmtDay(b.checkOut)} · ${fmt(b.payout)}</div>` : ''}
+    <div class="input-group"><label>Day use</label><select id="pd-use">
+      <option value="" ${!excl?'selected':''}>${b ? 'Booked (Airbnb)' : 'Not set'}</option>
+      ${['personal','family','booked','blocked'].map(k => `<option value="${k}" ${excl===k?'selected':''}>${PROP_DAY_TYPES[k].icon} ${PROP_DAY_TYPES[k].label}</option>`).join('')}
+    </select></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="pd-clean" ${has('cleaning')?'checked':''}> 🧹 Clean</label>
+    <div class="input-group"><label>Amount paid for this clean ($, leave blank if you did it yourself)</label><input type="number" id="pd-cost" min="0" step="0.01" value="${has('cleaning')?.cost ?? ''}"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="pd-travel" ${has('travel')?'checked':''}> 🚗 Trip to the property</label>
+    <div class="input-group"><label>Return trip distance (km)</label><input type="number" id="pd-km" min="0" step="1" value="${has('travel')?.km ?? ''}" placeholder="${p.travelKm ?? ''}"></div>`;
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Save';
+  btn.onclick = () => {
+    const use = document.getElementById('pd-use').value;
+    ['personal','family','booked','blocked'].forEach(k => { if (k !== use) removePropDay(propDayId(s, iso, k)); });
+    if (use) addPropDay(s, iso, use);
+    const cost = parseFloat(document.getElementById('pd-cost').value);
+    const km = parseFloat(document.getElementById('pd-km').value);
+    const cid = propDayId(s, iso, 'cleaning'), tid = propDayId(s, iso, 'travel');
+    if (document.getElementById('pd-clean').checked) { addPropDay(s, iso, 'cleaning'); const d = propDays.find(x => x.id === cid); if (isNaN(cost)) delete d.cost; else d.cost = cost; }
+    else removePropDay(cid);
+    if (document.getElementById('pd-travel').checked) { addPropDay(s, iso, 'travel'); const d = propDays.find(x => x.id === tid); if (isNaN(km)) delete d.km; else d.km = km; }
+    else removePropDay(tid);
+    closeModal(); scheduleSave(); renderProperty();
+  };
+  document.getElementById('modal').classList.add('open');
 }
 
 // ── Tax tab: P&L, owner split, check against the accountant ──
@@ -4300,8 +4538,9 @@ function propTaxHtml(s) {
       ${propRow('<strong>Rent received</strong>', `<strong>${fmt(pnl.rent)}</strong>`)}
       ${propRow('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
       ${pnl.otherIncome ? propRow(`&nbsp;&nbsp;Other bank deposits (${pnl.otherIncomeTxns.length})`, fmt(pnl.otherIncome)) : ''}
-      ${propRow('Commissions', fmt(pnl.commissions))}
-      ${shown.map(l => propRow(escH(l.label), fmt(l.amount))).join('')}
+      ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
+      ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
+      ${shown.map(l => propRow(escH(l.label) + (l.apportioned ? ' *' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount))).join('')}
       ${propRow('Depreciation', '<span style="color:var(--text3)">not yet calculated</span>')}
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
       ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
@@ -4519,6 +4758,7 @@ function propSetupHtml(s) {
     <div class="input-group"><label>Property bank account</label><select id="ps-account"><option value="">— Not set —</option>${accOpts}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">The account rent is paid into and bills come out of. Used for the cash flow forecast.</div></div>
     <div class="input-group"><label>Return trip distance, home → property (km)</label><input type="number" id="ps-km" value="${p.travelKm ?? ''}" min="0" step="1" placeholder="e.g. 200"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:-4px 0 14px"><input type="checkbox" id="ps-cleantravel" ${p.cleanAddsTravel!==false?'checked':''}> Marking a clean on the calendar also logs a trip</label>
     <div class="input-group"><label>Expense deduction basis</label>
       <select id="ps-basis">
         <option value="full" ${p.deductionBasis==='full'?'selected':''}>100% deductible</option>
@@ -4571,6 +4811,7 @@ function savePropSetup() {
     purchaseDate: document.getElementById('ps-purchase').value,
     accountId: document.getElementById('ps-account').value,
     travelKm: isNaN(km) ? null : km,
+    cleanAddsTravel: document.getElementById('ps-cleantravel').checked,
     deductionBasis: document.getElementById('ps-basis').value,
   };
   scheduleSave();
@@ -4730,7 +4971,7 @@ function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
-    bookings, propPayouts,
+    bookings, propPayouts, propDays,
     cats: CATS,
     tombstones,
     savedAt: new Date().toISOString()
@@ -4779,6 +5020,7 @@ function loadDataObj(obj) {
   if (obj.debtOrder) debtOrder = obj.debtOrder;
   if (obj.bookings) bookings = obj.bookings;
   if (obj.propPayouts) propPayouts = obj.propPayouts;
+  if (obj.propDays) propDays = obj.propDays;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
@@ -5304,6 +5546,7 @@ function mergeWithCloud(data, cloud) {
   data.recurring          = mergeArraysById(data.recurring, cloud.recurring, 'id', 'recurring', tomb);
   data.bookings           = mergeArraysById(data.bookings, cloud.bookings, 'id', 'bookings', tomb);
   data.propPayouts        = mergeArraysById(data.propPayouts, cloud.propPayouts, 'id', 'propPayouts', tomb);
+  data.propDays           = mergeArraysById(data.propDays, cloud.propDays, 'id', 'propDays', tomb);
   data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
   data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
