@@ -3,3 +3,8 @@ myfinance-data.json
 *.csv
 *.xlsm
 *.xlsx
+
+# Accounts, statements and booking exports kept locally for checking
+Supporting files/
+*.pdf
+desktop.ini
