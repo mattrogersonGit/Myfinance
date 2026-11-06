@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.5';
+const APP_VERSION = '2026.11.06.6';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4086,7 +4086,10 @@ function propHomeHtml(s) {
       <div class="card-title" style="margin-bottom:8px">Coming up</div>
       ${propRow('Next check-in', next ? `${fmtDay(next.checkIn)} · ${next.nights} night${next.nights===1?'':'s'}` : 'None booked')}
       ${propRow('All upcoming payouts', fmt(futurePayout))}
-    </div>`;
+    </div>
+    ${reviewCount ? '' : `<div class="card" style="display:flex;align-items:center;gap:10px">
+      <div style="flex:1;font-size:13px;color:var(--text2)">Paid for something for the property from a personal account? Review any personal category and move those costs here.</div>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>`}`;
 }
 function propRow(label, val) {
   return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="color:var(--text2)">${label}</span><span style="text-align:right">${val}</span></div>`;
