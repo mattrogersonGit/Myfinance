@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.3';
+const APP_VERSION = '2026.11.06.4';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4304,13 +4304,14 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
 const PROP_DAY_TYPES = {
   cleaning: { label:'Clean',         icon:'🧹' },
   travel:   { label:'Travel',        icon:'🚗' },
-  personal: { label:'Personal',      icon:'🏠', bg:'rgba(245,166,35,0.28)',  exclusive:true },
-  family:   { label:'Family',        icon:'👪', bg:'rgba(155,89,182,0.25)',  exclusive:true },
-  booked:   { label:'Other booking', icon:'🛏', bg:'rgba(46,160,67,0.25)',   exclusive:true },
+  personal: { label:'Personal',      icon:'🏠', bg:'rgba(245,166,35,0.28)',  bar:'#e0951b', exclusive:true },
+  family:   { label:'Family',        icon:'👪', bg:'rgba(155,89,182,0.25)',  bar:'#9b59b6', exclusive:true },
+  booked:   { label:'Other booking', icon:'🛏', bg:'rgba(46,160,67,0.25)',   bar:'#2ea043', exclusive:true },
   blocked:  { label:'Blocked',       icon:'⛔', bg:'rgba(128,128,128,0.25)', exclusive:true },
 };
-const PROP_BOOKING_BG = 'rgba(255,90,95,0.22)'; // imported platform bookings
-const PLATFORM_BG = { airbnb: 'rgba(255,90,95,0.22)', bookabach: 'rgba(0,122,255,0.2)' };
+// Solid bar colours for stays drawn on the calendar.
+const PROP_BOOKING_BAR = '#e8484e';
+const PLATFORM_BAR = { airbnb: '#e8484e', bookabach: '#1a7ee6' };
 function propDaysInYear(s, ty, type) {
   const { start, end } = taxYearRange(ty);
   return propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && (!type || d.type === type));
@@ -4371,45 +4372,76 @@ function propCalendarHtml(s) {
   const first = new Date(y, m - 1, 1), daysIn = new Date(y, m, 0).getDate();
   const lead = (first.getDay() + 6) % 7; // Monday-first grid
   const monthStart = `${propCalMonth}-01`, monthEnd = dateToIso(new Date(y, m, 1));
-  const prevDay = (() => { const d = isoToDate(monthStart); d.setDate(d.getDate() - 1); return dateToIso(d); })();
-  const booked = {}; // iso -> booking occupying that night
-  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights && b.checkIn < monthEnd && b.checkOut > prevDay).forEach(b => {
-    for (let d = isoToDate(b.checkIn), e = isoToDate(b.checkOut); d < e; d.setDate(d.getDate() + 1)) booked[dateToIso(d)] = b;
+  // Who stays each night, from a month before (for stays that run into this
+  // month) to the end of the month. Imported bookings win over marks.
+  const winStart = (() => { const d = isoToDate(monthStart); d.setDate(d.getDate() - 40); return dateToIso(d); })();
+  const winEnd = (() => { const d = isoToDate(monthEnd); d.setDate(d.getDate() + 40); return dateToIso(d); })();
+  const nightOf = {}; // iso -> { key, booking?, type? }
+  propDays.filter(d => d.streamId === s.id && d.date >= winStart && d.date < winEnd && ['personal','family','booked'].includes(d.type) && !d.dayOnly)
+    .forEach(d => nightOf[d.date] = { key: 'm:' + d.type, type: d.type });
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights && b.checkIn < winEnd && b.checkOut > winStart).forEach(b => {
+    for (let d = isoToDate(b.checkIn), e = isoToDate(b.checkOut); d < e; d.setDate(d.getDate() + 1)) nightOf[dateToIso(d)] = { key: 'b:' + b.id, booking: b };
   });
   const marks = {};
-  propDays.filter(d => d.streamId === s.id && d.date >= prevDay && d.date < monthEnd).forEach(d => (marks[d.date] = marks[d.date] || []).push(d));
-  // Colour of the night that starts on this date (null if nobody stays over).
-  // Blocked days fill the whole day, like a day visit.
-  const nightBg = iso => {
-    const b = booked[iso]; if (b) return PLATFORM_BG[b.platform] || PROP_BOOKING_BG;
-    const ex = (marks[iso] || []).find(d => PROP_DAY_TYPES[d.type]?.exclusive);
-    return ex && !ex.dayOnly && ex.type !== 'blocked' ? PROP_DAY_TYPES[ex.type].bg : null;
-  };
+  propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd).forEach(d => (marks[d.date] = marks[d.date] || []).push(d));
+  // Group consecutive nights with the same key into stays.
+  const stays = [];
+  for (let d = isoToDate(winStart), e = isoToDate(winEnd); d < e; d.setDate(d.getDate() + 1)) {
+    const iso = dateToIso(d), n = nightOf[iso];
+    const last = stays[stays.length - 1];
+    const nextIso = (() => { const x = new Date(d); x.setDate(x.getDate() + 1); return dateToIso(x); })();
+    if (!n) continue;
+    if (last && last.key === n.key && last.end === iso) { last.end = nextIso; last.nights++; }
+    else stays.push({ ...n, start: iso, end: nextIso, nights: 1 });
+  }
+  // A booking's full stay may run past the month, so use its real dates for the label.
+  stays.forEach(st => { if (st.booking) { st.end = st.booking.checkOut; st.nights = st.booking.nights; } });
+  // Grid position: slot = lead + day - 1. A bar runs from the middle of the
+  // first night's day to the middle of the check-out day.
+  const total = lead + daysIn, rows = Math.ceil(total / 7);
+  const slot = iso => lead + Number(iso.slice(8)) - 1;
+  const colW = '((100% - 24px) / 7)';
+  const xPos = x => { const c = Math.min(Math.floor(x), 6), f = x - c; return `(${c} * (${colW} + 4px) + ${f} * ${colW})`; };
+  const bars = Array.from({ length: rows }, () => []);
+  stays.filter(st => st.end > monthStart && st.start < monthEnd).forEach(st => {
+    const clipL = st.start < monthStart, clipR = st.end >= monthEnd;
+    const a0 = clipL ? lead : slot(st.start) + 0.5, b0 = clipR ? total : slot(st.end) + 0.5;
+    const colour = st.booking ? (PLATFORM_BAR[st.booking.platform] || PROP_BOOKING_BAR) : PROP_DAY_TYPES[st.type].bar;
+    const nightsTxt = `${st.nights} night${st.nights === 1 ? '' : 's'}`;
+    for (let r = Math.floor(a0 / 7); r < rows && r * 7 < b0; r++) {
+      const a = Math.max(a0, r * 7), b = Math.min(b0, r * 7 + 7);
+      if (b <= a) continue;
+      const roundL = a === a0 && !clipL, roundR = b === b0 && !clipR;
+      const w = b - a;
+      const name = st.booking ? platformName(st.booking.platform) : PROP_DAY_TYPES[st.type].label;
+      const label = w >= 2.5 ? `${st.booking ? '' : PROP_DAY_TYPES[st.type].icon + ' '}${escH(name)} · ${nightsTxt}`
+        : w >= 1 ? `${st.booking ? escH(name[0]) : PROP_DAY_TYPES[st.type].icon} ${st.nights}n` : '';
+      bars[r].push(`<div style="position:absolute;top:calc(50% - 9px);height:18px;left:calc(${xPos(a - r * 7)} + ${roundL ? 2 : 0}px);right:calc(100% - ${xPos(b - r * 7)} + ${roundR ? 2 : 0}px);background:${colour};border-radius:${roundL ? 9 : 0}px ${roundR ? 9 : 0}px ${roundR ? 9 : 0}px ${roundL ? 9 : 0}px;color:#fff;font-size:10px;font-weight:600;line-height:18px;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box">${label}</div>`);
+    }
+  });
   const today = todayLocal();
-  let cells = '', prevNight = nightBg(prevDay);
-  for (let i = 0; i < lead; i++) cells += '<div></div>';
+  const cellHtml = [];
+  for (let i = 0; i < lead; i++) cellHtml.push('<div></div>');
   for (let day = 1; day <= daysIn; day++) {
     const iso = `${propCalMonth}-${String(day).padStart(2, '0')}`;
     const ms = marks[iso] || [];
     const excl = ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive);
-    const b = booked[iso];
-    // Each night is drawn from the middle of the arrival day to the middle
-    // of the next day, so a one-night stay visibly runs into the next morning.
-    const night = nightBg(iso), L = prevNight || 'var(--bg3)', R = night || 'var(--bg3)';
-    prevNight = night;
-    const fullDay = excl && (excl.dayOnly || excl.type === 'blocked') ? PROP_DAY_TYPES[excl.type].bg : null;
-    const bg = (fullDay ? `linear-gradient(to right,transparent 15%,${fullDay} 15% 85%,transparent 85%),` : '') + `linear-gradient(to right,${L} 50%,${R} 50%)`;
-    const icons = ms.map(d => (PROP_DAY_TYPES[d.type]?.icon || '') + (d.dayOnly ? '☀' : '')).join('');
-    const isIn = b && b.checkIn === iso;
-    cells += `<button onclick="propCalTap('${iso}')" style="position:relative;aspect-ratio:1/1;min-width:0;border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};border-radius:8px;background:${bg};color:var(--text);padding:3px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:12px;font-family:inherit">
-      <span style="font-weight:${isIn?'700':'500'}">${day}</span>
-      <span style="font-size:10px;line-height:1;white-space:nowrap;overflow:hidden;max-width:100%">${icons}${isIn ? (platformName(b.platform)[0] || '•') : ''}</span>
-    </button>`;
+    // Day visits and blocked days have no night, so they tint the day itself.
+    const bg = excl && (excl.dayOnly || excl.type === 'blocked') ? PROP_DAY_TYPES[excl.type].bg : 'var(--bg3)';
+    const icons = ms.filter(d => !(PROP_DAY_TYPES[d.type]?.exclusive && !d.dayOnly && d.type !== 'blocked'))
+      .map(d => d.dayOnly ? '☀' : (PROP_DAY_TYPES[d.type]?.icon || '')).join('');
+    cellHtml.push(`<button onclick="propCalTap('${iso}')" style="position:relative;aspect-ratio:1/1;min-width:0;border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};border-radius:8px;background:${bg};color:var(--text);padding:3px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:12px;font-family:inherit">
+      <span style="font-weight:500">${day}</span>
+      <span style="font-size:10px;line-height:1;white-space:nowrap;overflow:hidden;max-width:100%">${icons}</span>
+    </button>`);
   }
+  while (cellHtml.length < rows * 7) cellHtml.push('<div></div>');
+  let cells = '';
+  for (let r = 0; r < rows; r++) cells += `<div style="position:relative;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cellHtml.slice(r * 7, r * 7 + 7).join('')}${bars[r].join('')}</div>`;
   const modes = [['view','👁 View'], ...Object.entries(PROP_DAY_TYPES).map(([k, t]) => [k, `${t.icon} ${t.label}`])];
   const modeHint = propCalMode === 'view'
     ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
-    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong> (shades into the next morning), twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
+    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong> (the bar runs to the next morning), twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
   return `<div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -4422,10 +4454,12 @@ function propCalendarHtml(s) {
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${modeHint}</div>
       <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:10px;color:var(--text3);text-align:center;margin-bottom:4px">${['M','T','W','T','F','S','S'].map(d => `<span>${d}</span>`).join('')}</div>
-      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cells}</div>
+      <div style="display:flex;flex-direction:column;gap:4px">${cells}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-top:10px">
-        ${Object.entries(PLATFORM_BG).map(([p, bg]) => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${bg};vertical-align:middle"></span> ${platformName(p)} (${platformName(p)[0]} = check-in)</span>`).join('')}
-        ${['booked','personal','family','blocked'].map(k => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_DAY_TYPES[k].bg};vertical-align:middle"></span> ${PROP_DAY_TYPES[k].label}</span>`).join('')}
+        ${Object.entries(PLATFORM_BAR).map(([p, c]) => `<span><span style="display:inline-block;width:14px;height:8px;border-radius:4px;background:${c};vertical-align:middle"></span> ${platformName(p)}</span>`).join('')}
+        ${['booked','personal','family'].map(k => `<span><span style="display:inline-block;width:14px;height:8px;border-radius:4px;background:${PROP_DAY_TYPES[k].bar};vertical-align:middle"></span> ${PROP_DAY_TYPES[k].label}</span>`).join('')}
+        <span>☀ Day visit</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_DAY_TYPES.blocked.bg};vertical-align:middle"></span> Blocked</span>
       </div>
     </div>
     ${propUsageCardHtml(s)}`;
