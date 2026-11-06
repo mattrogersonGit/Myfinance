@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.13';
+const APP_VERSION = '2026.11.06.14';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -5182,6 +5182,9 @@ function propFindHtml(s, catOpts, head, small) {
     } else if (where === 'property') {
       const onOwnAcc = propAcc.has(t.account);
       action = `<div style="font-size:11px;color:var(--text3);margin-top:2px">Report line: ${escH(lineLabel(propLineFor(s, t.cat)))}${onOwnAcc ? ` (on the property's own account)` : ''}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <select id="pf-cat-${t.id}" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">${catOpts(t.cat, null).replace(/>Move → /g, '>Category: ')}</select>
+          <button class="btn btn-secondary" style="${small}" onclick="propFindRecat(${t.id})">Change</button></div>
         ${onOwnAcc ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">
           <select id="pf-back-${t.id}" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">${persOpts(CATS.some(c => c.name === t.propMovedFrom) ? t.propMovedFrom : (CATS.some(c => c.name === t.cat) ? t.cat : 'Other'))}</select>
           <button class="btn btn-secondary" style="${small}" onclick="propFindMoveBack(${t.id})">Move back to Personal</button></div>`}`;
@@ -5196,6 +5199,26 @@ function propFindHtml(s, catOpts, head, small) {
     ${q.length < 2 ? '<div style="font-size:12px;color:var(--text3)">Searches descriptions, details and categories of every transaction, personal and property.</div>'
       : found.length ? `<div style="font-size:12px;color:var(--text3);margin-bottom:4px">${found.length} found · total ${total < 0 ? '−' : ''}${fmt(total)}${found.length > shown.length ? ` · showing the first ${shown.length}` : ''}</div><div id="prop-review-list">${rows}</div>`
       : '<div style="font-size:13px;color:var(--text3)">Nothing found.</div>'}`;
+}
+// Change a property transaction's category (e.g. split a combined "Rates &
+// Insurance" category into Rates and Insurance so each reaches its own line).
+function propFindRecat(id) {
+  const s = currentPropStream(); const t = transactions.find(x => x.id === id);
+  const v = document.getElementById('pf-cat-' + id)?.value;
+  if (!s || !t || !v) return;
+  let cat;
+  if (v.startsWith('new:')) {
+    const line = v.slice(4);
+    cat = PROP_NEW_CAT_NAMES[line] || 'Other';
+    if (!(s.cats || []).some(c => c.name === cat)) {
+      s.cats = [...(s.cats || []), { name: cat, emoji: COMMON_CAT_ICONS[cat] || PROPERTY_STREAM_CATS().find(c => c.name === cat)?.emoji || '📌', fixed: false }];
+      reviveTombstone(`cats_stream_${s.id}`, cat);
+    }
+    s.property = { ...propSettings(s), catLines: { ...(propSettings(s).catLines || {}), [cat]: line } };
+  } else cat = v.slice(5);
+  if (cat === t.cat) return;
+  t.cat = cat;
+  scheduleSave(); renderProperty(); renderCatMgmtTabs();
 }
 function propFindMoveBack(id) {
   const t = transactions.find(x => x.id === id); if (!t) return;
