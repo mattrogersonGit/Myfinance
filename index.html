@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.2';
+const APP_VERSION = '2026.11.06.3';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4332,23 +4332,26 @@ function propTravelForYear(s, ty) {
 function propUsageForYear(s, ty) {
   const { start, end } = taxYearRange(ty);
   const days = daysBetween(start, end);
-  const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set();
+  const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set(), dayVisits = new Set();
   bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights).forEach(b => {
     for (let d = isoToDate(b.checkIn > start ? b.checkIn : start), e = isoToDate(b.checkOut < end ? b.checkOut : end); d < e; d.setDate(d.getDate() + 1)) income.add(dateToIso(d));
   });
+  // A personal or family mark is a night stayed unless it is flagged dayOnly
+  // (a visit with no overnight stay), which counts as a day of personal use.
   propDaysInYear(s, ty).forEach(d => {
     if (d.type === 'booked') income.add(d.date);
+    else if ((d.type === 'personal' || d.type === 'family') && d.dayOnly) dayVisits.add(d.date);
     else if (d.type === 'personal') personal.add(d.date);
     else if (d.type === 'family') family.add(d.date);
     else if (d.type === 'blocked') blocked.add(d.date);
   });
   const today = todayLocal();
-  const plannedPersonal = [...personal, ...family].filter(d => d > today).length;
-  const personalDays = personal.size + family.size;
-  const used = new Set([...income, ...personal, ...family, ...blocked]);
+  const plannedPersonal = [...personal, ...family, ...dayVisits].filter(d => d > today).length;
+  const personalDays = personal.size + family.size + dayVisits.size;
+  const used = new Set([...income, ...personal, ...family, ...dayVisits, ...blocked]);
   const unused = days - used.size;
   const share = (income.size + personalDays) ? income.size / (income.size + personalDays) : null;
-  return { days, income: income.size, personal: personal.size, family: family.size, personalDays, plannedPersonal, blocked: blocked.size, unused, share };
+  return { days, income: income.size, personal: personal.size, family: family.size, dayVisits: dayVisits.size, personalDays, plannedPersonal, blocked: blocked.size, unused, share };
 }
 
 let propCalMonth = null; // 'YYYY-MM'
@@ -4368,22 +4371,35 @@ function propCalendarHtml(s) {
   const first = new Date(y, m - 1, 1), daysIn = new Date(y, m, 0).getDate();
   const lead = (first.getDay() + 6) % 7; // Monday-first grid
   const monthStart = `${propCalMonth}-01`, monthEnd = dateToIso(new Date(y, m, 1));
-  const booked = {}; // iso -> booking
-  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights && b.checkIn < monthEnd && b.checkOut > monthStart).forEach(b => {
+  const prevDay = (() => { const d = isoToDate(monthStart); d.setDate(d.getDate() - 1); return dateToIso(d); })();
+  const booked = {}; // iso -> booking occupying that night
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights && b.checkIn < monthEnd && b.checkOut > prevDay).forEach(b => {
     for (let d = isoToDate(b.checkIn), e = isoToDate(b.checkOut); d < e; d.setDate(d.getDate() + 1)) booked[dateToIso(d)] = b;
   });
   const marks = {};
-  propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd).forEach(d => (marks[d.date] = marks[d.date] || []).push(d));
+  propDays.filter(d => d.streamId === s.id && d.date >= prevDay && d.date < monthEnd).forEach(d => (marks[d.date] = marks[d.date] || []).push(d));
+  // Colour of the night that starts on this date (null if nobody stays over).
+  // Blocked days fill the whole day, like a day visit.
+  const nightBg = iso => {
+    const b = booked[iso]; if (b) return PLATFORM_BG[b.platform] || PROP_BOOKING_BG;
+    const ex = (marks[iso] || []).find(d => PROP_DAY_TYPES[d.type]?.exclusive);
+    return ex && !ex.dayOnly && ex.type !== 'blocked' ? PROP_DAY_TYPES[ex.type].bg : null;
+  };
   const today = todayLocal();
-  let cells = '';
+  let cells = '', prevNight = nightBg(prevDay);
   for (let i = 0; i < lead; i++) cells += '<div></div>';
   for (let day = 1; day <= daysIn; day++) {
     const iso = `${propCalMonth}-${String(day).padStart(2, '0')}`;
     const ms = marks[iso] || [];
     const excl = ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive);
     const b = booked[iso];
-    const bg = b ? (PLATFORM_BG[b.platform] || PROP_BOOKING_BG) : excl ? PROP_DAY_TYPES[excl.type].bg : 'var(--bg3)';
-    const icons = ms.map(d => PROP_DAY_TYPES[d.type]?.icon).join('');
+    // Each night is drawn from the middle of the arrival day to the middle
+    // of the next day, so a one-night stay visibly runs into the next morning.
+    const night = nightBg(iso), L = prevNight || 'var(--bg3)', R = night || 'var(--bg3)';
+    prevNight = night;
+    const fullDay = excl && (excl.dayOnly || excl.type === 'blocked') ? PROP_DAY_TYPES[excl.type].bg : null;
+    const bg = (fullDay ? `linear-gradient(to right,transparent 15%,${fullDay} 15% 85%,transparent 85%),` : '') + `linear-gradient(to right,${L} 50%,${R} 50%)`;
+    const icons = ms.map(d => (PROP_DAY_TYPES[d.type]?.icon || '') + (d.dayOnly ? '☀' : '')).join('');
     const isIn = b && b.checkIn === iso;
     cells += `<button onclick="propCalTap('${iso}')" style="position:relative;aspect-ratio:1/1;min-width:0;border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};border-radius:8px;background:${bg};color:var(--text);padding:3px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:12px;font-family:inherit">
       <span style="font-weight:${isIn?'700':'500'}">${day}</span>
@@ -4393,7 +4409,7 @@ function propCalendarHtml(s) {
   const modes = [['view','👁 View'], ...Object.entries(PROP_DAY_TYPES).map(([k, t]) => [k, `${t.icon} ${t.label}`])];
   const modeHint = propCalMode === 'view'
     ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
-    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family','booked'].includes(propCalMode) ? ' Mark each <strong>night</strong> stayed, not the day you leave, the same way bookings show.' : ''}`;
+    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong> (shades into the next morning), twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
   return `<div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -4426,9 +4442,10 @@ function propUsageCardHtml(s) {
       <div class="card-title" style="margin-bottom:8px">Tax year ${taxYearLabel(propTaxYear)} use</div>
       ${propRow('Income nights', u.income)}
       ${propRow('Personal nights', `${u.personal}${u.family ? ` + ${u.family} family` : ''}${u.plannedPersonal ? ` <span style="color:var(--text3)">(${u.plannedPersonal} planned)</span>` : ''}`)}
+      ${u.dayVisits ? propRow('Personal day visits', u.dayVisits) : ''}
       ${propRow('Blocked', u.blocked)}
       ${propRow('Unused', u.unused)}
-      ${u.share != null && u.personalDays ? propRow('Income share of used nights', `${Math.round(u.share * 1000) / 10}%`) : ''}
+      ${u.share != null && u.personalDays ? propRow('Income share of use', `${Math.round(u.share * 1000) / 10}%`) : ''}
       <div style="font-size:11px;color:var(--text3);margin-top:8px">${mixedNote} Family stays at a discount can count as personal use.</div>
     </div>
     <div class="card">
@@ -4469,7 +4486,10 @@ function propCalTap(iso) {
   const s = currentPropStream(); if (!s) return;
   if (propCalMode === 'view') { openPropDay(iso); return; }
   const type = propCalMode, id = propDayId(s, iso, type);
-  if (propDays.some(d => d.id === id)) {
+  const existing = propDays.find(d => d.id === id);
+  if (existing && (type === 'personal' || type === 'family') && !existing.dayOnly) {
+    existing.dayOnly = true; // second tap: day visit, no overnight stay
+  } else if (existing) {
     removePropDay(id);
   } else {
     // Personal / family / other booking / blocked are mutually exclusive for a day.
@@ -4493,6 +4513,7 @@ function openPropDay(iso) {
       <option value="" ${!excl?'selected':''}>${b ? `Booked (${escH(platformName(b.platform))})` : 'Not set'}</option>
       ${['personal','family','booked','blocked'].map(k => `<option value="${k}" ${excl===k?'selected':''}>${PROP_DAY_TYPES[k].icon} ${PROP_DAY_TYPES[k].label}</option>`).join('')}
     </select></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="pd-dayonly" ${ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive)?.dayOnly ? 'checked' : ''}> ☀ Day visit only (no overnight stay, personal or family)</label>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="pd-clean" ${has('cleaning')?'checked':''}> 🧹 Clean</label>
     <div class="input-group"><label>Amount paid for this clean ($, leave blank if you did it yourself)</label><input type="number" id="pd-cost" min="0" step="0.01" value="${has('cleaning')?.cost ?? ''}"></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="pd-travel" ${has('travel')?'checked':''}> 🚗 Trip to the property</label>
@@ -4502,7 +4523,11 @@ function openPropDay(iso) {
   btn.onclick = () => {
     const use = document.getElementById('pd-use').value;
     ['personal','family','booked','blocked'].forEach(k => { if (k !== use) removePropDay(propDayId(s, iso, k)); });
-    if (use) addPropDay(s, iso, use);
+    if (use) {
+      addPropDay(s, iso, use);
+      const u = propDays.find(x => x.id === propDayId(s, iso, use));
+      if (document.getElementById('pd-dayonly').checked && (use === 'personal' || use === 'family')) u.dayOnly = true; else delete u.dayOnly;
+    }
     const cost = parseFloat(document.getElementById('pd-cost').value);
     const km = parseFloat(document.getElementById('pd-km').value);
     const cid = propDayId(s, iso, 'cleaning'), tid = propDayId(s, iso, 'travel');
