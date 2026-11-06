@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.4';
+const APP_VERSION = '2026.11.06.5';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3958,7 +3958,7 @@ function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 const PROP_TABS = [
   {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
   {id:'calendar', label:'Calendar'}, {id:'cashflow', label:'Cash flow', soon:true},
-  {id:'tax', label:'Tax'}, {id:'setup', label:'Setup'},
+  {id:'tax', label:'Tax'}, {id:'assets', label:'Assets'}, {id:'setup', label:'Setup'},
 ];
 function renderProperty() {
   const picker = document.getElementById('prop-picker');
@@ -3988,6 +3988,7 @@ function renderProperty() {
   else if (propTab === 'tax')      body.innerHTML = propTaxHtml(s);
   else if (propTab === 'calendar') body.innerHTML = propCalendarHtml(s);
   else if (propTab === 'review')   body.innerHTML = propReviewHtml(s);
+  else if (propTab === 'assets')   body.innerHTML = propAssetsHtml(s);
   else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
 }
 
@@ -4282,21 +4283,27 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
   const usage = propUsageForYear(s, ty);
   const basis = propSettings(s).deductionBasis;
   const share = basis === 'mixeduse' && usage.share != null ? usage.share : 1;
-  const apportioned = new Set(['insurance','interest','power','rates','rm','phone','purchases','other']);
+  const apportioned = new Set(['insurance','interest','power','rates','rm','phone','purchases','other','depreciation']);
+  // Depreciation from the asset register; a loss on selling or scrapping an
+  // asset is deductible, a gain (depreciation recovered) is income.
+  const dep = propDepreciationForYear(s, ty);
+  lines.depreciation = dep.depreciation + dep.loss;
   const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments;
   const rent = bookingIncome + otherIncome;
   const commissions = c.fees + u.fees + lines.commissions;
-  const expenseLines = PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions')
+  const expenseLines = [...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions'), { id: 'depreciation', label: 'Depreciation' }]
     .map(l => {
-      const full = lines[l.id], cut = apportioned.has(l.id) && share < 1;
+      const full = lines[l.id] || 0, cut = apportioned.has(l.id) && share < 1;
       let label = l.label;
       if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
-      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] };
+      if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
+      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [] };
     });
+  const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
   return {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent - totalExpenses, hasUpcoming: u.count > 0, travel: trav, usage, share, basis,
+    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, usage, share, basis,
   };
 }
 
@@ -4580,6 +4587,7 @@ function openPropDay(iso) {
 const PROP_CHECK_LINES = [
   {id:'rent', label:'Rent received'}, {id:'commissions', label:'Commissions'},
   ...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions').map(l => ({id:l.id, label:l.label})),
+  {id:'depreciation', label:'Depreciation'},
   {id:'net', label:'Net profit (loss)'},
 ];
 function propTaxHtml(s) {
@@ -4601,7 +4609,8 @@ function propTaxHtml(s) {
       ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
       ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
       ${shown.map(l => propRow(escH(l.label) + (l.apportioned ? ' *' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount))).join('')}
-      ${propRow('Depreciation', '<span style="color:var(--text3)">not yet calculated</span>')}
+      ${!(p.assets || []).length ? propRow('Depreciation', `<span style="color:var(--text3)">add assets in the <a href="#" onclick="setPropTab('assets');return false" style="color:var(--teal)">Assets</a> tab</span>`) : ''}
+      ${pnl.depRecovered ? propRow('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
       ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
       ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.net * o.share / 100))).join('')}` : ''}
@@ -4623,8 +4632,169 @@ function propTaxHtml(s) {
           <input type="number" step="0.01" style="${inp}" value="${has ? checks[l.id] : ''}" onchange="setPropCheck('${l.id}', this.value)">
         </div>`;
       }).join('')}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Depreciation isn't calculated yet, so net profit will differ by the depreciation amount for now.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Use the figures from the signed financial statements (Statement of Profit or Loss), not working papers.</div>
     </div>`;
+}
+
+// ── Assets: depreciation register ──
+// Assets live on the property's settings (s.property.assets). Each has a cost
+// and purchase date, an IRD rate and method (DV = diminishing value, SL =
+// straight line, none = not depreciated, e.g. land, buildings, artwork), and
+// optionally an opening book value at the start of a tax year (taken from the
+// accountant's schedule) so history before the app doesn't have to be rebuilt.
+// Depreciation is rounded to whole dollars per asset, like the schedule.
+const PROP_DEP_METHODS = { DV: 'Diminishing value', SL: 'Straight line', none: 'Not depreciated' };
+function propAssetYear(a, ty) {
+  const buyTy = a.purchased ? taxYearOf(isoToDate(a.purchased)) : null;
+  const openTy = a.opening && a.opening.ty != null ? Number(a.opening.ty) : null;
+  const startTy = openTy ?? buyTy;
+  if (startTy == null || ty < startTy) return null;
+  const saleTy = a.disposed?.date ? taxYearOf(isoToDate(a.disposed.date)) : null;
+  if (saleTy != null && ty > saleTy) return null;
+  const rate = Number(a.rate) || 0, cost = Number(a.cost) || 0;
+  let value = openTy != null ? Number(a.opening.value) || 0 : 0, row = null;
+  for (let y = startTy; y <= ty; y++) {
+    const open = value;
+    const bought = openTy == null && y === buyTy ? cost : 0;
+    let dep = 0, gain = 0, sale = null;
+    if (saleTy === y) {
+      // No depreciation in the year of disposal; the difference between the
+      // sale price and book value is a gain (recovered) or a loss.
+      sale = Number(a.disposed.price) || 0;
+      gain = sale - (open + bought);
+      value = 0;
+    } else {
+      const months = bought ? 12 - ((isoToDate(a.purchased).getMonth() + 9) % 12) : 12; // months owned, counting the purchase month
+      if (a.method === 'DV') dep = Math.round((open + bought) * rate * months / 12);
+      else if (a.method === 'SL') dep = Math.min(open + bought, Math.round(cost * rate * months / 12));
+      value = open + bought - dep;
+    }
+    row = { open, bought, dep, close: value, sale, gain };
+  }
+  return row;
+}
+function propDepreciationForYear(s, ty) {
+  const rows = (propSettings(s).assets || []).map(a => ({ a, r: propAssetYear(a, ty) })).filter(x => x.r);
+  const sum = k => rows.reduce((t, x) => t + (x.r[k] || 0), 0);
+  // A gain is recovered income only up to the depreciation claimed; anything
+  // above cost is capital, so cap it at cost minus opening/purchase value.
+  const recovered = rows.reduce((t, x) => t + (x.r.gain > 0 ? Math.min(x.r.gain, Math.max(0, (Number(x.a.cost) || 0) - (x.r.open + x.r.bought))) : 0), 0);
+  // Buildings can't claim a loss on disposal.
+  const loss = rows.reduce((t, x) => t + (x.r.gain < 0 && x.a.group !== 'Buildings' ? -x.r.gain : 0), 0);
+  return { rows, depreciation: sum('dep'), open: sum('open'), bought: sum('bought'), close: sum('close'), recovered, loss };
+}
+function propAssetsHtml(s) {
+  const p = propSettings(s);
+  const d = propDepreciationForYear(s, propTaxYear);
+  const pnl = computePropPnL(s, propTaxYear);
+  const groups = {};
+  d.rows.forEach(x => (groups[x.a.group || 'Other assets'] = groups[x.a.group || 'Other assets'] || []).push(x));
+  const rateTxt = a => a.method === 'none' || !Number(a.rate) ? 'Not depreciated' : `${Math.round(Number(a.rate) * 1000) / 10}% ${a.method}`;
+  const rowHtml = ({ a, r }) => `<div onclick="openPropAsset('${a.id}')" style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
+      <div style="min-width:0"><div>${escH(a.name)}</div><div style="font-size:11px;color:var(--text3)">${rateTxt(a)}${a.purchased ? ' · bought ' + fmtDay(a.purchased) : ''}${r.bought ? ' · new this year' : ''}${r.sale != null ? ` · sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}` : ''}</div></div>
+      <div style="text-align:right;white-space:nowrap"><div>${r.sale != null ? (r.gain >= 0 ? '+' : '−') + fmt(r.gain) : a.method === 'none' ? '<span style="color:var(--text3)">—</span>' : fmt(r.dep)}</div><div style="font-size:11px;color:var(--text3)">${fmt(r.open + r.bought)} → ${fmt(r.close)}</div></div>
+    </div>`;
+  const deductible = pnl.expenseLines.find(l => l.id === 'depreciation');
+  return `${propYearNavHtml()}
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">Depreciation ${taxYearLabel(propTaxYear)}</div>
+      ${propRow('Opening book value', fmt(d.open))}
+      ${d.bought ? propRow('Bought this year', fmt(d.bought)) : ''}
+      ${propRow('<strong>Depreciation</strong>', `<strong>${fmt(d.depreciation)}</strong>`)}
+      ${d.loss ? propRow('Loss on disposal', fmt(d.loss)) : ''}
+      ${d.recovered ? propRow('Depreciation recovered', fmt(d.recovered)) : ''}
+      ${deductible && deductible.apportioned ? propRow(`Personal share (${Math.round((1 - pnl.share) * 1000) / 10}%)`, '−' + fmt(deductible.full - deductible.amount)) + propRow('<strong>Claimed in the P&amp;L</strong>', `<strong>${fmt(deductible.amount)}</strong>`) : ''}
+      ${propRow('Closing book value', fmt(d.close))}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${p.deductionBasis === 'mixeduse' ? 'On the mixed-use basis, depreciation is cut to the income-use share like other holding costs.' : ''}</div>
+    </div>
+    ${Object.entries(groups).map(([g, list]) => `<div class="card">
+      <div class="card-title" style="margin-bottom:4px">${escH(g)}</div>
+      ${list.map(rowHtml).join('')}
+    </div>`).join('')}
+    ${!d.rows.length ? `<div class="card" style="text-align:center;color:var(--text3);font-size:13px;padding:20px">${(p.assets || []).length ? 'No assets were owned in this tax year.' : 'No assets yet. Add them one by one, or import the list from a CSV.'}</div>` : ''}
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="openPropAsset()">+ Add asset</button>
+        <button class="btn" onclick="document.getElementById('prop-csv-input').click()">Import asset list (CSV)</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">CSV columns: name, group, purchased, cost, rate, method (DV, SL or none), and optionally opening_value and opening_date (book value at the start of a tax year, from your accountant's depreciation schedule). Assets costing $1,000 or less can usually be expensed instead. Rates are IRD's. Check them with your accountant.</div>
+    </div>`;
+}
+function propAssetById(s, id) { return (propSettings(s).assets || []).find(a => String(a.id) === String(id)); }
+function openPropAsset(id) {
+  const s = currentPropStream(); if (!s) return;
+  const a = id != null ? propAssetById(s, id) : null;
+  const v = (x) => x == null ? '' : escH(String(x));
+  document.getElementById('modal-title').textContent = a ? 'Edit asset' : 'Add asset';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Name</label><input type="text" id="pa-name" value="${v(a?.name)}" placeholder="e.g. Heat pump"></div>
+    <div class="input-group"><label>Group</label><select id="pa-group">${['Furniture & Fittings','Plant & Equipment','Buildings','Land','Other assets'].map(g => `<option ${ (a?.group || 'Furniture & Fittings') === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+    <div class="input-group"><label>Purchase date</label><input type="date" id="pa-date" value="${v(a?.purchased)}"></div>
+    <div class="input-group"><label>Cost ($)</label><input type="number" id="pa-cost" min="0" step="0.01" value="${v(a?.cost)}"></div>
+    <div class="input-group"><label>Method</label><select id="pa-method">${Object.entries(PROP_DEP_METHODS).map(([k, l]) => `<option value="${k}" ${(a?.method || 'DV') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="input-group"><label>IRD rate (%)</label><input type="number" id="pa-rate" min="0" step="0.5" value="${a && a.rate != null ? Math.round(a.rate * 1000) / 10 : ''}"></div>
+    <div class="input-group"><label>Opening book value ($, optional: from your accountant's schedule)</label><input type="number" id="pa-open" min="0" step="0.01" value="${v(a?.opening?.value)}"></div>
+    <div class="input-group"><label>…at the start of tax year</label><select id="pa-openty"><option value="">Use cost from the purchase date</option>${Array.from({ length: 12 }, (_, i) => taxYearOf(new Date()) + 1 - i).map(ty => `<option value="${ty}" ${a?.opening?.ty == ty ? 'selected' : ''}>${taxYearLabel(ty)}</option>`).join('')}</select></div>
+    <div class="input-group"><label>Sold or scrapped on (optional)</label><input type="date" id="pa-sold" value="${v(a?.disposed?.date)}"></div>
+    <div class="input-group"><label>Sale price ($, 0 if scrapped)</label><input type="number" id="pa-price" min="0" step="0.01" value="${v(a?.disposed?.price)}"></div>
+    ${a ? `<button class="btn" style="color:var(--red,#e5484d);margin-top:4px" onclick="deletePropAsset('${a.id}')">Delete asset</button>` : ''}`;
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Save';
+  btn.onclick = () => {
+    const g = id => document.getElementById(id).value.trim();
+    const name = g('pa-name'); if (!name) { alert('Give the asset a name.'); return; }
+    const num = id => g(id) === '' ? null : Number(g(id));
+    const rec = { id: a?.id ?? ('as' + Date.now()), name, group: g('pa-group'), purchased: g('pa-date') || null, cost: num('pa-cost') ?? 0,
+      method: g('pa-method'), rate: g('pa-method') === 'none' ? 0 : (num('pa-rate') ?? 0) / 100 };
+    if (g('pa-openty') && num('pa-open') != null) rec.opening = { ty: Number(g('pa-openty')), value: num('pa-open') };
+    if (g('pa-sold')) rec.disposed = { date: g('pa-sold'), price: num('pa-price') ?? 0 };
+    if (!rec.purchased && !rec.opening) { alert('Enter a purchase date, or an opening value and tax year.'); return; }
+    const p = propSettings(s), list = [...(p.assets || [])];
+    const i = list.findIndex(x => x.id === rec.id);
+    if (i >= 0) list[i] = rec; else list.push(rec);
+    s.property = { ...p, assets: list };
+    closeModal(); scheduleSave(); renderProperty();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function deletePropAsset(id) {
+  const s = currentPropStream(); if (!s) return;
+  const a = propAssetById(s, id); if (!a || !confirm(`Delete "${a.name}"? If it was sold or thrown out, enter the date instead so the loss is claimed.`)) return;
+  const p = propSettings(s);
+  s.property = { ...p, assets: (p.assets || []).filter(x => x.id !== a.id) };
+  closeModal(); scheduleSave(); renderProperty();
+}
+// Asset list CSV: name, group, purchased, cost, rate, method, opening_value, opening_date
+function parseAssetCSV(text) {
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+  const h = parseCSVLine(lines[0]).map(x => x.replace(/^"|"$/g, '').toLowerCase().trim());
+  const col = n => h.indexOf(n);
+  if (col('name') < 0 || col('rate') < 0 || col('method') < 0) return null;
+  const date = v => { v = (v || '').replace(/^"|"$/g, '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : parseLongDate(v.replace(/^(\d+\s+[A-Za-z]{3})[a-z]*/, '$1')); };
+  const num = v => { const n = parseFloat(String(v ?? '').replace(/[$,%\s"]/g, '')); return isNaN(n) ? null : n; };
+  return lines.slice(1).map(l => {
+    const c = parseCSVLine(l), get = n => col(n) >= 0 ? (c[col(n)] || '').replace(/^"|"$/g, '').trim() : '';
+    const m = get('method').toUpperCase();
+    const method = m === 'DV' || m === 'SL' ? m : 'none';
+    let rate = num(get('rate')) || 0; if (rate > 1) rate /= 100;
+    const rec = { name: get('name'), group: get('group') || 'Furniture & Fittings', purchased: date(get('purchased')), cost: num(get('cost')) || 0, method, rate: method === 'none' ? 0 : rate };
+    const ov = num(get('opening_value')), od = date(get('opening_date'));
+    if (ov != null && od) rec.opening = { ty: taxYearOf(isoToDate(od)), value: ov };
+    return rec;
+  }).filter(r => r.name && (r.purchased || r.opening));
+}
+function importPropAssets(list, s) {
+  const p = propSettings(s), cur = [...(p.assets || [])];
+  let added = 0, updated = 0;
+  list.forEach((r, i) => {
+    const ex = cur.find(a => a.name.toLowerCase() === r.name.toLowerCase() && (a.purchased || '') === (r.purchased || ''));
+    if (ex) { Object.assign(ex, r); updated++; }
+    else { cur.push({ id: 'as' + Date.now() + '_' + i, ...r }); added++; }
+  });
+  s.property = { ...p, assets: cur };
+  scheduleSave(); propTab = 'assets'; renderProperty();
+  alert(`Assets imported: ${added} added${updated ? `, ${updated} updated` : ''}.`);
 }
 function setPropCheck(lineId, val) {
   const s = currentPropStream(); if (!s) return;
@@ -4944,8 +5114,10 @@ async function handlePropCSV(input) {
   const s = currentPropStream();
   if (!file || !s) return;
   const text = await file.text();
+  const assets = parseAssetCSV(text);
+  if (assets) { if (!assets.length) alert('No assets found in this file.'); else importPropAssets(assets, s); return; }
   const parsed = parseAirbnbCSV(text) || parseBookabachCSV(text);
-  if (!parsed) { alert("This doesn't look like an Airbnb or Bookabach CSV.\n\nAirbnb: Earnings → Transaction history (completed or upcoming) → Export CSV.\nBookabach: Payout summary report → Export CSV."); return; }
+  if (!parsed) { alert("This doesn't look like an Airbnb, Bookabach or asset list CSV.\n\nAirbnb: Earnings → Transaction history (completed or upcoming) → Export CSV.\nBookabach: Payout summary report → Export CSV."); return; }
   importPlatformBookings(parsed, s);
 }
 const PLATFORM_NAMES = { airbnb: 'Airbnb', bookabach: 'Bookabach' };
