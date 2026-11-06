@@ -1225,12 +1225,7 @@
       <div class="card" style="padding:0 16px">
         <div class="s-row" onclick="exportCSV()">
           <span class="s-icon">📤</span><span class="s-label">Export to CSV</span><span class="s-meta">Excel</span><span class="s-chev" style="opacity:0.4">↓</span>
-        </div>
-        <div class="s-row" onclick="document.getElementById('detail-csv-input').click()">
-          <span class="s-icon">🔎</span><span class="s-label">Add missing details from a CSV</span><span class="s-meta">date, amount, description, detail</span><span class="s-chev" style="opacity:0.4">↑</span>
-        </div>
-        <input type="file" id="detail-csv-input" accept=".csv,text/csv" style="display:none" onchange="handleDetailCSV(this)">
-      </div>
+        </div>      </div>
 
       <div class="card" style="padding:14px 16px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
@@ -1729,7 +1724,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.8';
+const APP_VERSION = '2026.11.06.9';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3522,44 +3517,6 @@ function exportCSV() {
   URL.revokeObjectURL(url);
 }
 
-// ─── Add missing details from a CSV ───────────────────────────────────────────
-// Fills t.detail on transactions that have none, from a CSV with columns
-// date, amount, description, detail. A row matches a transaction with the same
-// date, the same amount to the cent and the same description (ignoring case);
-// each row is used once, so repeated identical payments pair up one-to-one.
-// Nothing else on the transaction changes.
-async function handleDetailCSV(input) {
-  const file = input.files[0]; input.value = '';
-  if (!file) return;
-  const lines = (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
-  const h = parseCSVLine(lines[0] || '').map(x => x.replace(/^"|"$/g, '').toLowerCase().trim());
-  const ci = n => h.indexOf(n);
-  if ([ci('date'), ci('amount'), ci('description'), ci('detail')].some(i => i < 0)) {
-    alert('The CSV needs the columns: date, amount, description, detail.'); return;
-  }
-  const key = (d, amt, desc) => `${d}|${Math.round(amt * 100)}|${String(desc || '').trim().toLowerCase()}`;
-  const pool = new Map();
-  transactions.filter(t => !t.detail).forEach(t => {
-    const k = key(dateToIso(t.date), t.amount, t.desc);
-    if (!pool.has(k)) pool.set(k, []); pool.get(k).push(t);
-  });
-  const updates = []; let unmatched = 0;
-  lines.slice(1).forEach(l => {
-    const c = parseCSVLine(l).map(x => x.replace(/^"|"$/g, '').trim());
-    const d = parseCSVDate(c[ci('date')]), amt = parseFloat(c[ci('amount')]), detail = c[ci('detail')];
-    if (!d || isNaN(amt) || !detail) return;
-    if (detail.trim().toLowerCase() === c[ci('description')].trim().toLowerCase()) return; // nothing new to add
-    const t = (pool.get(key(dateToIso(d), amt, c[ci('description')])) || []).shift();
-    if (t) updates.push([t, detail]); else unmatched++;
-  });
-  if (!updates.length) { alert(`No transactions to update.${unmatched ? ` ${unmatched} row${unmatched===1?'':'s'} didn't match a transaction.` : ''}`); return; }
-  const sample = updates.slice(0, 5).map(([t, d]) => `${fmtDay(dateToIso(t.date))}  ${t.desc} → ${d}`).join('\n');
-  if (!confirm(`Add details to ${updates.length} transaction${updates.length===1?'':'s'}?${unmatched ? ` (${unmatched} row${unmatched===1?'':'s'} didn't match.)` : ''}\n\n${sample}${updates.length > 5 ? '\n…' : ''}`)) return;
-  updates.forEach(([t, d]) => { t.detail = d; });
-  scheduleSave(); rerenderPage();
-  alert(`Details added to ${updates.length} transaction${updates.length===1?'':'s'}.`);
-}
-
 // ─── Categories management ────────────────────────────────────────────────────
 function calcAvgSpend(catName, months) {
   const now = new Date();
@@ -5020,12 +4977,68 @@ function openPropReview(streamId) {
 }
 
 // ── Setup ──
+// ── Account check: everything on the property's bank account belongs to it ──
+// Linking an account to the property (Settings → Accounts, or Setup's
+// property account) only routes future imports. Transactions imported before
+// that are still tagged Personal; this finds them and moves them across.
+function propAccountIds(s) {
+  const ids = new Set(accounts.filter(a => a.stream === s.id).map(a => a.id));
+  const setupAcc = propSettings(s).accountId; if (setupAcc) ids.add(setupAcc);
+  return ids;
+}
+function propAccountStrays(s) {
+  const ids = propAccountIds(s);
+  return transactions.filter(t => ids.has(t.account) && t.stream !== s.id).sort((a, b) => a.date - b.date);
+}
+// Pick the property category for a transaction coming off its own account:
+// same-named category first, then one on the report line its category or
+// description suggests, then Other.
+function propCatForAccountTxn(s, t) {
+  const cats = s.cats || [];
+  if (cats.some(c => c.name === t.cat)) return t.cat;
+  const text = `${t.cat || ''} ${t.desc || ''} ${t.detail || ''}`;
+  let line = t.amount > 0 && /airbnb|payoneer|bookabach|booking\.com|vrbo|stripe/i.test(text) ? 'income'
+    : PROP_LINE_GUESSES.find(([, re]) => re.test(text))?.[0];
+  if (t.amount > 0 && line !== 'income') line = 'transfer'; // top-ups from your own accounts
+  const hit = line && cats.find(c => propLineFor(s, c.name) === line);
+  return (hit || cats.find(c => c.name === 'Other') || cats[0])?.name || 'Other';
+}
+let propAccountCheckOpen = false;
+function propAccountCheckHtml(s) {
+  const ids = propAccountIds(s);
+  if (!ids.size) return `<div class="card" style="font-size:13px;color:var(--text2)">Set the <strong>property bank account</strong> below so everything on it counts towards ${escH(s.name)}.</div>`;
+  const list = propAccountStrays(s);
+  const accNames = [...ids].map(id => accounts.find(a => a.id === id)?.name || id).join(', ');
+  if (!list.length) return `<div class="card" style="font-size:13px;color:var(--text2)">✓ Every transaction on ${escH(accNames)} is on ${escH(s.name)}.</div>`;
+  const rows = list.map(t => `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+      <div style="min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(t.desc)}</div>
+        <div style="font-size:11px;color:var(--text3)">${fmtDay(dateToIso(t.date))} · ${escH(t.cat || '')} → ${escH(propCatForAccountTxn(s, t))}</div></div>
+      <span class="${t.amount < 0 ? 'neg' : 'pos'}" style="white-space:nowrap">${t.amount >= 0 ? '+' : ''}${fmt(t.amount)}</span></div>`).join('');
+  return `<div class="card" style="border-color:var(--teal)">
+    <div class="card-title" style="margin-bottom:6px">${list.length} transaction${list.length === 1 ? '' : 's'} on ${escH(accNames)} still under Personal</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">These were probably imported before the account was linked to ${escH(s.name)}. Moving them puts them in the property's figures with the category shown; deposits that aren't platform payouts go in as transfers. You can change any of them afterwards, or move them back from Review → Moved to property.</div>
+    ${propAccountCheckOpen ? `<div style="max-height:320px;overflow-y:auto;margin-bottom:10px">${rows}</div>` : `<button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;margin-bottom:10px" onclick="propAccountCheckOpen=true;renderProperty()">Show them</button>`}
+    <button class="btn btn-primary btn-block" onclick="movePropAccountStrays()">Move ${list.length} to ${escH(s.name)}</button>
+  </div>`;
+}
+function movePropAccountStrays() {
+  const s = currentPropStream(); if (!s) return;
+  const list = propAccountStrays(s);
+  if (!list.length || !confirm(`Move ${list.length} transaction${list.length === 1 ? '' : 's'} to ${s.name}? They'll leave your personal figures.`)) return;
+  list.forEach(t => {
+    const cat = propCatForAccountTxn(s, t);
+    t.propMovedFrom = t.cat;
+    t.stream = s.id; t.cat = cat; delete t.propReviewed;
+  });
+  propAccountCheckOpen = false;
+  scheduleSave(); renderProperty(); renderIncomeStreams();
+}
 function propSetupHtml(s) {
   const p = propSettings(s);
   const owners = [...p.owners, {name:'',share:''}, {name:'',share:''}].slice(0, Math.max(4, p.owners.length));
   const accOpts = accounts.map(a => `<option value="${escH(a.id)}" ${p.accountId===a.id?'selected':''}>${escH(a.name)}</option>`).join('');
   const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 10px;outline:none';
-  return `<div class="card">
+  return `${propAccountCheckHtml(s)}<div class="card">
     <div class="card-title" style="margin-bottom:10px">Property settings</div>
     <div class="input-group"><label>Owners and ownership share (%)</label>
       ${owners.map((o,i) => `<div style="display:flex;gap:8px;margin-bottom:6px">
