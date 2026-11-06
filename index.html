@@ -1724,7 +1724,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.10';
+const APP_VERSION = '2026.11.06.11';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2826,8 +2826,9 @@ function renderIncomeStreams() {
   if (!otherIncomeStreams.length) { el.innerHTML = '<div class="empty" style="padding:8px 0">No other income streams yet</div>'; return; }
   el.innerHTML = otherIncomeStreams.map(s => {
     const debt = resolveLinkedDebt(s.linkedDebtId);
-    const beachCount = s.type==='Investment Property'
-      ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach' && t.propReviewed!==s.id).length
+    const linkedCat = s.type==='Investment Property' ? (hasAddon('property') ? propPersonalCat(s) : 'Beach') : null;
+    const beachCount = linkedCat
+      ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat===linkedCat && t.propReviewed!==s.id).length
       : 0;
     return `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
@@ -2839,7 +2840,7 @@ function renderIncomeStreams() {
         <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
       </div>
       ${beachCount ? (hasAddon('property')
-        ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="openPropReview(${s.id})">Review ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} →</button>`
+        ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="openPropReview(${s.id})">Review ${beachCount} "${escH(linkedCat)}"-categorised transaction${beachCount===1?'':'s'} →</button>`
         : `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="bulkMoveBeachTxns(${s.id})">Move ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} here →</button>`) : ''}
     </div>`;
   }).join('');
@@ -3587,6 +3588,11 @@ function updateCatName(i, val) {
   transactions.forEach(t=>{ if(t.cat===oldName) t.cat=newName; });
   rules.forEach(r=>{ if(r.cat===oldName) r.cat=newName; });
   cats[i].name = newName;
+  // A property's linked personal category follows the rename.
+  if (catMgmtTarget === 'personal') {
+    otherIncomeStreams.forEach(s => { if (s.property && s.property.personalCat === oldName) s.property.personalCat = newName; });
+    transactions.forEach(t => { if (t.propMovedFrom === oldName) t.propMovedFrom = newName; });
+  }
   // Category tombstones are keyed by name, not a stable id (see mergeArraysById).
   // If this exact name was deleted before, its tombstone would otherwise strip
   // this "new" category right back out on the very next sync, even though it's
@@ -3939,6 +3945,25 @@ function defaultPropSettings() {
   return { owners: [{name:'Owner 1', share:50}, {name:'Owner 2', share:50}], purchaseDate: '', accountId: '', travelKm: null, deductionBasis: 'full' };
 }
 function propSettings(s) { return { ...defaultPropSettings(), ...(s.property || {}) }; }
+// Each property has one linked personal category (e.g. "Beach") for its costs
+// paid from personal accounts; the review looks only there by default. Stored
+// by name -- renaming the category in Settings updates it (updateCatName).
+function propPersonalCat(s) {
+  const n = propSettings(s).personalCat;
+  return n && CATS.some(c => c.name === n) ? n : null;
+}
+function ensurePropPersonalCat(s) {
+  const cur = propPersonalCat(s);
+  if (cur) return cur;
+  // Before this setting existed, property costs went under a "Beach" category;
+  // keep using it if it's in use. Otherwise create one named after the property.
+  const usesBeach = CATS.some(c => c.name === 'Beach') && transactions.some(t => t.propMovedFrom === 'Beach' || ((t.stream || 'personal') === 'personal' && t.cat === 'Beach'));
+  const name = usesBeach ? 'Beach' : s.name;
+  if (!CATS.some(c => c.name === name)) { CATS.push({ name, emoji: '🏠', fixed: false }); reviveTombstone('cats_personal', name); }
+  s.property = { ...propSettings(s), personalCat: name };
+  scheduleSave();
+  return name;
+}
 
 function openPropertyModule() {
   if (!hasAddon('property')) return;
@@ -3947,6 +3972,7 @@ function openPropertyModule() {
   document.getElementById('bottom-nav').style.display = 'none';
   currentPage = 'property';
   if (!currentPropStream()) propStreamId = propertyStreams()[0]?.id ?? null;
+  propertyStreams().forEach(ensurePropPersonalCat);
   renderProperty();
   document.getElementById('page-container').scrollTop = 0;
 }
@@ -3955,7 +3981,7 @@ function closePropertyModule() {
   navTo('import', btn);
 }
 function setPropTab(t) { propTab = t; renderProperty(); }
-function setPropStream(id) { propStreamId = Number(id); renderProperty(); }
+function setPropStream(id) { propStreamId = Number(id); propReviewCat = null; propReviewOther = false; renderProperty(); }
 function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 
 const PROP_TABS = [
@@ -4059,9 +4085,10 @@ function propHomeHtml(s) {
   const next = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.checkIn >= today).sort((a,b)=>a.checkIn.localeCompare(b.checkIn))[0];
   const futurePayout = bookings.filter(b => b.streamId===s.id && !b.cancelled && b.status==='upcoming').reduce((a,b)=>a+b.payout, 0);
   const has = bookings.some(b => b.streamId===s.id);
-  const reviewCount = transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach' && t.propReviewed!==s.id).length;
+  const linkedCat = propPersonalCat(s);
+  const reviewCount = linkedCat ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat===linkedCat && t.propReviewed!==s.id).length : 0;
   const reviewCard = reviewCount ? `<div class="card" style="display:flex;align-items:center;gap:10px;border-color:var(--teal)">
-      <div style="flex:1;font-size:13px">${reviewCount} personal "Beach" transaction${reviewCount===1?'':'s'} may belong to this property.</div>
+      <div style="flex:1;font-size:13px">${reviewCount} personal "${escH(linkedCat)}" transaction${reviewCount===1?'':'s'} may belong to this property.</div>
       <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>` : '';
   if (!has) return `${propYearNavHtml()}${reviewCard}<div class="card" style="text-align:center;padding:24px 20px">
     <div style="font-size:13px;color:var(--text3);margin-bottom:14px">No bookings yet. Import your Airbnb or Bookabach CSVs to get started.</div>
@@ -4091,7 +4118,7 @@ function propHomeHtml(s) {
       ${propRow('All upcoming payouts', fmt(futurePayout))}
     </div>
     ${reviewCount ? '' : `<div class="card" style="display:flex;align-items:center;gap:10px">
-      <div style="flex:1;font-size:13px;color:var(--text2)">Paid for something for the property from a personal account? Review any personal category and move those costs here.</div>
+      <div style="flex:1;font-size:13px;color:var(--text2)">Paid for something for the property from a personal account? Put it in your personal "${escH(linkedCat || s.name)}" category and it will show up here to review.</div>
       <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>`}`;
 }
 function propRow(label, val) {
@@ -4852,8 +4879,10 @@ function propReviewSuggestion(s, t, matches) {
 }
 const PROP_NEW_CAT_NAMES = { insurance:'Insurance', interest:'Mortgage Interest', power:'Power', rates:'Rates', phone:'Internet', cleaning:'Cleaning', rm:'Repairs & Maintenance', purchases:'Purchases', management:'Property Management', accountancy:'Accountancy Fees', travel:'Travel', commissions:'Platform Commissions', other:'Other' };
 function propReviewHtml(s) {
-  const srcCats = propReviewSourceCats();
-  if (!propReviewCat || !srcCats.includes(propReviewCat)) propReviewCat = srcCats.includes('Beach') ? 'Beach' : srcCats[0];
+  const linked = ensurePropPersonalCat(s);
+  const srcCats = [...new Set([linked, ...propReviewSourceCats()])];
+  if (!propReviewOther || !srcCats.includes(propReviewCat)) propReviewCat = linked;
+  const isLinked = propReviewCat === linked;
   const list = propReviewCandidates(s);
   const matches = computePayoutMatches(s);
   const have = new Set((s.cats || []).map(c => c.name));
@@ -4878,7 +4907,9 @@ function propReviewHtml(s) {
       : '<div class="empty" style="padding:8px 0">Nothing moved to the property yet.</div>';
   } else {
     content = list.length ? `<div id="prop-review-list">${list.map(t => {
-      const sug = propReviewSuggestion(s, t, matches);
+      // Outside the linked category almost everything is genuinely personal,
+      // so default to leaving it there and let the user pick the odd one out.
+      const sug = isLinked ? propReviewSuggestion(s, t, matches) : { keep: true, why: '' };
       return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}
         <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtDay(dateToIso(t.date))}${t.detail ? ' · ' + escH(t.detail) : ''}${sug.keep ? ' · ' + sug.why : ''}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
@@ -4898,13 +4929,17 @@ function propReviewHtml(s) {
       <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="propReviewDone()">Done</button>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Move real property costs paid from personal accounts onto ${escH(s.name)}. Leave platform payouts and transfers to the property account in Personal, otherwise they'd be counted twice. Each row is saved on its own, so you can stop at any time.</div>
-    <div class="input-group"><label>Personal category to review</label>
-      <select onchange="propReviewCat=this.value;propReviewDirty=false;renderProperty()">${srcCats.map(c => `<option ${c===propReviewCat?'selected':''}>${escH(c)}</option>`).join('')}</select></div>
+    ${propReviewOther
+      ? `<div class="input-group"><label>Personal category to look through</label>
+          <select onchange="if(propReviewConfirmLeave()){propReviewCat=this.value;renderProperty()}else{this.value=propReviewCat}">${srcCats.map(c => `<option value="${escH(c)}" ${c===propReviewCat?'selected':''}>${escH(c)}${c===linked?' (linked to this property)':''}</option>`).join('')}</select>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">Rows here default to Leave in Personal. Change only the ones that were for the property. <a href="#" onclick="if(propReviewConfirmLeave()){propReviewOther=false;propReviewCat=null;renderProperty()}return false" style="color:var(--teal)">Back to ${escH(linked)}</a></div></div>`
+      : `<div style="font-size:13px;margin-bottom:10px">Reviewing your <strong>${escH(linked)}</strong> category, linked to ${escH(s.name)} in Setup. <a href="#" onclick="if(propReviewConfirmLeave()){propReviewOther=true;renderProperty()}return false" style="color:var(--teal);white-space:nowrap">Look in another category</a></div>`}
     <div class="tabs" style="flex-wrap:wrap">${vtab('todo','To review',list.length)}${vtab('kept','Left in Personal',kept.length)}${vtab('moved','Moved to property',moved.length)}</div>
     ${content}
   </div>`;
 }
 let propReviewView = 'todo';
+let propReviewOther = false; // looking outside the property's linked category
 let propReviewDirty = false; // a To-review dropdown was changed but not saved
 function propReviewConfirmLeave() {
   if (!propReviewDirty) return true;
@@ -4976,7 +5011,7 @@ function applyPropReview(ids) {
 }
 function openPropReview(streamId) {
   if (streamId) propStreamId = streamId;
-  propTab = 'review'; propReviewView = 'todo';
+  propTab = 'review'; propReviewView = 'todo'; propReviewCat = null; propReviewOther = false;
   openPropertyModule();
 }
 
@@ -5054,6 +5089,8 @@ function propSetupHtml(s) {
     <div class="input-group"><label>Purchase date</label><input type="date" id="ps-purchase" value="${escH(p.purchaseDate)}"></div>
     <div class="input-group"><label>Property bank account</label><select id="ps-account"><option value="">— Not set —</option>${accOpts}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">The account rent is paid into and bills come out of. Used for the cash flow forecast.</div></div>
+    <div class="input-group"><label>Personal category for this property</label><select id="ps-personalcat">${CATS.map(c => `<option value="${escH(c.name)}" ${propPersonalCat(s)===c.name?'selected':''}>${escH(c.name)}</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">When you pay for something for the property from a personal account, put it in this category. It then shows up in Review to move across. Rename it any time in Settings → Categories.</div></div>
     <div class="input-group"><label>Return trip distance, home → property (km)</label><input type="number" id="ps-km" value="${p.travelKm ?? ''}" min="0" step="1" placeholder="e.g. 200"></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:-4px 0 14px"><input type="checkbox" id="ps-cleantravel" ${p.cleanAddsTravel!==false?'checked':''}> Marking a clean on the calendar also logs a trip</label>
     <div class="input-group"><label>Expense deduction basis</label>
@@ -5107,6 +5144,7 @@ function savePropSetup() {
     owners,
     purchaseDate: document.getElementById('ps-purchase').value,
     accountId: document.getElementById('ps-account').value,
+    personalCat: document.getElementById('ps-personalcat').value || propSettings(s).personalCat,
     travelKm: isNaN(km) ? null : km,
     cleanAddsTravel: document.getElementById('ps-cleantravel').checked,
     deductionBasis: document.getElementById('ps-basis').value,
