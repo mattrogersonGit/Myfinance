@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.14';
+const APP_VERSION = '2026.11.06.15';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4230,9 +4230,19 @@ const PROP_LINE_GUESSES = [
   ['accountancy', /account/i],
   ['travel',      /travel|vehicle|fuel|mileage|petrol/i],
 ];
+// A combined category such as "Rates & Insurance" (from the generic stream
+// categories) can't go to one line, so it's split per transaction by its
+// description: council or rates payments to Rates, everything else to Insurance.
+const PROP_SPLIT_RATES_INS = 'ratesins';
+function propLineForTxn(s, t) {
+  const line = propLineFor(s, t.cat);
+  if (line !== PROP_SPLIT_RATES_INS) return line;
+  return /rate|council|regional|\bdc\b/i.test(`${t.desc || ''} ${t.detail || ''}`) ? 'rates' : 'insurance';
+}
 function guessPropLine(cat) {
   if (cat?.taxTreatment === 'income') return 'income';
   const name = cat?.name || '';
+  if (/insur/i.test(name) && /rates/i.test(name)) return PROP_SPLIT_RATES_INS;
   for (const [line, re] of PROP_LINE_GUESSES) if (re.test(name)) return line;
   return 'other';
 }
@@ -4295,7 +4305,7 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
   const lineTxns = {}; PROP_LINES.forEach(l => lineTxns[l.id] = []);
   let otherIncome = 0; const otherIncomeTxns = [];
   propTxnsInYear(s, ty).forEach(t => {
-    const line = propLineFor(s, t.cat);
+    const line = propLineForTxn(s, t);
     const kind = propLineKind(line);
     if (kind === 'none') return;
     if (kind === 'income') {
@@ -5181,7 +5191,7 @@ function propFindHtml(s, catOpts, head, small) {
           <button class="btn btn-primary" style="${small}" onclick="applyPropReview([${t.id}])">✓ Save</button></div>`;
     } else if (where === 'property') {
       const onOwnAcc = propAcc.has(t.account);
-      action = `<div style="font-size:11px;color:var(--text3);margin-top:2px">Report line: ${escH(lineLabel(propLineFor(s, t.cat)))}${onOwnAcc ? ` (on the property's own account)` : ''}</div>
+      action = `<div style="font-size:11px;color:var(--text3);margin-top:2px">Report line: ${escH(lineLabel(propLineForTxn(s, t)))}${onOwnAcc ? ` (on the property's own account)` : ''}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
           <select id="pf-cat-${t.id}" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">${catOpts(t.cat, null).replace(/>Move → /g, '>Category: ')}</select>
           <button class="btn btn-secondary" style="${small}" onclick="propFindRecat(${t.id})">Change</button></div>
@@ -5405,6 +5415,7 @@ function propCatLinesHtml(s) {
         <span style="flex:1;min-width:0;font-size:13px">${escH(n)} <span style="font-size:11px;color:var(--text3)">${counts[n]||0} txn${counts[n]===1?'':'s'}${set?'':' · guessed'}</span></span>
         <select data-cat="${escH(n)}" onchange="setPropCatLine(this.dataset.cat, this.value)" style="max-width:180px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
           ${PROP_LINES.map(l => `<option value="${l.id}" ${l.id===cur?'selected':''}>${escH(l.label)}</option>`).join('')}
+          <option value="${PROP_SPLIT_RATES_INS}" ${cur===PROP_SPLIT_RATES_INS?'selected':''}>Rates or Insurance (by description)</option>
         </select></div>`;
     }).join('')}
   </div>`;
