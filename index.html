@@ -1724,7 +1724,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.9';
+const APP_VERSION = '2026.11.06.10';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2192,7 +2192,7 @@ function renderTransactions() {
     <div class="txn-item">
       <div class="txn-icon" style="background:${catColor(t.cat)}22">${catEmoji(t.cat)}</div>
       <div class="txn-info">
-        <div class="txn-name" onclick="editTxnDesc(${t.id})" style="cursor:pointer" title="Tap to edit">${t.desc} <span style="font-size:10px;color:var(--text3)">✏</span></div>
+        <div class="txn-name" onclick="editTxnDesc(${t.id})" style="cursor:pointer" title="Tap to edit">${escH(t.desc)} <span style="font-size:10px;color:var(--text3)">✏</span></div>
         <div class="txn-meta">
           <span>${t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})}</span>
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
@@ -2339,7 +2339,11 @@ function editTxnDesc(id) {
     const val = document.getElementById('txn-desc-input').value.trim();
     if (!val) return;
     t.desc = val;
-    closeModal(); scheduleSave(); renderTransactions();
+    closeModal(); scheduleSave();
+    // In the property review, update the name in place so unsaved dropdown
+    // choices on other rows aren't lost to a re-render.
+    const inPlace = currentPage === 'property' && document.getElementById('txn-desc-' + t.id);
+    if (inPlace) inPlace.textContent = val; else renderTransactions();
   };
   document.getElementById('modal').classList.add('open');
   setTimeout(() => document.getElementById('txn-desc-input')?.select(), 80);
@@ -4859,7 +4863,7 @@ function propReviewHtml(s) {
   const kept = propReviewKept(s), moved = propReviewMoved(s);
   const view = propReviewView;
   const amt = t => `<span class="${t.amount<0?'neg':'pos'}" style="white-space:nowrap">${t.amount>=0?'+':''}${fmt(t.amount)}</span>`;
-  const head = t => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.desc)}</span>${amt(t)}</div>`;
+  const head = t => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span onclick="editTxnDesc(${t.id})" title="Tap to edit" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer"><span id="txn-desc-${t.id}">${escH(t.desc)}</span> <span style="font-size:10px;color:var(--text3)">✏</span></span>${amt(t)}</div>`;
   const small = 'padding:4px 10px;font-size:12px;white-space:nowrap';
   let content;
   if (view === 'kept') {
