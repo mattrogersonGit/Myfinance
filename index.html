@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.1';
+const APP_VERSION = '2026.11.06.2';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4393,7 +4393,7 @@ function propCalendarHtml(s) {
   const modes = [['view','👁 View'], ...Object.entries(PROP_DAY_TYPES).map(([k, t]) => [k, `${t.icon} ${t.label}`])];
   const modeHint = propCalMode === 'view'
     ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
-    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}`;
+    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family','booked'].includes(propCalMode) ? ' Mark each <strong>night</strong> stayed, not the day you leave, the same way bookings show.' : ''}`;
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
   return `<div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -4424,11 +4424,11 @@ function propUsageCardHtml(s) {
     : 'No personal use recorded this tax year.';
   return `<div class="card">
       <div class="card-title" style="margin-bottom:8px">Tax year ${taxYearLabel(propTaxYear)} use</div>
-      ${propRow('Income days (booked nights)', u.income)}
-      ${propRow('Personal days', `${u.personal}${u.family ? ` + ${u.family} family` : ''}${u.plannedPersonal ? ` <span style="color:var(--text3)">(${u.plannedPersonal} planned)</span>` : ''}`)}
+      ${propRow('Income nights', u.income)}
+      ${propRow('Personal nights', `${u.personal}${u.family ? ` + ${u.family} family` : ''}${u.plannedPersonal ? ` <span style="color:var(--text3)">(${u.plannedPersonal} planned)</span>` : ''}`)}
       ${propRow('Blocked', u.blocked)}
       ${propRow('Unused', u.unused)}
-      ${u.share != null && u.personalDays ? propRow('Income share of used days', `${Math.round(u.share * 1000) / 10}%`) : ''}
+      ${u.share != null && u.personalDays ? propRow('Income share of used nights', `${Math.round(u.share * 1000) / 10}%`) : ''}
       <div style="font-size:11px;color:var(--text3);margin-top:8px">${mixedNote} Family stays at a discount can count as personal use.</div>
     </div>
     <div class="card">
