@@ -1646,6 +1646,7 @@ let propPayouts = [];
 // type: cleaning | travel | personal | family | booked (a stay from a platform
 // that isn't imported) | blocked.
 let propDays = [];
+let propCosts = []; // costs paid outside the app's accounts: {id, streamId, date, amount, line, note}
 let taxReturns = []; // one record per person per tax year: {id:'ty|person', ty, person, rows:[...]}
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
@@ -1725,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.16';
+const APP_VERSION = '2026.11.07.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2810,6 +2811,8 @@ function deleteIncomeStream(id) {
   bookings.filter(b=>b.streamId===id).forEach(b=>tombstone('bookings', b.id));
   propPayouts.filter(p=>p.streamId===id).forEach(p=>tombstone('propPayouts', p.id));
   propDays.filter(d=>d.streamId===id).forEach(d=>tombstone('propDays', d.id));
+  propCosts.filter(c=>c.streamId===id).forEach(c=>tombstone('propCosts', c.id));
+  propCosts = propCosts.filter(c=>c.streamId!==id);
   bookings = bookings.filter(b=>b.streamId!==id);
   propPayouts = propPayouts.filter(p=>p.streamId!==id);
   propDays = propDays.filter(d=>d.streamId!==id);
@@ -4316,6 +4319,13 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
     lines[line] += -t.amount; // expenses are negative amounts; refunds reduce the line
     lineTxns[line].push(t);
   });
+  // Costs entered by hand (paid from an account the app doesn't have).
+  const lineCosts = {}; PROP_LINES.forEach(l => lineCosts[l.id] = []);
+  propCostsInYear(s, ty).forEach(c => {
+    if (lines[c.line] == null) return;
+    lines[c.line] += Number(c.amount) || 0;
+    lineCosts[c.line].push(c);
+  });
   // Calendar: logged trips (valued at the IRD km rate) and paid cleans.
   const trav = propTravelForYear(s, ty);
   lines.travel += trav.value;
@@ -4341,7 +4351,7 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
       let label = l.label;
       if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
       if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
-      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [] };
+      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [] };
     });
   const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
@@ -4659,10 +4669,12 @@ function propTaxHtml(s) {
       ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
       ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
       ${shown.map(l => {
-        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (l.txns.length ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
-        return l.txns.length ? `<div onclick="openPropLineTxns('${l.id}')" style="cursor:pointer">${row}</div>` : row;
+        const n = l.txns.length + l.costs.length;
+        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
+        return n ? `<div onclick="openPropLineTxns('${l.id}')" style="cursor:pointer">${row}</div>` : row;
       }).join('')}
-      <div style="font-size:11px;color:var(--text3);padding-top:6px">Tap a line with › to see its transactions.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px"><span style="font-size:11px;color:var(--text3)">Tap a line with › to see its transactions.</span>
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;white-space:nowrap" onclick="openPropCost()">+ Add a cost</button></div>
       ${!(p.assets || []).length ? propRow('Depreciation', `<span style="color:var(--text3)">add assets in the <a href="#" onclick="setPropTab('assets');return false" style="color:var(--teal)">Assets</a> tab</span>`) : ''}
       ${pnl.depRecovered ? propRow('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
@@ -5239,10 +5251,14 @@ function openPropLineTxns(lineId) {
   const s = currentPropStream(); if (!s) return;
   const l = computePropPnL(s, propTaxYear).expenseLines.find(x => x.id === lineId); if (!l) return;
   const txns = [...l.txns].sort((a, b) => a.date - b.date);
+  const costs = [...(l.costs || [])].sort((a, b) => a.date.localeCompare(b.date));
   const opts = sel => (s.cats || []).map(c => `<option value="${escH(c.name)}" ${c.name === sel ? 'selected' : ''}>${escH(c.name)} → ${escH((PROP_LINES.find(x => x.id === propLineFor(s, c.name)) || {}).label || 'split by description')}</option>`).join('');
   document.getElementById('modal-title').textContent = `${l.label} · ${taxYearLabel(propTaxYear)}`;
   document.getElementById('modal-body').innerHTML = `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${txns.length} transaction${txns.length === 1 ? '' : 's'} · ${fmt(l.full)} before any mixed-use cut. Change a category to send a transaction to another line.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${txns.length} transaction${txns.length === 1 ? '' : 's'}${costs.length ? ` and ${costs.length} cost${costs.length === 1 ? '' : 's'} added by hand` : ''} · ${fmt(l.full)} before any mixed-use cut. Change a category to send a transaction to another line.</div>
+    ${costs.map(c => `<div onclick="openPropCost('${c.id}')" style="padding:7px 0;border-bottom:0.5px solid var(--border);cursor:pointer">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span>✍ ${escH(c.note || 'Added by hand')}</span><span style="white-space:nowrap">${fmt(Number(c.amount) || 0)}</span></div>
+      <div style="font-size:11px;color:var(--text3)">${fmtDay(c.date)} · added by hand · tap to edit</div></div>`).join('')}
     <div style="max-height:60vh;overflow-y:auto">${txns.map(t => `<div style="padding:7px 0;border-bottom:0.5px solid var(--border)">
       <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t.desc)}</span><span style="white-space:nowrap">${fmt(-t.amount)}</span></div>
       <div style="font-size:11px;color:var(--text3)">${fmtDay(dateToIso(t.date))} · ${escH(accounts.find(a => a.id === t.account)?.name || t.account || '')}${t.detail ? ' · ' + escH(t.detail) : ''}</div>
@@ -5256,6 +5272,47 @@ function propLineRecat(id, cat, lineId) {
   const t = transactions.find(x => x.id === id); if (!t || !cat) return;
   t.cat = cat;
   scheduleSave(); renderProperty(); openPropLineTxns(lineId);
+}
+// ── Costs paid outside the app ──
+// For property costs paid from an account the app doesn't import (e.g. the
+// accountant's fee). They count on their P&L line like any other cost.
+function propCostsInYear(s, ty) {
+  const { start, end } = taxYearRange(ty);
+  return propCosts.filter(c => c.streamId === s.id && c.date >= start && c.date < end);
+}
+function openPropCost(id) {
+  const s = currentPropStream(); if (!s) return;
+  const c = id ? propCosts.find(x => x.id === id) : null;
+  const { start, end } = taxYearRange(propTaxYear);
+  const defDate = (() => { const t = todayLocal(); return t >= start && t < end ? t : dateToIso(new Date(isoToDate(end).getTime() - 86400000)); })();
+  const lines = PROP_LINES.filter(l => l.kind === 'expense');
+  document.getElementById('modal-title').textContent = c ? 'Edit cost' : 'Add a cost paid outside the app';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">For a property cost paid from an account that isn't in the app, such as the accountant's fee. If it is in your transactions, move that instead so it isn't counted twice.</div>
+    <div class="input-group"><label>What it was for</label><input type="text" id="pc-note" value="${escH(c?.note || '')}" placeholder="e.g. Accountant's fee 2025–26"></div>
+    <div class="input-group"><label>Date paid</label><input type="date" id="pc-date" value="${escH(c?.date || defDate)}"></div>
+    <div class="input-group"><label>Amount ($)</label><input type="number" id="pc-amount" min="0" step="0.01" value="${c?.amount ?? ''}"></div>
+    <div class="input-group"><label>Report line</label><select id="pc-line">${lines.map(l => `<option value="${l.id}" ${(c?.line || 'accountancy') === l.id ? 'selected' : ''}>${escH(l.label)}</option>`).join('')}</select></div>
+    ${c ? `<button class="btn" style="color:var(--red,#e5484d)" onclick="deletePropCost('${c.id}')">Delete</button>` : ''}`;
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Save';
+  btn.onclick = () => {
+    const amount = parseFloat(document.getElementById('pc-amount').value);
+    const date = document.getElementById('pc-date').value;
+    if (isNaN(amount) || !date) { alert('Enter a date and an amount.'); return; }
+    const rec = { id: c?.id || ('pc' + Date.now()), streamId: s.id, date, amount: round2(amount),
+      line: document.getElementById('pc-line').value, note: document.getElementById('pc-note').value.trim() };
+    if (c) Object.assign(c, rec); else { propCosts.push(rec); reviveTombstone('propCosts', rec.id); }
+    propTaxYear = taxYearOf(isoToDate(date));
+    closeModal(); scheduleSave(); renderProperty();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function deletePropCost(id) {
+  if (!confirm('Delete this cost?')) return;
+  propCosts = propCosts.filter(c => c.id !== id);
+  tombstone('propCosts', id);
+  closeModal(); scheduleSave(); renderProperty();
 }
 function propFindMoveBack(id) {
   const t = transactions.find(x => x.id === id); if (!t) return;
@@ -5706,7 +5763,7 @@ function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
-    bookings, propPayouts, propDays, taxReturns,
+    bookings, propPayouts, propDays, taxReturns, propCosts,
     cats: CATS,
     tombstones,
     savedAt: new Date().toISOString()
@@ -5757,6 +5814,7 @@ function loadDataObj(obj) {
   if (obj.propPayouts) propPayouts = obj.propPayouts;
   if (obj.propDays) propDays = obj.propDays;
   if (obj.taxReturns) taxReturns = obj.taxReturns;
+  if (obj.propCosts) propCosts = obj.propCosts;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
@@ -6284,6 +6342,7 @@ function mergeWithCloud(data, cloud) {
   data.propPayouts        = mergeArraysById(data.propPayouts, cloud.propPayouts, 'id', 'propPayouts', tomb);
   data.propDays           = mergeArraysById(data.propDays, cloud.propDays, 'id', 'propDays', tomb);
   data.taxReturns         = mergeArraysById(data.taxReturns, cloud.taxReturns, 'id', 'taxReturns', tomb);
+  data.propCosts          = mergeArraysById(data.propCosts, cloud.propCosts, 'id', 'propCosts', tomb);
   data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
   data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
