@@ -1646,6 +1646,7 @@ let propPayouts = [];
 // type: cleaning | travel | personal | family | booked (a stay from a platform
 // that isn't imported) | blocked.
 let propDays = [];
+let taxReturns = []; // one record per person per tax year: {id:'ty|person', ty, person, rows:[...]}
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
 let bvaFilter = 'all';
@@ -1724,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.11';
+const APP_VERSION = '2026.11.06.12';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4122,7 +4123,7 @@ function propHomeHtml(s) {
       <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>`}`;
 }
 function propRow(label, val) {
-  return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="color:var(--text2)">${label}</span><span style="text-align:right">${val}</span></div>`;
+  return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="color:var(--text2);min-width:0">${label}</span><span style="text-align:right;white-space:nowrap">${val}</span></div>`;
 }
 
 function propBookingsHtml(s) {
@@ -4623,7 +4624,13 @@ const PROP_CHECK_LINES = [
   {id:'depreciation', label:'Depreciation'},
   {id:'net', label:'Net profit (loss)'},
 ];
+let propTaxView = 'pnl'; // 'pnl' | 'returns'
+function propTaxToggleHtml() {
+  const b = (id, l) => `<button class="tab ${propTaxView===id?'active':''}" onclick="propTaxView='${id}';renderProperty()">${l}</button>`;
+  return `<div class="tabs" style="margin-bottom:12px">${b('pnl','Property P&amp;L')}${b('returns',"Owners' tax returns")}</div>`;
+}
 function propTaxHtml(s) {
+  if (propTaxView === 'returns') return propYearNavHtml() + propTaxToggleHtml() + propReturnsHtml(s);
   const pnl = computePropPnL(s, propTaxYear);
   const p = propSettings(s);
   const checks = (p.checks || {})[propTaxYear] || {};
@@ -4632,7 +4639,7 @@ function propTaxHtml(s) {
   const shown = pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005);
   const owners = p.owners.filter(o => o.share);
   const inp = 'width:100px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px 6px;text-align:right;outline:none';
-  return `${propYearNavHtml()}
+  return `${propYearNavHtml()}${propTaxToggleHtml()}
     <div class="card">
       <div class="card-title" style="margin-bottom:8px">Profit or loss</div>
       ${pnl.hasUpcoming ? '<div style="font-size:11px;color:var(--amber,#b7791f);margin-bottom:6px">Includes upcoming bookings, so this is a forecast until they complete.</div>' : ''}
@@ -4667,6 +4674,203 @@ function propTaxHtml(s) {
       }).join('')}
       <div style="font-size:11px;color:var(--text3);margin-top:8px">Use the figures from the signed financial statements (Statement of Profit or Loss), not working papers.</div>
     </div>`;
+}
+
+// ── Owners' tax returns: an IR3-style estimate per owner per tax year ──
+// Income with tax deducted comes from the owner's IRD income summary once it's
+// typed in; until then it's estimated from take-home pay in the personal "Pay"
+// category (matched to the owner by employer name) and grossed up. Each owner's
+// share of every property's profit or loss is added automatically.
+// Rates: income tax bands (2024-25 used composite rates for the mid-year
+// change) and the ACC earner levy. Check new years against IRD.
+const NZ_TAX_BANDS_OLD  = [[14000,.105],[48000,.175],[70000,.30],[180000,.33],[Infinity,.39]];
+const NZ_TAX_BANDS_2025 = [[14000,.105],[15600,.1282],[48000,.175],[53500,.2164],[70000,.30],[78100,.3071],[180000,.33],[Infinity,.39]];
+const NZ_TAX_BANDS_NEW  = [[15600,.105],[53500,.175],[78100,.30],[180000,.33],[Infinity,.39]];
+function nzIncomeTax(income, ty) {
+  const bands = ty >= 2026 ? NZ_TAX_BANDS_NEW : ty === 2025 ? NZ_TAX_BANDS_2025 : NZ_TAX_BANDS_OLD;
+  const inc = Math.max(0, Math.floor(income)); // IRD taxes whole dollars
+  let tax = 0, prev = 0;
+  for (const [top, r] of bands) { if (inc <= prev) break; tax += (Math.min(inc, top) - prev) * r; prev = top; }
+  return round2(tax);
+}
+const ACC_EARNER_LEVY = { 2023:[0.0146,136544], 2024:[0.0153,139384], 2025:[0.016,142283], 2026:[0.0167,152790], 2027:[0.0175,156641] };
+function accEarnerLevy(gross, ty) {
+  const latest = Math.max(...Object.keys(ACC_EARNER_LEVY).map(Number));
+  const [r, max] = ACC_EARNER_LEVY[ty] || ACC_EARNER_LEVY[ty < 2023 ? 2023 : latest];
+  return Math.floor(Math.min(Math.max(0, gross), max) * r * 100) / 100;
+}
+const TAX_ROW_KINDS = {
+  pay:   { label: 'Salary or wages', tax: 'PAYE deducted (as on the IRD summary, incl. ACC levy)' },
+  div:   { label: 'Dividends', credit: 'Imputation credits', tax: 'RWT deducted' },
+  int:   { label: 'Interest', tax: 'RWT deducted' },
+  other: { label: 'Other income (no tax deducted)' },
+};
+const taxReturnId = (ty, person) => `${ty}|${String(person).trim().toLowerCase()}`;
+function taxReturnFor(ty, person) { return taxReturns.find(r => r.id === taxReturnId(ty, person)); }
+function ownerShareOfProperties(person, ty) {
+  const key = String(person).trim().toLowerCase();
+  const parts = [];
+  propertyStreams().forEach(st => {
+    const o = propSettings(st).owners.find(x => String(x.name).trim().toLowerCase() === key && x.share);
+    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty).net * o.share / 100) });
+  });
+  return parts;
+}
+// Take-home pay in the tax year from the personal "Pay" category, for
+// transactions mentioning the owner's employer (comma-separated words).
+function bankPayForOwner(o, ty) {
+  const words = String(o.payMatch || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+  if (!words.length) return null;
+  const { start, end } = taxYearRange(ty);
+  const txns = transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === 'Pay' && t.amount > 0
+    && (d => d >= start && d < end)(dateToIso(t.date)) && words.some(w => txnSearchText(t).includes(w)));
+  const net = txns.reduce((a, t) => a + t.amount, 0);
+  const today = todayLocal();
+  const elapsed = Math.max(1, daysBetween(start, today < end ? today : end));
+  const factor = today < end ? daysBetween(start, end) / elapsed : 1;
+  return { net, count: txns.length, annualNet: net * factor, partYear: factor > 1 };
+}
+// Gross pay that leaves this take-home after PAYE, ACC levy and KiwiSaver.
+function grossFromNetPay(net, ty, ksRate) {
+  let lo = 0, hi = Math.max(1000, net * 3);
+  for (let i = 0; i < 60; i++) {
+    const g = (lo + hi) / 2;
+    const take = g - nzIncomeTax(g, ty) - accEarnerLevy(g, ty) - g * ksRate;
+    if (take > net) hi = g; else lo = g;
+  }
+  return round2((lo + hi) / 2);
+}
+function computeTaxReturn(o, ty) {
+  const rec = taxReturnFor(ty, o.name);
+  const rows = rec?.rows || [];
+  const sum = (kind, f) => rows.filter(r => r.kind === kind).reduce((a, r) => a + (Number(r[f]) || 0), 0);
+  let gross = sum('pay', 'gross'), payeIncl = sum('pay', 'tax'), source = 'ird', bank = null;
+  if (!rows.some(r => r.kind === 'pay')) {
+    bank = bankPayForOwner(o, ty);
+    if (bank && bank.net > 0) {
+      const ks = (Number(o.ksRate ?? 3) || 0) / 100;
+      gross = grossFromNetPay(bank.annualNet, ty, ks);
+      payeIncl = nzIncomeTax(gross, ty) + accEarnerLevy(gross, ty);
+      source = 'bank';
+    } else { gross = 0; payeIncl = 0; source = 'none'; }
+  }
+  const levy = accEarnerLevy(gross, ty);
+  const paye = round2(payeIncl - levy);
+  const div = sum('div', 'gross'), imputation = sum('div', 'credit'), divRwt = sum('div', 'tax');
+  const interest = sum('int', 'gross'), intRwt = sum('int', 'tax');
+  const other = sum('other', 'gross');
+  const rentalParts = ownerShareOfProperties(o.name, ty);
+  const rental = rentalParts.reduce((a, p) => a + p.amount, 0);
+  const taxable = round2(gross + div + interest + other + rental);
+  const tax = nzIncomeTax(taxable, ty);
+  const credit = Math.min(imputation, tax);
+  const payable = round2(tax - credit);
+  const refundable = round2(paye + divRwt + intRwt);
+  const result = round2(payable - refundable); // negative = refund
+  return { rec, rows, source, bank, gross, payeIncl, levy, paye, div, imputation, divRwt, interest, intRwt, other, rental, rentalParts,
+    taxable, tax, credit, payable, refundable, result, rit: result };
+}
+let propReturnOwner = 0;
+function propReturnsHtml(s) {
+  const owners = propSettings(s).owners.filter(o => o.name && o.share);
+  if (!owners.length) return `<div class="card" style="font-size:13px;color:var(--text3)">Add the owners and their shares in Setup first.</div>`;
+  if (propReturnOwner >= owners.length) propReturnOwner = 0;
+  const o = owners[propReturnOwner];
+  const r = computeTaxReturn(o, propTaxYear);
+  const money = v => (v < 0 ? '−' : '') + fmt(v);
+  const srcTxt = r.source === 'ird' ? 'From the IRD income summary you entered.'
+    : r.source === 'bank' ? `Estimated from ${r.bank.count} pay deposit${r.bank.count === 1 ? '' : 's'} (${fmt(r.bank.net)} take-home${r.bank.partYear ? ', projected to a full year' : ''}), grossed up for PAYE, ACC levy and ${Number(o.ksRate ?? 3)}% KiwiSaver. Add the IRD summary figures below when you have them.`
+    : 'No pay yet. Enter the IRD summary figures below, or set the employer name so pay in your "Pay" category can be found.';
+  const rowList = r.rows.map((x, i) => `<div onclick="openTaxRow(${propReturnOwner}, ${i})" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
+      <div style="min-width:0"><div>${escH(x.name || TAX_ROW_KINDS[x.kind].label)}</div><div style="font-size:11px;color:var(--text3)">${TAX_ROW_KINDS[x.kind].label}${x.credit ? ' · imputation ' + fmt(x.credit) : ''}${x.tax ? ` · ${x.kind === 'pay' ? 'PAYE' : 'RWT'} ${fmt(x.tax)}` : ''}</div></div>
+      <span>${fmt(Number(x.gross) || 0)}</span></div>`).join('');
+  const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:7px 8px;outline:none';
+  return `<div class="tabs" style="margin-bottom:12px">${owners.map((x, i) => `<button class="tab ${i === propReturnOwner ? 'active' : ''}" onclick="propReturnOwner=${i};renderProperty()">${escH(x.name)}</button>`).join('')}</div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">${escH(o.name)} · ${taxYearLabel(propTaxYear)} (IR3 estimate)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${srcTxt}</div>
+      ${propRow('Income with tax deducted' + (r.source === 'bank' ? ' (estimate)' : ''), fmt(r.gross))}
+      ${r.div ? propRow('Dividends', fmt(r.div)) : ''}
+      ${r.interest ? propRow('Interest', fmt(r.interest)) : ''}
+      ${r.other ? propRow('Other income', fmt(r.other)) : ''}
+      ${r.rentalParts.map(p => propRow(`Rental income: ${escH(p.name)} (${escH(o.name)}'s share)`, money(p.amount))).join('')}
+      ${propRow('<strong>Taxable income</strong>', `<strong>${money(r.taxable)}</strong>`)}
+      ${propRow('Tax on taxable income', fmt(r.tax))}
+      ${r.credit ? propRow('Less imputation credits', '−' + fmt(r.credit)) : ''}
+      ${propRow('Tax payable', fmt(r.payable))}
+      ${propRow(`Less PAYE <span style="font-size:11px;color:var(--text3)">(${fmt(r.payeIncl)} less ${fmt(r.levy)} ACC levy)</span>`, '−' + fmt(r.paye))}
+      ${r.divRwt + r.intRwt ? propRow('Less RWT', '−' + fmt(r.divRwt + r.intRwt)) : ''}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 2px;font-size:15px;font-weight:700">
+        <span>${r.result <= 0 ? 'Refund due' : 'Tax to pay'}</span><span class="${r.result <= 0 ? 'pos' : 'neg'}">${fmt(Math.abs(r.result))}</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${r.taxable < 0 ? 'Taxable income is a loss. It carries forward to next year. ' : ''}${r.rit > 5000 ? 'Tax to pay is over $5,000, so provisional tax may apply next year. ' : ''}KiwiSaver and other PIE income are taxed at your PIR and aren't included. Student loan and Working for Families aren't included. An estimate only; your accountant's return is final.</div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">IRD income summary</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:6px">From myIR → Income summary for ${taxYearLabel(propTaxYear)}: each employer's gross pay and PAYE, and dividends and interest with their RWT and imputation credits (also on the Sharesies or bank tax statement).</div>
+      ${rowList || '<div style="font-size:13px;color:var(--text3);padding:6px 0">Nothing entered for this year yet.</div>'}
+      <button class="btn btn-primary" style="margin-top:10px" onclick="openTaxRow(${propReturnOwner})">+ Add income</button>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">Estimate from bank pay</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Used until salary is entered above. Pay deposits in your personal "Pay" category that mention the employer are counted.</div>
+      <div class="input-group"><label>Employer name as it appears on pay deposits (comma-separate several)</label><input type="text" value="${escH(o.payMatch || '')}" placeholder="e.g. Acme Ltd" style="${inp};width:100%;box-sizing:border-box" onchange="setOwnerTaxField('payMatch', this.value)"></div>
+      <div class="input-group"><label>KiwiSaver employee contribution (%)</label><input type="number" min="0" max="10" step="1" value="${o.ksRate ?? 3}" style="${inp};width:90px" onchange="setOwnerTaxField('ksRate', this.value === '' ? null : Number(this.value))"></div>
+    </div>`;
+}
+function setOwnerTaxField(field, val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const owners = p.owners.filter(o => o.name && o.share);
+  const name = owners[propReturnOwner]?.name;
+  s.property = { ...p, owners: p.owners.map(o => o.name === name ? { ...o, [field]: val } : o) };
+  scheduleSave(); renderProperty();
+}
+function openTaxRow(ownerIdx, rowIdx) {
+  const s = currentPropStream(); if (!s) return;
+  const o = propSettings(s).owners.filter(x => x.name && x.share)[ownerIdx]; if (!o) return;
+  const rec = taxReturnFor(propTaxYear, o.name);
+  const x = rowIdx != null ? rec?.rows?.[rowIdx] : null;
+  const kind0 = x?.kind || 'pay';
+  document.getElementById('modal-title').textContent = `${x ? 'Edit' : 'Add'} income · ${o.name} ${taxYearLabel(propTaxYear)}`;
+  const field = (id, label, v) => `<div class="input-group" id="${id}-g"><label id="${id}-l">${label}</label><input type="number" id="${id}" step="0.01" value="${v ?? ''}"></div>`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="input-group"><label>Type</label><select id="tr-kind" onchange="taxRowKindChanged()">${Object.entries(TAX_ROW_KINDS).map(([k, d]) => `<option value="${k}" ${kind0 === k ? 'selected' : ''}>${d.label}</option>`).join('')}</select></div>
+    <div class="input-group"><label>Payer</label><input type="text" id="tr-name" value="${escH(x?.name || '')}" placeholder="Employer, company or bank"></div>
+    ${field('tr-gross', 'Gross amount ($)', x?.gross)}
+    ${field('tr-credit', 'Imputation credits ($)', x?.credit)}
+    ${field('tr-tax', 'Tax deducted ($)', x?.tax)}
+    ${x ? `<button class="btn" style="color:var(--red,#e5484d)" onclick="deleteTaxRow(${ownerIdx}, ${rowIdx})">Delete</button>` : ''}`;
+  taxRowKindChanged();
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Save';
+  btn.onclick = () => {
+    const kind = document.getElementById('tr-kind').value;
+    const num = id => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? 0 : v; };
+    const row = { kind, name: document.getElementById('tr-name').value.trim(), gross: num('tr-gross') };
+    if (TAX_ROW_KINDS[kind].credit) row.credit = num('tr-credit');
+    if (TAX_ROW_KINDS[kind].tax) row.tax = num('tr-tax');
+    const id = taxReturnId(propTaxYear, o.name);
+    let r = taxReturns.find(z => z.id === id);
+    if (!r) { r = { id, ty: propTaxYear, person: o.name, rows: [] }; taxReturns.push(r); reviveTombstone('taxReturns', id); }
+    r.rows = [...(r.rows || [])];
+    if (x) r.rows[rowIdx] = row; else r.rows.push(row);
+    closeModal(); scheduleSave(); renderProperty();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function taxRowKindChanged() {
+  const k = TAX_ROW_KINDS[document.getElementById('tr-kind').value];
+  document.getElementById('tr-credit-g').style.display = k.credit ? '' : 'none';
+  document.getElementById('tr-tax-g').style.display = k.tax ? '' : 'none';
+  if (k.tax) document.getElementById('tr-tax-l').textContent = k.tax + ' ($)';
+}
+function deleteTaxRow(ownerIdx, rowIdx) {
+  const s = currentPropStream(); if (!s) return;
+  const o = propSettings(s).owners.filter(x => x.name && x.share)[ownerIdx];
+  const r = o && taxReturnFor(propTaxYear, o.name);
+  if (!r || !confirm('Delete this income line?')) return;
+  r.rows = r.rows.filter((_, i) => i !== rowIdx);
+  closeModal(); scheduleSave(); renderProperty();
 }
 
 // ── Assets: depreciation register ──
@@ -5134,7 +5338,9 @@ function savePropSetup() {
   for (let i = 0; document.getElementById('ps-owner-'+i); i++) {
     const name = document.getElementById('ps-owner-'+i).value.trim();
     const share = parseFloat(document.getElementById('ps-share-'+i).value);
-    if (name || !isNaN(share)) owners.push({ name: name || `Owner ${owners.length+1}`, share: isNaN(share) ? 0 : share });
+    // Keep each owner's tax-return settings (employer match, KiwiSaver rate).
+    const prev = propSettings(s).owners[i] || {};
+    if (name || !isNaN(share)) owners.push({ ...prev, name: name || `Owner ${owners.length+1}`, share: isNaN(share) ? 0 : share });
   }
   const total = owners.reduce((a,o) => a+o.share, 0);
   if (owners.length && Math.abs(total - 100) > 0.01 && !confirm(`Ownership shares add up to ${round2(total)}%, not 100%. Save anyway?`)) return;
@@ -5370,7 +5576,7 @@ function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
-    bookings, propPayouts, propDays,
+    bookings, propPayouts, propDays, taxReturns,
     cats: CATS,
     tombstones,
     savedAt: new Date().toISOString()
@@ -5420,6 +5626,7 @@ function loadDataObj(obj) {
   if (obj.bookings) bookings = obj.bookings;
   if (obj.propPayouts) propPayouts = obj.propPayouts;
   if (obj.propDays) propDays = obj.propDays;
+  if (obj.taxReturns) taxReturns = obj.taxReturns;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
@@ -5946,6 +6153,7 @@ function mergeWithCloud(data, cloud) {
   data.bookings           = mergeArraysById(data.bookings, cloud.bookings, 'id', 'bookings', tomb);
   data.propPayouts        = mergeArraysById(data.propPayouts, cloud.propPayouts, 'id', 'propPayouts', tomb);
   data.propDays           = mergeArraysById(data.propDays, cloud.propDays, 'id', 'propDays', tomb);
+  data.taxReturns         = mergeArraysById(data.taxReturns, cloud.taxReturns, 'id', 'taxReturns', tomb);
   data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
   data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
