@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.12';
+const APP_VERSION = '2026.11.06.13';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -5109,6 +5109,8 @@ function propReviewHtml(s) {
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:11px;color:var(--text3);flex:1">${fmtDay(dateToIso(t.date))} · in ${escH(t.cat)}</span>
         <button class="btn btn-secondary" style="${small}" onclick="propReviewMoveBack(${t.id})">Move back</button></div></div>`).join('')
       : '<div class="empty" style="padding:8px 0">Nothing moved to the property yet.</div>';
+  } else if (view === 'find') {
+    content = propFindHtml(s, catOpts, head, small);
   } else {
     content = list.length ? `<div id="prop-review-list">${list.map(t => {
       // Outside the linked category almost everything is genuinely personal,
@@ -5138,11 +5140,70 @@ function propReviewHtml(s) {
           <select onchange="if(propReviewConfirmLeave()){propReviewCat=this.value;renderProperty()}else{this.value=propReviewCat}">${srcCats.map(c => `<option value="${escH(c)}" ${c===propReviewCat?'selected':''}>${escH(c)}${c===linked?' (linked to this property)':''}</option>`).join('')}</select>
           <div style="font-size:11px;color:var(--text3);margin-top:4px">Rows here default to Leave in Personal. Change only the ones that were for the property. <a href="#" onclick="if(propReviewConfirmLeave()){propReviewOther=false;propReviewCat=null;renderProperty()}return false" style="color:var(--teal)">Back to ${escH(linked)}</a></div></div>`
       : `<div style="font-size:13px;margin-bottom:10px">Reviewing your <strong>${escH(linked)}</strong> category, linked to ${escH(s.name)} in Setup. <a href="#" onclick="if(propReviewConfirmLeave()){propReviewOther=true;renderProperty()}return false" style="color:var(--teal);white-space:nowrap">Look in another category</a></div>`}
-    <div class="tabs" style="flex-wrap:wrap">${vtab('todo','To review',list.length)}${vtab('kept','Left in Personal',kept.length)}${vtab('moved','Moved to property',moved.length)}</div>
+    <div class="tabs" style="flex-wrap:wrap">${vtab('todo','To review',list.length)}${vtab('kept','Left in Personal',kept.length)}${vtab('moved','Moved to property',moved.length)}<button class="tab ${view==='find'?'active':''}" onclick="setPropReviewView('find')">🔍 Search all</button></div>
     ${content}
   </div>`;
 }
 let propReviewView = 'todo';
+// ── Search all transactions (personal and property) ──
+// For costs that are hard to find by category: an accountant's fee filed
+// somewhere odd, rates, or a personal insurance policy that ended up on the
+// property. Personal rows can be moved onto the property; rows moved onto the
+// property from a personal account can be moved back.
+let propFindText = '', propFindYearOnly = true;
+function propFindRun() {
+  propFindText = (document.getElementById('prop-find')?.value || '').trim();
+  propFindYearOnly = !!document.getElementById('prop-find-year')?.checked;
+  renderProperty();
+  document.getElementById('prop-find')?.focus();
+}
+function propFindHtml(s, catOpts, head, small) {
+  const q = propFindText.toLowerCase();
+  const { start, end } = taxYearRange(propTaxYear);
+  const propAcc = propAccountIds(s);
+  const lineLabel = id => (PROP_LINES.find(l => l.id === id) || {}).label || id;
+  const found = q.length < 2 ? [] : transactions.filter(t => {
+    if (propFindYearOnly) { const d = dateToIso(t.date); if (d < start || d >= end) return false; }
+    return `${t.desc || ''} ${t.detail || ''} ${t.cat || ''}`.toLowerCase().includes(q);
+  }).sort((a, b) => a.date - b.date);
+  const shown = found.slice(0, 150);
+  const persOpts = sel => CATS.map(c => `<option value="${escH(c.name)}" ${c.name === sel ? 'selected' : ''}>${escH(c.name)}</option>`).join('');
+  const rows = shown.map(t => {
+    const where = (t.stream || 'personal') === 'personal' ? 'personal'
+      : t.stream === s.id ? 'property' : 'other';
+    const accName = accounts.find(a => a.id === t.account)?.name || t.account || '';
+    const meta = `${fmtDay(dateToIso(t.date))} · ${escH(accName)} · ${where === 'personal' ? 'Personal' : where === 'property' ? escH(s.name) : escH(otherIncomeStreams.find(x => x.id === t.stream)?.name || 'other stream')} · ${escH(t.cat || '')}`;
+    let action = '';
+    if (where === 'personal') {
+      action = `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <select data-txn="${t.id}" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
+            <option value="keep">Leave in Personal</option>${catOpts(null, null)}</select>
+          <button class="btn btn-primary" style="${small}" onclick="applyPropReview([${t.id}])">✓ Save</button></div>`;
+    } else if (where === 'property') {
+      const onOwnAcc = propAcc.has(t.account);
+      action = `<div style="font-size:11px;color:var(--text3);margin-top:2px">Report line: ${escH(lineLabel(propLineFor(s, t.cat)))}${onOwnAcc ? ` (on the property's own account)` : ''}</div>
+        ${onOwnAcc ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <select id="pf-back-${t.id}" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">${persOpts(CATS.some(c => c.name === t.propMovedFrom) ? t.propMovedFrom : (CATS.some(c => c.name === t.cat) ? t.cat : 'Other'))}</select>
+          <button class="btn btn-secondary" style="${small}" onclick="propFindMoveBack(${t.id})">Move back to Personal</button></div>`}`;
+    }
+    return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}<div style="font-size:11px;color:var(--text3);margin-top:2px">${meta}</div>${action}</div>`;
+  }).join('');
+  const total = found.reduce((a, t) => a + t.amount, 0);
+  return `<div style="display:flex;gap:8px;margin-bottom:6px">
+      <input type="text" id="prop-find" value="${escH(propFindText)}" placeholder="e.g. accountant, rates, AMP" onkeydown="if(event.key==='Enter')propFindRun()" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:8px 10px;outline:none">
+      <button class="btn btn-primary" style="padding:6px 12px" onclick="propFindRun()">Search</button></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:8px"><input type="checkbox" id="prop-find-year" ${propFindYearOnly ? 'checked' : ''} onchange="propFindRun()"> Only tax year ${taxYearLabel(propTaxYear)}</label>
+    ${q.length < 2 ? '<div style="font-size:12px;color:var(--text3)">Searches descriptions, details and categories of every transaction, personal and property.</div>'
+      : found.length ? `<div style="font-size:12px;color:var(--text3);margin-bottom:4px">${found.length} found · total ${total < 0 ? '−' : ''}${fmt(total)}${found.length > shown.length ? ` · showing the first ${shown.length}` : ''}</div><div id="prop-review-list">${rows}</div>`
+      : '<div style="font-size:13px;color:var(--text3)">Nothing found.</div>'}`;
+}
+function propFindMoveBack(id) {
+  const t = transactions.find(x => x.id === id); if (!t) return;
+  const cat = document.getElementById('pf-back-' + id)?.value || t.propMovedFrom || 'Other';
+  t.stream = 'personal'; t.cat = cat; delete t.propMovedFrom;
+  t.propReviewed = currentPropStream()?.id; // don't offer it in the review again
+  scheduleSave(); renderProperty(); renderIncomeStreams();
+}
 let propReviewOther = false; // looking outside the property's linked category
 let propReviewDirty = false; // a To-review dropdown was changed but not saved
 function propReviewConfirmLeave() {
