@@ -1725,7 +1725,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.6';
+const APP_VERSION = '2026.11.06.7';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4829,9 +4829,14 @@ function propReviewSuggestion(s, t, matches) {
   if (matches.matchedTxnIds.has(t.id) || (t.amount > 0 && /airbnb|payoneer|booking\.com|bookabach/i.test(text))) return { keep: true, why: 'Platform payout' };
   // Transfers between the owners' own accounts usually carry an owner's name
   // or the property's name -- built from the user's Setup, never hardcoded.
-  const words = [s.name, ...propSettings(s).owners.map(o => o.name)]
-    .flatMap(n => String(n || '').split(/\s+/)).filter(w => w.length >= 4 && !/^owner$/i.test(w))
-    .map(w => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&'));
+  // Owner names match on any word (a surname is enough); the property name
+  // only as a whole phrase, so "Beach Expense" isn't taken for a transfer
+  // just because the property is called "Waihi Beach".
+  const esc = w => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+  const words = [
+    ...propSettings(s).owners.flatMap(o => String(o.name || '').split(/\s+/)).filter(w => w.length >= 4 && !/^owner$/i.test(w)).map(esc),
+    ...(String(s.name || '').trim().length >= 4 ? [esc(String(s.name).trim()).replace(/\s+/g, '\\s+')] : []),
+  ];
   const ownRe = words.length ? new RegExp(words.join('|'), 'i') : null;
   if ((ownRe && ownRe.test(text)) || /transfer|top.?up/i.test(text) || t.amount > 0) return { keep: true, why: 'Looks like a transfer' };
   const line = PROP_LINE_GUESSES.find(([, re]) => re.test(text))?.[0];
