@@ -1226,6 +1226,10 @@
         <div class="s-row" onclick="exportCSV()">
           <span class="s-icon">📤</span><span class="s-label">Export to CSV</span><span class="s-meta">Excel</span><span class="s-chev" style="opacity:0.4">↓</span>
         </div>
+        <div class="s-row" onclick="document.getElementById('detail-csv-input').click()">
+          <span class="s-icon">🔎</span><span class="s-label">Add missing details from a CSV</span><span class="s-meta">date, amount, description, detail</span><span class="s-chev" style="opacity:0.4">↑</span>
+        </div>
+        <input type="file" id="detail-csv-input" accept=".csv,text/csv" style="display:none" onchange="handleDetailCSV(this)">
       </div>
 
       <div class="card" style="padding:14px 16px">
@@ -1725,7 +1729,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.06.7';
+const APP_VERSION = '2026.11.06.8';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2199,7 +2203,7 @@ function renderTransactions() {
           <span class="cat-pill" onclick="openCatSheet(${t.id})" style="cursor:pointer">${t.cat} ▾</span>
           ${otherIncomeStreams.length ? `<span class="cat-pill" onclick="openStreamSheet(${t.id})" style="cursor:pointer">${streamName(t.stream)} ▾</span>` : ''}
         </div>
-        ${t.detail ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.detail}</div>` : ''}
+        ${t.detail ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(t.detail)}</div>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="txn-amount ${t.amount>=0?'pos':'neg'}">${t.amount>=0?'+':''}${fmt(t.amount)}</div>
@@ -3516,6 +3520,44 @@ function exportCSV() {
   a.href = url; a.download = `myfinance-${new Date().toISOString().slice(0,7)}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ─── Add missing details from a CSV ───────────────────────────────────────────
+// Fills t.detail on transactions that have none, from a CSV with columns
+// date, amount, description, detail. A row matches a transaction with the same
+// date, the same amount to the cent and the same description (ignoring case);
+// each row is used once, so repeated identical payments pair up one-to-one.
+// Nothing else on the transaction changes.
+async function handleDetailCSV(input) {
+  const file = input.files[0]; input.value = '';
+  if (!file) return;
+  const lines = (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  const h = parseCSVLine(lines[0] || '').map(x => x.replace(/^"|"$/g, '').toLowerCase().trim());
+  const ci = n => h.indexOf(n);
+  if ([ci('date'), ci('amount'), ci('description'), ci('detail')].some(i => i < 0)) {
+    alert('The CSV needs the columns: date, amount, description, detail.'); return;
+  }
+  const key = (d, amt, desc) => `${d}|${Math.round(amt * 100)}|${String(desc || '').trim().toLowerCase()}`;
+  const pool = new Map();
+  transactions.filter(t => !t.detail).forEach(t => {
+    const k = key(dateToIso(t.date), t.amount, t.desc);
+    if (!pool.has(k)) pool.set(k, []); pool.get(k).push(t);
+  });
+  const updates = []; let unmatched = 0;
+  lines.slice(1).forEach(l => {
+    const c = parseCSVLine(l).map(x => x.replace(/^"|"$/g, '').trim());
+    const d = parseCSVDate(c[ci('date')]), amt = parseFloat(c[ci('amount')]), detail = c[ci('detail')];
+    if (!d || isNaN(amt) || !detail) return;
+    if (detail.trim().toLowerCase() === c[ci('description')].trim().toLowerCase()) return; // nothing new to add
+    const t = (pool.get(key(dateToIso(d), amt, c[ci('description')])) || []).shift();
+    if (t) updates.push([t, detail]); else unmatched++;
+  });
+  if (!updates.length) { alert(`No transactions to update.${unmatched ? ` ${unmatched} row${unmatched===1?'':'s'} didn't match a transaction.` : ''}`); return; }
+  const sample = updates.slice(0, 5).map(([t, d]) => `${fmtDay(dateToIso(t.date))}  ${t.desc} → ${d}`).join('\n');
+  if (!confirm(`Add details to ${updates.length} transaction${updates.length===1?'':'s'}?${unmatched ? ` (${unmatched} row${unmatched===1?'':'s'} didn't match.)` : ''}\n\n${sample}${updates.length > 5 ? '\n…' : ''}`)) return;
+  updates.forEach(([t, d]) => { t.detail = d; });
+  scheduleSave(); rerenderPage();
+  alert(`Details added to ${updates.length} transaction${updates.length===1?'':'s'}.`);
 }
 
 // ─── Categories management ────────────────────────────────────────────────────
@@ -4877,7 +4919,7 @@ function propReviewHtml(s) {
     content = list.length ? `<div id="prop-review-list">${list.map(t => {
       const sug = propReviewSuggestion(s, t, matches);
       return `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">${head(t)}
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtDay(dateToIso(t.date))}${sug.keep ? ' · ' + sug.why : ''}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtDay(dateToIso(t.date))}${t.detail ? ' · ' + escH(t.detail) : ''}${sug.keep ? ' · ' + sug.why : ''}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
           <select data-txn="${t.id}" onchange="propReviewDirty=true" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px">
             <option value="keep" ${sug.keep?'selected':''}>Leave in Personal</option>${catOpts(sug.keep ? null : sug.cat, sug.keep ? null : sug.newLine)}
