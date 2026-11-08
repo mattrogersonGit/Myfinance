@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.4';
+const APP_VERSION = '2026.11.09.5';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4228,9 +4228,17 @@ function propHomeOfficeForYear(s, ty) {
   const pct = Number(ho.pct) || 0;
   const cats = ho.cats || [];
   const { start, end } = taxYearRange(ty);
+  // A category can be narrowed by words in the description (e.g. only "AMI"
+  // within Insurance), and single transactions can be left out (a car policy
+  // paid to the same insurer).
+  const excluded = new Set(ho.excluded || []);
   const byCat = cats.map(name => {
-    const txns = transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === name && (d => d >= start && d < end)(dateToIso(t.date)));
-    return { name, txns, total: round2(-txns.reduce((a, t) => a + t.amount, 0)) };
+    const words = String((ho.filters || {})[name] || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+    const all = transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === name && (d => d >= start && d < end)(dateToIso(t.date)))
+      .sort((a, b) => a.date - b.date);
+    const matching = words.length ? all.filter(t => words.some(w => `${t.desc || ''} ${t.detail || ''}`.toLowerCase().includes(w))) : all;
+    const txns = matching.filter(t => !excluded.has(t.id));
+    return { name, words, all, matching, txns, total: round2(-txns.reduce((a, t) => a + t.amount, 0)) };
   });
   const extra = Number((ho.extra || {})[ty]) || 0;
   const total = round2(byCat.reduce((a, c) => a + c.total, 0) + extra);
@@ -5339,9 +5347,26 @@ function openPropHomeOffice() {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span><strong>Share claimed (%)</strong></span><input type="number" min="0" max="100" step="0.01" value="${ho.pct ?? ''}" style="${inp}" onchange="setPropHomeOffice('pct', this.value)"></div>
     <div style="font-size:12px;font-weight:600;margin:12px 0 4px">Household costs to include (personal categories)</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, leave it unticked and type the year's interest below.</div>
-    <div style="max-height:34vh;overflow-y:auto">${cats.length ? cats.map(n => `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:13px">
-      <input type="checkbox" data-cat="${escH(n)}" ${r.cats.includes(n) ? 'checked' : ''} onchange="togglePropHomeOfficeCat(this.dataset.cat, this.checked)">
-      <span style="flex:1;min-width:0">${escH(n)}</span><span style="white-space:nowrap;color:var(--text2)">${fmt(totals[n] || 0)}</span></label>`).join('') : '<div style="font-size:12px;color:var(--text3)">No personal spending in this tax year.</div>'}</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tap a ticked category to see its transactions. Untick any that aren't for the house, or type words to keep only matching ones (e.g. <em>AMI</em> in Insurance).</div>
+    <div>${cats.length ? cats.map(n => {
+      const on = r.cats.includes(n);
+      const c = r.byCat.find(x => x.name === n);
+      const open = on && propHoOpenCat === n;
+      const head = `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+        <input type="checkbox" data-cat="${escH(n)}" ${on ? 'checked' : ''} onchange="togglePropHomeOfficeCat(this.dataset.cat, this.checked)">
+        <span data-cat="${escH(n)}" style="flex:1;min-width:0;${on ? 'cursor:pointer' : ''}" ${on ? 'onclick="togglePropHoOpen(this.dataset.cat)"' : ''}>${escH(n)}${on ? ` <span style="font-size:11px;color:var(--teal)">${c.txns.length} of ${c.all.length} ${open ? '▾' : '›'}</span>` : ''}</span>
+        <span style="white-space:nowrap;color:var(--text2)">${on ? `<strong>${fmt(c.total)}</strong>${Math.abs(c.total - (totals[n] || 0)) > 0.005 ? ` <span style="font-size:11px;color:var(--text3)">of ${fmt(totals[n] || 0)}</span>` : ''}` : fmt(totals[n] || 0)}</span></div>`;
+      if (!open) return head;
+      const ex = new Set(ho.excluded || []);
+      return head + `<div style="padding:6px 0 8px 24px;border-bottom:0.5px solid var(--border)">
+        <input type="text" data-cat="${escH(n)}" value="${escH((ho.filters || {})[n] || '')}" placeholder="Only descriptions containing… (comma between words)" onchange="setPropHoFilter(this.dataset.cat, this.value)" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:6px;margin-bottom:6px;outline:none">
+        ${c.words.length && c.all.length > c.matching.length ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px">${c.all.length - c.matching.length} transaction${c.all.length - c.matching.length === 1 ? '' : 's'} hidden by the words</div>` : ''}
+        ${c.matching.map(t => `<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
+          <input type="checkbox" ${ex.has(t.id) ? '' : 'checked'} onchange="togglePropHoTxn(${t.id}, this.checked)">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fmtDay(dateToIso(t.date))} · ${escH(t.desc)}</span>
+          <span style="white-space:nowrap">${fmt(-t.amount)}</span></label>`).join('') || '<div style="font-size:12px;color:var(--text3)">No transactions match.</div>'}
+      </div>`;
+    }).join('') : '<div style="font-size:12px;color:var(--text3)">No personal spending in this tax year.</div>'}</div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span>Other household costs this year<br><span style="font-size:11px;color:var(--text3)">e.g. mortgage interest from the bank's statement</span></span><input type="number" min="0" step="0.01" value="${extra || ''}" style="width:100px;${inp.replace('width:80px;', '')}" onchange="setPropHomeOffice('extra', this.value)"></div>
     ${propRow('Household costs', fmt(base))}
     ${costs.length ? propRow('Added with + Add a cost', fmt(costs.reduce((a, c) => a + (Number(c.amount) || 0), 0))) : ''}
@@ -5349,6 +5374,34 @@ function openPropHomeOffice() {
   const btn = document.getElementById('modal-confirm');
   btn.textContent = 'Done'; btn.style.display = ''; btn.disabled = false; btn.onclick = () => closeModal();
   document.getElementById('modal').classList.add('open');
+}
+let propHoOpenCat = null;
+// Re-render the home office window without losing the scroll position.
+function refreshPropHomeOffice() {
+  const body = document.getElementById('modal-body');
+  const top = body ? body.scrollTop : 0;
+  scheduleSave(); renderProperty(); openPropHomeOffice();
+  if (body) body.scrollTop = top;
+}
+function updatePropHo(fn) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  s.property = { ...p, homeOffice: fn({ ...(p.homeOffice || {}) }) };
+  refreshPropHomeOffice();
+}
+function togglePropHoOpen(name) {
+  propHoOpenCat = propHoOpenCat === name ? null : name;
+  refreshPropHomeOffice();
+}
+function setPropHoFilter(name, val) {
+  updatePropHo(ho => ({ ...ho, filters: { ...(ho.filters || {}), [name]: val.trim() } }));
+}
+function togglePropHoTxn(id, on) {
+  updatePropHo(ho => {
+    const ex = new Set(ho.excluded || []);
+    on ? ex.delete(id) : ex.add(id);
+    return { ...ho, excluded: [...ex] };
+  });
 }
 function setPropHomeOffice(field, val) {
   const s = currentPropStream(); if (!s) return;
@@ -5360,7 +5413,7 @@ function setPropHomeOffice(field, val) {
   // Typing both areas works out the share; it can still be overwritten.
   if ((field === 'officeM2' || field === 'houseM2') && ho.officeM2 && ho.houseM2) ho.pct = round2(ho.officeM2 / ho.houseM2 * 100);
   s.property = { ...p, homeOffice: ho };
-  scheduleSave(); renderProperty(); openPropHomeOffice();
+  refreshPropHomeOffice();
 }
 function togglePropHomeOfficeCat(name, on) {
   const s = currentPropStream(); if (!s) return;
@@ -5368,8 +5421,9 @@ function togglePropHomeOfficeCat(name, on) {
   const ho = { ...(p.homeOffice || {}) };
   const cats = new Set(ho.cats || []);
   on ? cats.add(name) : cats.delete(name);
+  if (on) propHoOpenCat = name;
   s.property = { ...p, homeOffice: { ...ho, cats: [...cats] } };
-  scheduleSave(); renderProperty(); openPropHomeOffice();
+  refreshPropHomeOffice();
 }
 function propLineRecat(id, cat, lineId) {
   const t = transactions.find(x => x.id === id); if (!t || !cat) return;
