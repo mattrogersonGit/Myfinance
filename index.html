@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.2';
+const APP_VERSION = '2026.11.09.3';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4217,8 +4217,25 @@ const PROP_LINES = [
   {id:'cleaning',    label:'Cleaning',                 kind:'expense'},
   {id:'travel',      label:'Travel',                   kind:'expense'},
   {id:'accountancy', label:'Accountancy',              kind:'expense'},
+  {id:'homeoffice',  label:'Home office',              kind:'expense'},
   {id:'other',       label:'Other expenses',           kind:'expense'},
 ];
+// Home office: a share (office area / house floor area) of the household's own
+// running costs -- picked personal categories, such as power, internet, rates,
+// house insurance and mortgage interest. Not cut by the mixed-use share.
+function propHomeOfficeForYear(s, ty) {
+  const ho = propSettings(s).homeOffice || {};
+  const pct = Number(ho.pct) || 0;
+  const cats = ho.cats || [];
+  const { start, end } = taxYearRange(ty);
+  const byCat = cats.map(name => {
+    const txns = transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === name && (d => d >= start && d < end)(dateToIso(t.date)));
+    return { name, txns, total: round2(-txns.reduce((a, t) => a + t.amount, 0)) };
+  });
+  const extra = Number((ho.extra || {})[ty]) || 0;
+  const total = round2(byCat.reduce((a, c) => a + c.total, 0) + extra);
+  return { pct, cats, byCat, extra, total, value: round2(total * pct / 100) };
+}
 const PROP_LINE_GUESSES = [
   ['transfer',    /equity|transfer|top.?up|drawing|principal|saving/i],
   ['commissions', /commission|platform|service fee/i],
@@ -4333,6 +4350,8 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
   lines.travel += trav.value;
   const cleanCost = propDaysInYear(s, ty, 'cleaning').reduce((a, d) => a + (Number(d.cost) || 0), 0);
   lines.cleaning += cleanCost;
+  const homeOffice = propHomeOfficeForYear(s, ty);
+  lines.homeoffice += homeOffice.value;
   // Mixed-use basis: shared holding costs are cut to the income-use share;
   // costs incurred only to earn income (fees, cleaning, travel to service
   // guests, management, accountancy) stay at 100%.
@@ -4353,13 +4372,14 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
       let label = l.label;
       if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
       if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
+      if (l.id === 'homeoffice' && homeOffice.value) label += ` (${homeOffice.pct}% of household costs)`;
       return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [] };
     });
   const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
   return {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, usage, share, basis,
+    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis,
   };
 }
 
@@ -4388,8 +4408,13 @@ function propTravelForYear(s, ty) {
   const km = trips.reduce((a, d) => a + (Number(d.km ?? p.travelKm) || 0), 0);
   const r = (p.kmRates || {})[ty] || {};
   const t1 = Number(r.t1) || 0, t2 = Number(r.t2 ?? r.t1) || 0;
-  const value = Math.min(km, KM_TIER1_LIMIT) * t1 + Math.max(0, km - KM_TIER1_LIMIT) * t2;
-  return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2 };
+  // IRD: tier 1 applies to the business share of the first 14,000 km the
+  // vehicle travels in the year. Without the car's total km, assume all of its
+  // travel was for the property.
+  const carKm = Number(r.carKm) || 0;
+  const tier1Km = carKm > 0 ? KM_TIER1_LIMIT * Math.min(1, km / carKm) : KM_TIER1_LIMIT;
+  const value = Math.min(km, tier1Km) * t1 + Math.max(0, km - tier1Km) * t2;
+  return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2, carKm: r.carKm, tier1Km: Math.round(tier1Km) };
 }
 // Days in the tax year by use. Income days are nights booked through an
 // imported platform plus "Other booking" marks; personal includes family.
@@ -4553,8 +4578,12 @@ function propUsageCardHtml(s) {
         <span style="color:var(--text2)">IRD km rate ${taxYearLabel(propTaxYear)}</span>
         <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="tier 1" value="${t.t1 ?? ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="tier 2" value="${t.t2 ?? ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
       </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+        <span style="color:var(--text2)">Car's total km this tax year<br><span style="font-size:11px;color:var(--text3)">odometer at 31 March less 1 April</span></span>
+        <input type="number" step="1" min="0" placeholder="km" value="${t.carKm ?? ''}" style="${inp};width:90px" onchange="setPropKmRate('carKm', this.value)">
+      </div>
       ${propRow('<strong>Travel claim</strong>', t.rateMissing ? '<span style="color:var(--red,#e5484d)">enter the km rate</span>' : `<strong>${fmt(t.value)}</strong>`)}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tier 1 covers the first 14,000 km of business travel in the year, tier 2 the rest. IRD publishes new rates each year.${propSettings(s).travelKm ? '' : ' Set the default trip distance in Setup.'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tier 1 applies to the property's share of the first 14,000 km the car travels in the year${t.carKm ? ` (${t.tier1Km.toLocaleString('en-NZ')} km here)` : ''}, tier 2 to the rest. ${t.carKm ? '' : 'Without the car\'s total km, all trips up to 14,000 km get tier 1. '}IRD publishes new rates each year.${propSettings(s).travelKm ? '' : ' Set the default trip distance in Setup.'}</div>
     </div>`;
 }
 function setPropKmRate(tier, val) {
@@ -4658,7 +4687,7 @@ function propTaxHtml(s) {
   const checks = (p.checks || {})[propTaxYear] || {};
   const appVal = { rent: pnl.rent, commissions: pnl.commissions, net: pnl.net };
   pnl.expenseLines.forEach(l => appVal[l.id] = l.amount);
-  const shown = pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005);
+  const shown = pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005 || l.id === 'homeoffice');
   const owners = p.owners.filter(o => o.share);
   const inp = 'width:100px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px 6px;text-align:right;outline:none';
   return `${propYearNavHtml()}${propTaxToggleHtml()}
@@ -4671,6 +4700,10 @@ function propTaxHtml(s) {
       ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
       ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
       ${shown.map(l => {
+        if (l.id === 'homeoffice') {
+          const label = escH(l.label) + ' <span style="font-size:10px;color:var(--teal)">›</span>';
+          return `<div onclick="openPropHomeOffice()" style="cursor:pointer">${propRow(label, pnl.homeOffice.pct ? fmt(l.amount) : '<span style="font-size:12px;color:var(--teal)">Set up</span>')}</div>`;
+        }
         const n = l.txns.length + l.costs.length;
         const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
         return n ? `<div onclick="openPropLineTxns('${l.id}')" style="cursor:pointer">${row}</div>` : row;
@@ -5271,6 +5304,66 @@ function openPropLineTxns(lineId) {
   const btn = document.getElementById('modal-confirm');
   btn.textContent = 'Close'; btn.onclick = () => closeModal();
   document.getElementById('modal').classList.add('open');
+}
+// Home office setup and breakdown, opened from the P&L line.
+const HOME_OFFICE_CAT_GUESS = /power|electric|gas|internet|phone|broadband|rates|water|insur|mortgage|interest/i;
+function openPropHomeOffice() {
+  const s = currentPropStream(); if (!s) return;
+  const ho = propSettings(s).homeOffice || {};
+  const r = propHomeOfficeForYear(s, propTaxYear);
+  const extra = Number((ho.extra || {})[propTaxYear]) || 0;
+  const { start, end } = taxYearRange(propTaxYear);
+  const totals = {};
+  transactions.forEach(t => {
+    if ((t.stream || 'personal') !== 'personal') return;
+    const d = dateToIso(t.date); if (d < start || d >= end) return;
+    totals[t.cat] = (totals[t.cat] || 0) - t.amount;
+  });
+  const cats = CATS.map(c => c.name).filter(n => r.cats.includes(n) || (totals[n] || 0) > 0.005)
+    .sort((a, b) => (r.cats.includes(b) - r.cats.includes(a)) || (HOME_OFFICE_CAT_GUESS.test(b) - HOME_OFFICE_CAT_GUESS.test(a)) || a.localeCompare(b));
+  const inp = 'width:80px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px;text-align:right;outline:none';
+  const costs = propCostsInYear(s, propTaxYear).filter(c => c.line === 'homeoffice');
+  const base = r.total; // already includes the extra costs typed in
+  const claim = round2(base * r.pct / 100) + costs.reduce((a, c) => a + (Number(c.amount) || 0), 0);
+  document.getElementById('modal-title').textContent = `Home office · ${taxYearLabel(propTaxYear)}`;
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">If you run the property from an office or workshop at home, you can claim a share of the household's running costs. The share is usually the office's floor area divided by the house's. It isn't cut by the mixed-use share.</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>Office area (m²)</span><input type="number" min="0" step="0.1" value="${ho.officeM2 ?? ''}" style="${inp}" onchange="setPropHomeOffice('officeM2', this.value)"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>House floor area (m²)</span><input type="number" min="0" step="0.1" value="${ho.houseM2 ?? ''}" style="${inp}" onchange="setPropHomeOffice('houseM2', this.value)"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span><strong>Share claimed (%)</strong></span><input type="number" min="0" max="100" step="0.01" value="${ho.pct ?? ''}" style="${inp}" onchange="setPropHomeOffice('pct', this.value)"></div>
+    <div style="font-size:12px;font-weight:600;margin:12px 0 4px">Household costs to include (personal categories)</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, leave it unticked and type the year's interest below.</div>
+    <div style="max-height:34vh;overflow-y:auto">${cats.length ? cats.map(n => `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+      <input type="checkbox" data-cat="${escH(n)}" ${r.cats.includes(n) ? 'checked' : ''} onchange="togglePropHomeOfficeCat(this.dataset.cat, this.checked)">
+      <span style="flex:1;min-width:0">${escH(n)}</span><span style="white-space:nowrap;color:var(--text2)">${fmt(totals[n] || 0)}</span></label>`).join('') : '<div style="font-size:12px;color:var(--text3)">No personal spending in this tax year.</div>'}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span>Other household costs this year<br><span style="font-size:11px;color:var(--text3)">e.g. mortgage interest from the bank's statement</span></span><input type="number" min="0" step="0.01" value="${extra || ''}" style="width:100px;${inp.replace('width:80px;', '')}" onchange="setPropHomeOffice('extra', this.value)"></div>
+    ${propRow('Household costs', fmt(base))}
+    ${costs.length ? propRow('Added with + Add a cost', fmt(costs.reduce((a, c) => a + (Number(c.amount) || 0), 0))) : ''}
+    ${propRow('<strong>Home office claim</strong>', `<strong>${fmt(claim)}</strong>`)}`;
+  const btn = document.getElementById('modal-confirm');
+  btn.textContent = 'Done'; btn.style.display = ''; btn.disabled = false; btn.onclick = () => closeModal();
+  document.getElementById('modal').classList.add('open');
+}
+function setPropHomeOffice(field, val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const ho = { ...(p.homeOffice || {}) };
+  const n = val === '' || isNaN(Number(val)) ? null : Number(val);
+  if (field === 'extra') ho.extra = { ...(ho.extra || {}), [propTaxYear]: n };
+  else ho[field] = n;
+  // Typing both areas works out the share; it can still be overwritten.
+  if ((field === 'officeM2' || field === 'houseM2') && ho.officeM2 && ho.houseM2) ho.pct = round2(ho.officeM2 / ho.houseM2 * 100);
+  s.property = { ...p, homeOffice: ho };
+  scheduleSave(); renderProperty(); openPropHomeOffice();
+}
+function togglePropHomeOfficeCat(name, on) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const ho = { ...(p.homeOffice || {}) };
+  const cats = new Set(ho.cats || []);
+  on ? cats.add(name) : cats.delete(name);
+  s.property = { ...p, homeOffice: { ...ho, cats: [...cats] } };
+  scheduleSave(); renderProperty(); openPropHomeOffice();
 }
 function propLineRecat(id, cat, lineId) {
   const t = transactions.find(x => x.id === id); if (!t || !cat) return;
