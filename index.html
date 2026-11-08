@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.6';
+const APP_VERSION = '2026.11.09.7';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4301,7 +4301,7 @@ function computePayoutMatches(s) {
     const cands = (byCents.get(cents(p.amount)) || []).filter(t => !matchedTxnIds.has(t.id));
     const lo = p.date, hiD = isoToDate(p.arriveBy || p.date); hiD.setDate(hiD.getDate() + 7);
     const hi = dateToIso(hiD);
-    const inWin = cands.filter(t => { const d = dateToIso(t.date); return d >= lo && d <= hi; });
+    const inWin = cands.filter(t => { const d = dateToIso(t.date); return d >= lo && d <= hi; }).sort((a, b) => a.date - b.date);
     const orig = inWin.find(t => /airbnb|payoneer|bookabach|vrbo|homeaway|expedia/i.test((t.desc||'') + ' ' + (t.detail||''))) || inWin.find(t => t.stream !== s.id) || inWin[0];
     if (!orig) return;
     payoutTxn.set(p.id, orig);
@@ -4309,7 +4309,10 @@ function computePayoutMatches(s) {
     if (orig.stream !== s.id) {
       const od = dateToIso(orig.date), fwdEnd = new Date(orig.date); fwdEnd.setDate(fwdEnd.getDate() + 31);
       const fe = dateToIso(fwdEnd);
-      const fwd = cands.find(t => t !== orig && t.stream === s.id && !matchedTxnIds.has(t.id) && dateToIso(t.date) >= od && dateToIso(t.date) <= fe);
+      // Earliest forward first, so two same-amount payouts a week apart each
+      // pair with their own forward rather than the first taking the second's.
+      const fwd = cands.filter(t => t !== orig && t.stream === s.id && !matchedTxnIds.has(t.id) && dateToIso(t.date) >= od && dateToIso(t.date) <= fe)
+        .sort((a, b) => a.date - b.date)[0];
       if (fwd) matchedTxnIds.add(fwd.id);
     }
   });
