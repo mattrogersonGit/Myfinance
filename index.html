@@ -1023,7 +1023,7 @@
       <div id="txn-acc-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;align-items:center"></div>
       <div class="search-bar">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="search" id="txn-search" placeholder="Search transactions…" oninput="renderTransactions()">
+        <input type="search" id="txn-search" placeholder="Search words or an amount…" oninput="renderTransactions()">
       </div>
       <div class="card" style="padding:0 16px">
         <div id="txn-list"></div>
@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.7';
+const APP_VERSION = '2026.11.09.8';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2150,7 +2150,10 @@ function renderTransactions() {
   const period = document.getElementById('txn-period')?.value||'selmonth';
   const searchingAll = !!search;
   let txns = (searchingAll ? visibleTxns() : getFilteredTxns(period))
-    .filter(t => !search || t.desc.toLowerCase().includes(search) || t.cat.toLowerCase().includes(search))
+    // Also matches the amount, so "435.18" or "$435.18" finds the transaction.
+    .filter(t => !search || t.desc.toLowerCase().includes(search) || t.cat.toLowerCase().includes(search)
+      || (t.detail || '').toLowerCase().includes(search)
+      || (/\d/.test(search) && Math.abs(Number(t.amount) || 0).toFixed(2).includes(search.replace(/[$,\s-]/g, ''))))
     .filter(t => !activeCatFilter || t.cat === activeCatFilter)
     .filter(t => txnAccountFilter==='all' || t.account === txnAccountFilter)
     .sort((a,b) => b.date - a.date);
