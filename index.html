@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.07.1';
+const APP_VERSION = '2026.11.09.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -5190,7 +5190,9 @@ function propFindHtml(s, catOpts, head, small) {
   const lineLabel = id => (PROP_LINES.find(l => l.id === id) || {}).label || id;
   const found = q.length < 2 ? [] : transactions.filter(t => {
     if (propFindYearOnly) { const d = dateToIso(t.date); if (d < start || d >= end) return false; }
-    return `${t.desc || ''} ${t.detail || ''} ${t.cat || ''}`.toLowerCase().includes(q);
+    const accName = accounts.find(a => a.id === t.account)?.name || '';
+    const amt = Math.abs(Number(t.amount) || 0).toFixed(2);
+    return `${t.desc || ''} ${t.detail || ''} ${t.cat || ''} ${accName} ${amt}`.toLowerCase().includes(q.replace(/[$,]/g, ''));
   }).sort((a, b) => a.date - b.date);
   const shown = found.slice(0, 150);
   const persOpts = sel => CATS.map(c => `<option value="${escH(c.name)}" ${c.name === sel ? 'selected' : ''}>${escH(c.name)}</option>`).join('');
@@ -5219,7 +5221,7 @@ function propFindHtml(s, catOpts, head, small) {
   }).join('');
   const total = found.reduce((a, t) => a + t.amount, 0);
   return `<div style="display:flex;gap:8px;margin-bottom:6px">
-      <input type="text" id="prop-find" value="${escH(propFindText)}" placeholder="e.g. accountant, rates, AMP" onkeydown="if(event.key==='Enter')propFindRun()" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:8px 10px;outline:none">
+      <input type="text" id="prop-find" value="${escH(propFindText)}" placeholder="Words, an amount (127.96) or an account name" onkeydown="if(event.key==='Enter')propFindRun()" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:8px 10px;outline:none">
       <button class="btn btn-primary" style="padding:6px 12px" onclick="propFindRun()">Search</button></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:8px"><input type="checkbox" id="prop-find-year" ${propFindYearOnly ? 'checked' : ''} onchange="propFindRun()"> Only tax year ${taxYearLabel(propTaxYear)}</label>
     ${q.length < 2 ? '<div style="font-size:12px;color:var(--text3)">Searches descriptions, details and categories of every transaction, personal and property.</div>'
