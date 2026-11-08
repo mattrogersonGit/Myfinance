@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.1';
+const APP_VERSION = '2026.11.09.2';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3219,9 +3219,11 @@ function handleCSV(input, account) {
     // Deduplicate against committed + already-pending transactions.
     // Use a count map so two same-day same-amount transactions (e.g. two school care invoices)
     // are both allowed through if both already exist, or both treated as new if neither exists.
+    // Only compare against the same account: the same amount on the same day in two accounts
+    // (a $300 rates payment from each, or a purchase and its repayment) is two real transactions.
     const fp = t => `${t.date instanceof Date ? t.date.toISOString().slice(0,10) : String(t.date).slice(0,10)}|${(+t.amount).toFixed(2)}`;
     const existingCounts = new Map();
-    [...transactions, ...pendingTxns].forEach(t => { const k=fp(t); existingCounts.set(k,(existingCounts.get(k)||0)+1); });
+    [...transactions, ...pendingTxns].filter(t => t.account === account).forEach(t => { const k=fp(t); existingCounts.set(k,(existingCounts.get(k)||0)+1); });
     const added = newTxns.filter(t => { const k=fp(t); const n=existingCounts.get(k)||0; if(n>0){existingCounts.set(k,n-1);return false;} return true; });
     const dupes = newTxns.length - added.length;
     pendingTxns = pendingTxns.concat(added);
