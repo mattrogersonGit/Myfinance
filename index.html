@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.14';
+const APP_VERSION = '2026.11.09.15';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4655,8 +4655,6 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
 // Starts from a balance the user types in (as at a date), adds anything
 // imported for the account since, then projects:
 //  * booked stays: the payout, the day after check-in;
-//  * rent not yet booked: last year's income deposits into the account that
-//    month, less what's booked;
 //  * regular payments paid from the account: on schedule at the usual amount;
 //  * other costs from the account: what went out the same month last year.
 // Top-ups and other transfers aren't forecast -- the point is to see when one
@@ -4695,7 +4693,8 @@ function propCashflow(s) {
     if (!recent.length) return; // paid from another account
     const f = PROP_FREQS.find(x => x.id === r.freq) || PROP_FREQS[2];
     const lastDate = dateToIso(recent[0].date);
-    const amts = recent.slice(0, 6).map(t => -t.amount).sort((a, b) => a - b), usual = amts[Math.floor((amts.length - 1) / 2)];
+    const byDay = {}; recent.forEach(t => { const d = dateToIso(t.date); byDay[d] = (byDay[d] || 0) - t.amount; });
+    const amts = Object.keys(byDay).sort().reverse().slice(0, 6).map(d => byDay[d]).sort((a, b) => a - b), usual = amts[Math.floor((amts.length - 1) / 2)];
     for (let i = 1; i < 800; i++) {
       const d = addPeriodsIso(lastDate, f, i); if (d >= horizon) break;
       if (inRange(d)) events.push({ date: d, amount: -round2(usual), label: propRegularLabel(r), kind: 'regular' });
@@ -4704,25 +4703,19 @@ function propCashflow(s) {
   // Last year's pattern for everything else, and income deposits.
   const lyStart = isoYearsAgo(start, 1), lyEnd = isoYearsAgo(horizon, 1);
   const monthKey = d => d.slice(0, 7);
-  const bookedIn = {};
-  events.filter(e => e.kind === 'booked').forEach(e => { bookedIn[monthKey(e.date)] = (bookedIn[monthKey(e.date)] || 0) + e.amount; });
-  const lyIncome = {}, patt = {};
+  const patt = {};
   accTxns.forEach(t => {
     const d = dateToIso(t.date);
     if (!(d > lyStart && d < lyEnd) || regTxnIds.has(t.id)) return;
     const kind = propLineKind(propLineForTxn(s, t));
     if (kind === 'none') return;
     const nd = isoYearsAgo(d, -1);
-    if (kind === 'income') { if (t.amount > 0) lyIncome[monthKey(nd)] = (lyIncome[monthKey(nd)] || 0) + t.amount; return; }
-    const line = propLineForTxn(s, t), k = monthKey(nd) + '|' + line;
+    if (kind === 'income') return; // only booked stays count as money in
+    const line = propLineForTxn(s, t), k = nd + '|' + line; // same day + line = one payment (e.g. loan parts)
     const g = patt[k] || (patt[k] = { date: nd, amount: 0, n: 0, label: PROP_LINES.find(l => l.id === line)?.label || 'Other', kind: 'pattern' });
     g.amount += t.amount; g.n++; if (nd > g.date) g.date = nd;
   });
-  Object.values(patt).forEach(g => { if (Math.abs(g.amount) >= 0.5) events.push({ ...g, amount: round2(g.amount), label: g.label + (g.n > 1 ? ` (${g.n} last year)` : '') }); });
-  Object.entries(lyIncome).forEach(([m, v]) => {
-    const extra = round2(v - (bookedIn[m] || 0));
-    if (extra > 0.5) events.push({ date: m + '-15', amount: extra, label: 'Rent not yet booked (last year this month)', kind: 'forecast' });
-  });
+  Object.values(patt).forEach(g => { if (Math.abs(g.amount) >= 0.5) events.push({ ...g, amount: round2(g.amount), label: g.label + (g.n > 1 ? ` (${g.n} parts)` : '') }); });
   events.sort((a, b) => a.date.localeCompare(b.date));
   // Roll up by month with a running balance.
   const months = [];
@@ -4762,16 +4755,16 @@ function propCashflowHtml(s) {
       <div style="font-size:13px;margin-bottom:8px">${c.low.bal < 0
         ? `<span class="neg" style="font-weight:600">Goes ${fmt(c.low.bal)} overdrawn around ${fmtDay(c.low.date)}.</span> Top up before then.`
         : `Lowest point: <strong>${money(c.low.bal)}</strong> around ${fmtDay(c.low.date)}.`}</div>
-      <div style="${cols};font-size:11px;color:var(--text3);padding-bottom:4px;border-bottom:0.5px solid var(--border)"><span>Month</span><span style="text-align:right">In</span><span style="text-align:right">Out</span><span style="text-align:right">Balance</span></div>
+      <div style="${cols};font-size:11px;color:var(--text3);padding-bottom:4px;border-bottom:0.5px solid var(--border)"><span>Month</span><span style="text-align:right">In</span><span style="text-align:right">Out</span><span style="text-align:right">Month end</span></div>
       ${c.months.map(m => `<div onclick="propCashOpen=propCashOpen==='${m.key}'?null:'${m.key}';renderProperty()" style="cursor:pointer;${cols};font-size:13px;padding:8px 0;border-bottom:0.5px solid var(--border)">
           <span>${m.label} <span style="font-size:10px;color:var(--teal)">${propCashOpen === m.key ? '▾' : '›'}</span></span>
           <span style="text-align:right" class="pos">${m.inn ? fmtWhole(m.inn) : '—'}</span>
           <span style="text-align:right">${m.out ? fmtWhole(m.out) : '—'}</span>
           <span style="text-align:right;font-weight:600" class="${m.end < 0 ? 'neg' : ''}">${m.end < 0 ? '−' : ''}${fmtWhole(m.end)}</span></div>
         ${propCashOpen === m.key ? `<div style="padding:4px 0 8px 8px">${m.events.length ? m.events.map(e => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0">
-            <span style="min-width:0">${fmtDay(e.date)} · ${escH(e.label)} <span style="font-size:10px;color:var(--text3)">${tag[e.kind]}</span></span>
-            <span class="${e.amount > 0 ? 'pos' : ''}" style="white-space:nowrap">${e.amount > 0 ? '+' : '−'}${fmt(e.amount)}</span></div>`).join('') : '<div style="font-size:12px;color:var(--text3)">Nothing expected.</div>'}</div>` : ''}`).join('')}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Booked stays are paid the day after check-in. Rent not yet booked and other costs follow last year's activity in this account; set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> to schedule bills exactly. Top-ups from your own accounts aren't included.</div>
+            <span style="min-width:0;padding-top:1px">${fmtDay(e.date)} · ${escH(e.label)} <span style="font-size:10px;color:var(--text3)">${tag[e.kind]}</span></span>
+            <span style="white-space:nowrap;text-align:right"><span class="${e.amount > 0 ? 'pos' : ''}">${e.amount > 0 ? '+' : '−'}${fmt(e.amount)}</span><br><span style="font-size:11px;color:var(--text3)" class="${e.bal < 0 ? 'neg' : ''}">bal ${e.bal < 0 ? '−' : ''}${fmt(e.bal)}</span></span></div>`).join('') : '<div style="font-size:12px;color:var(--text3)">Nothing expected.</div>'}</div>` : ''}`).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Only booked stays count as money in, paid the day after check-in. Costs follow last year's activity in this account (same day last year); set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> to schedule bills exactly. Top-ups from your own accounts aren't included.</div>
     </div>`;
 }
 function setPropCash(field, val) {
