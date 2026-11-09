@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.8';
+const APP_VERSION = '2026.11.09.9';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4247,6 +4247,131 @@ function propHomeOfficeForYear(s, ty) {
   const total = round2(byCat.reduce((a, c) => a + c.total, 0) + extra);
   return { pct, cats, byCat, extra, total, value: round2(total * pct / 100) };
 }
+// Regular payments: costs that should turn up on a schedule (rates monthly,
+// mortgage fortnightly). Each is a report line or a personal category, can be
+// narrowed by words in the description (e.g. "AMP" within Insurance), and is
+// checked for gaps in the tax year -- usually a sign of a missing import or a
+// transaction coded somewhere else. Stored as property.regular[].
+const PROP_FREQS = [
+  { id:'weekly',      label:'Weekly',      days:7 },
+  { id:'fortnightly', label:'Fortnightly', days:14 },
+  { id:'monthly',     label:'Monthly',     days:30.44,  months:1 },
+  { id:'quarterly',   label:'Quarterly',   days:91.31,  months:3 },
+  { id:'annual',      label:'Yearly',      days:365.25, months:12 },
+];
+const addDaysIso = (iso, n) => { const d = isoToDate(iso); d.setDate(d.getDate() + Math.round(n)); return dateToIso(d); };
+// Moves i periods on from a date: whole calendar months for monthly and
+// longer (day clamped to the month's end), days otherwise.
+const addPeriodsIso = (iso, f, i) => {
+  if (!f.months) return addDaysIso(iso, f.days * i);
+  const d = isoToDate(iso), day = d.getDate();
+  const t = new Date(d.getFullYear(), d.getMonth() + f.months * i, 1);
+  t.setDate(Math.min(day, new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate()));
+  return dateToIso(t);
+};
+function propRegularLabel(r) {
+  const src = r.src || '';
+  const name = src.startsWith('cat:') ? src.slice(4) : (PROP_LINES.find(l => l.id === src.slice(5))?.label || src);
+  return name + (r.words ? ` · ${r.words}` : '');
+}
+function propRegularTxns(s, ty, r) {
+  const { start, end } = taxYearRange(ty);
+  const src = r.src || '';
+  let list;
+  if (src.startsWith('cat:')) {
+    const name = src.slice(4);
+    list = transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === name && t.amount < 0 && (d => d >= start && d < end)(dateToIso(t.date)))
+      .map(t => ({ date: dateToIso(t.date), amount: t.amount, text: `${t.desc || ''} ${t.detail || ''}` }));
+  } else {
+    const line = src.slice(5), income = propLineKind(line) === 'income';
+    list = propTxnsInYear(s, ty).filter(t => propLineForTxn(s, t) === line && (income ? t.amount > 0 : t.amount < 0))
+      .map(t => ({ date: dateToIso(t.date), amount: t.amount, text: `${t.desc || ''} ${t.detail || ''}` }))
+      .concat(propCostsInYear(s, ty).filter(c => c.line === line).map(c => ({ date: c.date, amount: -(Number(c.amount) || 0), text: c.note || '' })));
+  }
+  const words = String(r.words || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+  if (words.length) list = list.filter(t => words.some(w => t.text.toLowerCase().includes(w)));
+  return list.sort((a, b) => a.date.localeCompare(b.date));
+}
+// Finds the gaps: a payment is missing where the time between two found
+// payments (or from the start of the year to the first, or from the last to
+// today / year end) is more than the frequency allows.
+function propRegularCheck(s, ty, r) {
+  const f = PROP_FREQS.find(x => x.id === r.freq) || PROP_FREQS[2];
+  const step = f.days, grace = Math.max(4, step * 0.25);
+  const { start, end } = taxYearRange(ty);
+  const today = todayLocal();
+  const txns = propRegularTxns(s, ty, r);
+  if (start > today) return { f, txns, missing: [], future: true };
+  const until = end <= today ? end : today;
+  const dates = [...new Set(txns.map(t => t.date))];
+  const missing = [];
+  if (!dates.length) {
+    const n = Math.floor((daysBetween(start, until) - grace) / step + 0.5);
+    for (let i = 0; i < n; i++) missing.push(addPeriodsIso(start, f, i));
+    return { f, txns, missing, none: true };
+  }
+  const lead = daysBetween(start, dates[0]);
+  if (lead > step + grace) { const k = Math.floor((lead - grace) / step); for (let i = k; i >= 1; i--) missing.push(addPeriodsIso(dates[0], f, -i)); }
+  for (let i = 1; i < dates.length; i++) {
+    const gap = daysBetween(dates[i-1], dates[i]);
+    if (gap > step * 1.5) { const k = Math.max(1, Math.round(gap / step) - 1); for (let j = 1; j <= k; j++) missing.push(addPeriodsIso(dates[i-1], f, j)); }
+  }
+  const last = dates[dates.length - 1], trail = daysBetween(last, until);
+  if (trail > step + grace) { const k = Math.floor((trail - grace) / step); for (let i = 1; i <= k; i++) missing.push(addPeriodsIso(last, f, i)); }
+  return { f, txns, missing, last };
+}
+function propRegularCheckHtml(s) {
+  const regs = propSettings(s).regular || [];
+  const intro = `<div class="card-title" style="margin-bottom:4px">Regular payments check</div>`;
+  if (!regs.length) return `<div class="card">${intro}<div style="font-size:12px;color:var(--text3)">Tell the app which costs come out on a schedule (rates monthly, mortgage fortnightly) and it will spot any that are missing this year. Set them up in <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">Setup → Regular payments</a>.</div></div>`;
+  const fmtMiss = (d, f) => f.days >= 28 ? isoToDate(d).toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' }) : '~' + fmtDay(d);
+  let nMissing = 0;
+  const rows = regs.map(r => {
+    const c = propRegularCheck(s, propTaxYear, r);
+    nMissing += c.missing.length;
+    const found = `${c.txns.length} found${c.last ? ` · last ${fmtDay(c.last)}` : ''}`;
+    const status = c.future ? '<span style="color:var(--text3)">year not started</span>'
+      : c.missing.length ? `<span style="color:var(--red,#d64545)">⚠ ${c.missing.length} missing</span>`
+      : c.txns.length ? '<span style="color:var(--green,#2ea043)">✓</span>' : '<span style="color:var(--text3)">none yet</span>';
+    return `<div style="padding:7px 0;border-bottom:0.5px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="min-width:0">${escH(propRegularLabel(r))} <span style="font-size:11px;color:var(--text3)">${c.f.label.toLowerCase()}</span></span><span style="white-space:nowrap">${status}</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">${found}${c.missing.length ? ` · around ${c.missing.slice(0, 8).map(d => fmtMiss(d, c.f)).join(', ')}${c.missing.length > 8 ? '…' : ''}` : ''}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card">${intro}
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">${nMissing ? 'Gaps usually mean an account isn\'t imported up to date, or the payment is coded to another category or left in Personal.' : 'Every regular payment is accounted for so far this year.'} <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">Change</a></div>
+    ${rows}</div>`;
+}
+function propRegularSetupHtml(s) {
+  const regs = propSettings(s).regular || [];
+  const sel = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:6px 6px;min-width:0';
+  const lineOpts = PROP_LINES.filter(l => !['travel', 'homeoffice'].includes(l.id));
+  const srcSelect = (r, i) => `<select onchange="setPropRegular(${i},'src',this.value)" style="flex:1;${sel}">
+      <optgroup label="${escH(s.name)} report lines">${lineOpts.map(l => `<option value="line:${l.id}" ${r.src === 'line:' + l.id ? 'selected' : ''}>${escH(l.label)}</option>`).join('')}</optgroup>
+      <optgroup label="Personal categories">${CATS.map(c => `<option value="cat:${escH(c.name)}" ${r.src === 'cat:' + c.name ? 'selected' : ''}>${escH(c.name)}</option>`).join('')}</optgroup>
+    </select>`;
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:4px">Regular payments</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Costs that come out on a schedule. The Tax tab checks each tax year for gaps. Add words to pick out one payee when a line has several, e.g. Insurance with "AMP" and again with "AMI".</div>
+    ${regs.map((r, i) => `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">
+      <div style="display:flex;gap:6px;margin-bottom:6px">${srcSelect(r, i)}
+        <select onchange="setPropRegular(${i},'freq',this.value)" style="width:110px;${sel}">${PROP_FREQS.map(f => `<option value="${f.id}" ${r.freq === f.id ? 'selected' : ''}>${f.label}</option>`).join('')}</select>
+        <button class="btn btn-secondary" style="padding:4px 9px;font-size:12px" onclick="removePropRegular(${i})" aria-label="Remove">✕</button></div>
+      <input type="text" value="${escH(r.words || '')}" placeholder="Only descriptions containing… (optional)" onchange="setPropRegular(${i},'words',this.value)" style="width:100%;box-sizing:border-box;${sel}">
+    </div>`).join('')}
+    <button class="btn btn-secondary btn-block" style="margin-top:10px" onclick="addPropRegular()">+ Add a regular payment</button>
+  </div>`;
+}
+function updatePropRegular(fn) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  s.property = { ...p, regular: fn([...(p.regular || [])]) };
+  scheduleSave(); renderProperty();
+}
+function addPropRegular() { updatePropRegular(list => [...list, { src: 'line:rates', freq: 'monthly', words: '' }]); }
+function removePropRegular(i) { updatePropRegular(list => list.filter((_, j) => j !== i)); }
+function setPropRegular(i, field, val) { updatePropRegular(list => { list[i] = { ...list[i], [field]: field === 'words' ? val.trim() : val }; return list; }); }
+
 const PROP_LINE_GUESSES = [
   ['transfer',    /equity|transfer|top.?up|drawing|principal|saving/i],
   ['commissions', /commission|platform|service fee/i],
@@ -4737,6 +4862,7 @@ function propTaxHtml(s) {
       ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.net * o.share / 100))).join('')}` : ''}
       ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
     </div>
+    ${propRegularCheckHtml(s)}
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Type in the figures from the accountant's statement for this tax year to see where the app differs. Rent and commissions are reported differently (the accountant uses what guests paid, the app uses the Airbnb CSV), so compare <strong>net profit</strong> for those.</div>
@@ -5659,6 +5785,7 @@ function propSetupHtml(s) {
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
     <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
   </div>
+  ${propRegularSetupHtml(s)}
   ${propCatLinesHtml(s)}`;
 }
 function propCatLinesHtml(s) {
