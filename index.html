@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.18';
+const APP_VERSION = '2026.11.10.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -6256,9 +6256,10 @@ function propSetupHtml(s) {
         <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (apportion by income vs personal days)</option>
       </select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
-    ${p.deductionBasis === 'mixeduse' ? `<div class="input-group"><label>Claim these in full (not cut to the income share)</label>
-      <div style="display:flex;flex-wrap:wrap;gap:4px 14px">${PROP_APPORTIONABLE.map(id => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400"><input type="checkbox" ${(p.fullLines || []).includes(id) ? 'checked' : ''} onchange="togglePropFullLine('${id}', this.checked)"> ${escH(id === 'depreciation' ? 'Depreciation' : PROP_LINES.find(l => l.id === id).label)}</label>`).join('')}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Only for costs that relate solely to guests, such as repairing damage from a booking. Your accountant decides; last year they claimed repairs &amp; maintenance in full.</div></div>` : ''}
+    ${p.deductionBasis === 'mixeduse' ? `<div style="margin:-4px 0 16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Claim these in full (not cut to the income share)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">${PROP_APPORTIONABLE.map(id => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0;flex:none" ${(p.fullLines || []).includes(id) ? 'checked' : ''} onchange="togglePropFullLine('${id}', this.checked)"> <span>${escH(id === 'depreciation' ? 'Depreciation' : PROP_LINES.find(l => l.id === id).label)}</span></label>`).join('')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Only for costs that relate solely to earning income, such as repairing damage caused by guests. Check with your accountant.</div></div>` : ''}
     <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
   </div>
   ${propRegularSetupHtml(s)}
