@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.10.2';
+const APP_VERSION = '2026.11.10.3';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -3272,7 +3272,7 @@ function handleCSV(input, account) {
     const ignored = kept.length - added.length;
     pendingTxns = pendingTxns.concat(added);
     const statusEl = document.getElementById('status-' + account);
-    statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped${ignored ? ` · ${ignored} you deleted before skipped` : ''}`;
+    if (statusEl) statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped${ignored ? ` · ${ignored} you deleted before skipped` : ''}`;
     scheduleSave();
     renderPendingBanner();
     if (added.length) openPendingReview();
@@ -4980,6 +4980,253 @@ function propPackCardHtml() {
   </div>`;
 }
 
+// ── Year-end checklist (Tax tab) and setup check (Setup tab) ──
+// Each row is green (on track), amber (needs a look), red (off track) or grey
+// (doesn't apply). The checklist covers the data for one tax year: imports up
+// to date, loan statements, regular payments, bookings, things to review, and
+// a few things only the owner can confirm (ticked per year). The setup check
+// covers settings that apply every year.
+const PROP_STATUS = {
+  good: { c: 'var(--green,#2ea043)', icon: '✓' },
+  warn: { c: '#d97706', icon: '!' },
+  bad:  { c: 'var(--red,#d64545)', icon: '✕' },
+  na:   { c: 'var(--text3)', icon: '–' },
+};
+const propHoMortgageCats = ho => (ho.cats || []).filter(n => /mortgage|home ?loan/i.test(n));
+// The date the year's data should reach: today in the current year, 31 March
+// for a past year.
+function propYearTarget(ty) {
+  const { end } = taxYearRange(ty), today = todayLocal();
+  return end <= today ? addDaysIso(end, -1) : today;
+}
+function propYearChecks(s, ty) { return ((propSettings(s).yearChecks || {})[ty]) || {}; }
+function togglePropYearCheck(key, on) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s), yc = { ...(p.yearChecks || {}) };
+  yc[propTaxYear] = { ...(yc[propTaxYear] || {}), [key]: !!on };
+  s.property = { ...p, yearChecks: yc };
+  scheduleSave(); renderProperty();
+}
+function togglePropSetupOk(key, on) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  s.property = { ...p, setupOk: { ...(p.setupOk || {}), [key]: !!on } };
+  scheduleSave(); renderProperty();
+}
+// Days a date is behind the target, as a status: within a fortnight is on
+// track, within ~6 weeks needs a look, more is off track.
+function propBehind(last, target, okDays = 14, warnDays = 45) {
+  if (!last) return 'bad';
+  const d = daysBetween(last, target);
+  return d <= okDays ? 'good' : d <= warnDays ? 'warn' : 'bad';
+}
+function propChecklist(s, ty) {
+  const p = propSettings(s), ho = p.homeOffice || {};
+  const { start, end } = taxYearRange(ty), today = todayLocal();
+  const target = propYearTarget(ty), started = start <= today, past = end <= today;
+  const yc = propYearChecks(s, ty);
+  const items = [];
+  const link = (label, js) => `<a href="#" onclick="${js};return false" style="color:var(--teal)">${label}</a>`;
+  if (!started) return items;
+
+  // 1. Bank accounts the figures come from: the property's own, plus any that
+  // property, home office or regular-payment transactions this year came off.
+  // This year and last, so an account not yet imported this year still shows.
+  const prevStart = taxYearRange(ty - 1).start;
+  const inYear = t => (d => d >= prevStart && d < end)(dateToIso(t.date));
+  const accIds = new Set(propAccountIds(s));
+  const hoCats = new Set(ho.cats || []);
+  const regCats = new Set((p.regular || []).filter(r => r.src.startsWith('cat:')).map(r => r.src.slice(4)));
+  transactions.forEach(t => {
+    if (!t.account || !inYear(t)) return;
+    const personal = (t.stream || 'personal') === 'personal';
+    if (t.stream === s.id || (personal && (hoCats.has(t.cat) || regCats.has(t.cat) || t.cat === propPersonalCat(s)))) accIds.add(t.account);
+  });
+  const bank = [...accIds].map(id => {
+    const a = accounts.find(x => x.id === id);
+    const ds = transactions.filter(t => t.account === id).map(t => dateToIso(t.date)).sort();
+    const last = ds[ds.length - 1] || null;
+    const pending = pendingTxns.filter(t => t.account === id).length;
+    let st = propBehind(last, target, past ? 7 : 14);
+    if (pending && st === 'good') st = 'warn';
+    return { id, name: a?.name || id, last, pending, st };
+  });
+  items.push({ group: 'Bank statements', rows: bank.map(b => ({
+    st: b.st, label: b.name,
+    detail: `${b.last ? `imported up to ${fmtDay(b.last)}` : 'nothing imported'}${b.pending ? ` · ${b.pending} waiting for review in Import` : ''}`,
+    action: `<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="handleCSV(this, '${escH(b.id)}')"></label>`,
+  })) });
+
+  // 2. Loan statements, when home office counts a mortgage category.
+  const mortCats = propHoMortgageCats(ho);
+  if (ho.pct && (ho.loanCat || mortCats.length)) {
+    const loans = (ho.loans || []).filter(l => (l.recs || []).length);
+    const rows = [];
+    if (!ho.loanCat) rows.push({ st: 'bad', label: 'Repayments category not set', detail: `Home office includes ${escH(mortCats.join(', '))}. Say which category holds the repayments in ${link('Setup', "setPropTab('setup')")} so only the interest is counted.` });
+    else if (!loans.length) rows.push({ st: 'bad', label: 'No loan statements loaded', detail: `The full repayments in ${escH(ho.loanCat)} are being counted, principal included. Load each loan account's statement below.` });
+    loans.forEach((l, i) => {
+      const last = l.recs.reduce((m, r) => r.date > m ? r.date : m, '');
+      rows.push({ st: propBehind(last, target, 35, 70), label: l.name, detail: `interest loaded up to ${fmtDay(last)} · ${l.recs.length} lines`,
+        action: `<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this, ${i})"></label>` });
+    });
+    rows.push({ st: null, label: '', body: `<div style="display:flex;align-items:center;gap:8px;padding:4px 0 2px">
+        <input type="text" id="prop-loan-name" placeholder="New loan, e.g. Home loan 2" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px;outline:none">
+        <label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this)"></label></div>
+      <div style="font-size:11px;color:var(--text3)">The loan account's own statement, not the account repayments come from. Only interest lines are kept, and they don't go into your transactions. One name per loan part; loading a statement twice is fine.</div>` });
+    items.push({ group: 'Mortgage interest (home office)', rows });
+  }
+
+  // 3. Regular payments.
+  const regs = p.regular || [];
+  const fmtMiss = (d, f) => f.days >= 28 ? isoToDate(d).toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' }) : '~' + fmtDay(d);
+  items.push({ group: 'Regular payments', rows: regs.length ? regs.map(r => {
+    const c = propRegularCheck(s, ty, r);
+    return { st: c.missing.length ? 'bad' : c.txns.length ? 'good' : 'warn', label: `${propRegularLabel(r)} <span style="font-size:11px;color:var(--text3)">${c.f.label.toLowerCase()}</span>`,
+      detail: `${c.last ? `last ${fmtDay(c.last)}` : 'none found'}${c.missing.length ? ` · ${c.missing.length} missing, around ${c.missing.slice(0, 6).map(d => fmtMiss(d, c.f)).join(', ')}${c.missing.length > 6 ? '…' : ''}` : ''}` };
+  }) : [{ st: 'warn', label: 'None set up', detail: `Add the costs that come out on a schedule in ${link('Setup → Regular payments', "setPropTab('setup')")} to spot missing ones.` }] });
+
+  // 4. Bookings and payouts.
+  const bks = bookings.filter(b => b.streamId === s.id && !b.cancelled && b.checkIn < end && (b.checkOut || b.checkIn) > start);
+  const stale = bks.filter(b => b.status === 'upcoming' && (b.checkOut || b.checkIn) < addDaysIso(today, -3));
+  const matches = computePayoutMatches(s);
+  const missPay = propPayouts.filter(x => x.streamId === s.id && x.date >= start && x.date < end && !matches.payoutTxn.has(x.id));
+  const oldMiss = missPay.filter(x => (x.arriveBy || x.date) < addDaysIso(today, -7));
+  const bkRows = [{ st: !bks.length ? 'bad' : stale.length ? 'warn' : 'good', label: 'Bookings imported',
+    detail: !bks.length ? 'none this year' : `${bks.length} this year${stale.length ? ` · ${stale.length} finished stay${stale.length === 1 ? '' : 's'} still marked upcoming, so import the completed earnings CSV` : ''}`,
+    action: `<button class="btn-update" onclick="document.getElementById('prop-csv-input').click()">Import</button>` }];
+  if (propPayouts.some(x => x.streamId === s.id)) bkRows.push({ st: oldMiss.length ? 'bad' : missPay.length ? 'warn' : 'good', label: 'Payouts found in the bank',
+    detail: missPay.length ? `${missPay.length} not found (${fmt(missPay.reduce((a, x) => a + x.amount, 0))}). Import the account they're paid into.` : 'all matched' });
+  items.push({ group: 'Bookings', rows: bkRows });
+
+  // 5. To review: personal transactions in the property's category, and
+  // property-account transactions still under Personal.
+  const linked = propPersonalCat(s);
+  const rev = linked ? transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === linked && t.propReviewed !== s.id).length : 0;
+  const strays = propAccountStrays(s).length;
+  items.push({ group: 'To sort', rows: [
+    { st: rev ? 'warn' : 'good', label: `Personal "${escH(linked || s.name)}" transactions`, detail: rev ? `${rev} to review` : 'all reviewed', action: rev ? `<button class="btn-update" onclick="setPropTab('review')">Review</button>` : '' },
+    ...(strays ? [{ st: 'warn', label: 'Property account under Personal', detail: `${strays} transaction${strays === 1 ? '' : 's'} not on ${escH(s.name)} yet`, action: `<button class="btn-update" onclick="setPropTab('setup')">Fix</button>` }] : []),
+  ] });
+
+  // 6. Things only the owner knows, ticked per year.
+  const tick = (key, label, detail, st) => ({ st: st || (yc[key] ? 'good' : 'warn'), label, detail,
+    action: `<label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0" ${yc[key] ? 'checked' : ''} onchange="togglePropYearCheck('${key}', this.checked)">Done</label>` });
+  const manual = [];
+  if (p.deductionBasis === 'mixeduse') {
+    const u = propUsageForYear(s, ty);
+    manual.push(tick('calendar', 'Personal and family days marked', `${u.personalDays} personal day${u.personalDays === 1 ? '' : 's'} on the ${link('calendar', "setPropTab('calendar')")}`));
+  }
+  const trav = propTravelForYear(s, ty);
+  manual.push(trav.rateMissing ? { st: 'bad', label: 'Trips logged', detail: `${trav.trips} trips, ${trav.km} km, but no IRD km rate for ${taxYearLabel(ty)}. Enter it from the Travel line on the P&L.` }
+    : tick('travel', 'Trips logged', `${trav.trips} trip${trav.trips === 1 ? '' : 's'} · ${trav.km} km`));
+  manual.push(tick('receipts', 'Receipts and cash costs added', `anything not paid from an imported account, with ${link('+ Add a cost', 'openPropCost()')}`));
+  const dep = propDepreciationForYear(s, ty);
+  manual.push(tick('assets', 'Assets bought or sold recorded', `${dep.rows.length} asset${dep.rows.length === 1 ? '' : 's'} in the ${link('register', "setPropTab('assets')")}`));
+  if (ho.pct) {
+    const extra = Number((ho.extra || {})[ty]) || 0;
+    const dbl = extra && (ho.loanCat ? (ho.cats || []).includes(ho.loanCat) : mortCats.length);
+    manual.push(dbl && !yc.homeoffice ? { ...tick('homeoffice', 'Home office', ''), st: 'warn', detail: `${fmt(extra)} typed in as other household costs as well as the mortgage category. Make sure that isn't the same interest twice.` }
+      : tick('homeoffice', 'Home office costs checked', `${ho.pct}% of ${fmt(propHomeOfficeForYear(s, ty).total)} household costs`));
+  }
+  items.push({ group: 'Confirm', rows: manual });
+  return items;
+}
+function propStatusDot(st) {
+  const k = PROP_STATUS[st] || PROP_STATUS.na;
+  return `<span style="flex:none;width:18px;height:18px;border-radius:50%;background:${k.c};color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:1px">${k.icon}</span>`;
+}
+function propStatusRowsHtml(groups) {
+  return groups.filter(g => g.rows.length).map(g => `<div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em;margin:12px 0 2px">${g.group}</div>
+    ${g.rows.map(r => r.st == null ? `<div style="padding:4px 0 8px 26px;border-bottom:0.5px solid var(--border)">${r.body}</div>` : `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border)">
+      ${propStatusDot(r.st)}
+      <div style="flex:1;min-width:0"><div style="font-size:13px">${r.label}</div>${r.detail ? `<div style="font-size:11px;color:var(--text3);margin-top:1px">${r.detail}</div>` : ''}${r.body || ''}</div>
+      ${r.action ? `<div style="flex:none">${r.action}</div>` : ''}</div>`).join('')}`).join('');
+}
+function propStatusSummaryHtml(groups, okText) {
+  const all = groups.flatMap(g => g.rows).filter(r => r.st && r.st !== 'na');
+  const n = k => all.filter(r => r.st === k).length;
+  const overall = n('bad') ? 'bad' : n('warn') ? 'warn' : 'good';
+  const k = PROP_STATUS[overall];
+  const parts = [['good', 'on track'], ['warn', 'to check'], ['bad', 'off track']].filter(([x]) => n(x)).map(([x, t]) => `<span style="color:${PROP_STATUS[x].c};font-weight:600">${n(x)} ${t}</span>`);
+  return `<div style="display:flex;gap:4px;height:6px;border-radius:3px;overflow:hidden;margin:6px 0 6px">${all.map(r => `<span style="flex:1;background:${PROP_STATUS[r.st].c}"></span>`).join('')}</div>
+    <div style="font-size:12px;color:var(--text2)">${overall === 'good' ? `<span style="color:${k.c};font-weight:600">${okText}</span>` : parts.join(' · ')}</div>`;
+}
+let propChecklistOpen = null; // null = open unless everything is green
+function propChecklistHtml(s) {
+  const groups = propChecklist(s, propTaxYear);
+  if (!groups.length) return '';
+  const all = groups.flatMap(g => g.rows).filter(r => r.st);
+  const allGood = all.every(r => r.st === 'good' || r.st === 'na');
+  const open = propChecklistOpen ?? !allGood;
+  const worst = all.some(r => r.st === 'bad') ? 'bad' : all.some(r => r.st === 'warn') ? 'warn' : 'good';
+  return `<div class="card" style="border-left:4px solid ${PROP_STATUS[worst].c}">
+    <div onclick="propChecklistOpen=${!open};renderProperty()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div class="card-title">Year-end checklist ${taxYearLabel(propTaxYear)}</div><span style="font-size:12px;color:var(--teal)">${open ? 'Hide' : 'Show'}</span></div>
+    ${propStatusSummaryHtml(groups, `Everything is ready for ${taxYearLabel(propTaxYear)}${propTaxYear === taxYearOf(new Date()) ? ' so far' : ''}`)}
+    ${open ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Up to date means up to ${fmtDay(propYearTarget(propTaxYear))}.</div>${propStatusRowsHtml(groups)}` : ''}
+  </div>`;
+}
+
+// Setup check: settings that apply every year.
+function propSetupCheck(s) {
+  const p = propSettings(s), raw = s.property || {}, ok = p.setupOk || {}, ho = p.homeOffice || {};
+  const confirmBox = (key, label) => `<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);margin-top:4px;cursor:pointer"><input type="checkbox" style="width:14px;height:14px;margin:0" ${ok[key] ? 'checked' : ''} onchange="togglePropSetupOk('${key}', this.checked)">${label}</label>`;
+  const sel = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px;outline:none';
+  const owners = p.owners.filter(o => o.share);
+  const total = round2(owners.reduce((a, o) => a + (Number(o.share) || 0), 0));
+  const defaultNames = owners.some(o => /^Owner \d+$/.test(o.name));
+  const strays = propAccountStrays(s).length;
+  const counts = {}; transactions.forEach(t => { if (t.stream === s.id) counts[t.cat] = 1; });
+  const catNames = [...new Set([...(s.cats || []).map(c => c.name), ...Object.keys(counts)])];
+  const guessed = catNames.filter(n => !(p.catLines || {})[n]);
+  const mortCats = propHoMortgageCats(ho);
+  const rows = [
+    { st: owners.length && Math.abs(total - 100) < 0.01 && !defaultNames ? 'good' : 'bad', label: 'Owners and shares',
+      detail: owners.length ? `${owners.map(o => `${escH(o.name)} ${o.share}%`).join(', ')}${Math.abs(total - 100) >= 0.01 ? ` · adds up to ${total}%` : ''}${defaultNames ? ' · give each owner their name' : ''}` : 'none set' },
+    { st: p.purchaseDate ? 'good' : 'warn', label: 'Purchase date', detail: p.purchaseDate ? fmtDay(p.purchaseDate) : 'not set' },
+    { st: !propAccountIds(s).size ? 'bad' : strays ? 'warn' : 'good', label: 'Property bank account',
+      detail: propAccountIds(s).size ? `${escH([...propAccountIds(s)].map(id => accounts.find(a => a.id === id)?.name || id).join(', '))}${strays ? ` · ${strays} of its transactions still under Personal (see above)` : ''}` : 'not set, so rent and bills on it are not picked up' },
+    { st: propPersonalCat(s) ? 'good' : 'bad', label: 'Personal category for property costs', detail: escH(propPersonalCat(s) || 'not set') },
+    { st: !guessed.length || ok.catLines ? 'good' : 'warn', label: 'Categories → report lines',
+      detail: guessed.length ? `${guessed.length} guessed from the name: ${escH(guessed.slice(0, 5).join(', '))}${guessed.length > 5 ? '…' : ''}. Check them below.` : 'all set',
+      body: guessed.length ? confirmBox('catLines', 'The guesses are right') : '' },
+    { st: raw.deductionBasis ? 'good' : 'warn', label: 'Deduction basis', detail: raw.deductionBasis ? (p.deductionBasis === 'mixeduse' ? 'Mixed-use' : '100% deductible') : 'not chosen yet (100% assumed)' },
+    { st: p.travelKm ? 'good' : 'warn', label: 'Return trip distance', detail: p.travelKm ? `${p.travelKm} km` : 'not set' },
+    { st: ((p.kmRates || {})[propTaxYear] || {}).t1 ? 'good' : 'warn', label: `IRD km rate ${taxYearLabel(propTaxYear)}`, detail: ((p.kmRates || {})[propTaxYear] || {}).t1 ? `$${p.kmRates[propTaxYear].t1} / $${p.kmRates[propTaxYear].t2 ?? p.kmRates[propTaxYear].t1} per km` : 'not entered (from the Travel line on the P&L). IRD publishes it after the year ends' },
+    { st: (p.regular || []).length ? 'good' : 'warn', label: 'Regular payments', detail: (p.regular || []).length ? `${p.regular.length} set up` : 'none set up (below)' },
+    { st: ho.pct || ok.noHomeOffice ? 'good' : 'warn', label: 'Home office', detail: ho.pct ? `${ho.pct}% of ${(ho.cats || []).length} household categories` : ok.noHomeOffice ? 'not used' : `not set up (from the Home office line on the P&L)`,
+      body: ho.pct ? '' : confirmBox('noHomeOffice', 'Not used') },
+  ];
+  if (ho.pct && (mortCats.length || ho.loanCat)) rows.push({ st: ho.loanCat ? 'good' : 'bad', label: 'Mortgage repayments category',
+    detail: ho.loanCat ? `Home office counts only the interest in ${escH(ho.loanCat)}, from the loan statements loaded in the Tax tab's checklist.` : `Home office includes ${escH(mortCats.join(', '))}. Pick the category holding the repayments so only their interest counts.`,
+    body: `<select style="${sel};margin-top:4px" onchange="setPropHomeOfficeLoanCat(this.value)">${['', ...(ho.cats || [])].map(n => `<option value="${escH(n)}" ${n === (ho.loanCat || '') ? 'selected' : ''}>${n ? escH(n) : 'None (no mortgage)'}</option>`).join('')}</select>` });
+  rows.push({ st: (p.assets || []).length || ok.noAssets ? 'good' : 'warn', label: 'Assets for depreciation', detail: (p.assets || []).length ? `${p.assets.length} in the register` : ok.noAssets ? 'none to depreciate' : 'none added (Assets tab)',
+    body: (p.assets || []).length ? '' : confirmBox('noAssets', 'Nothing to depreciate') });
+  rows.push({ st: p.cashBalance ? 'good' : 'warn', label: 'Cash flow starting balance', detail: p.cashBalance ? `${fmt(Number(p.cashBalance.amount) || 0)} on ${fmtDay(p.cashBalance.date)}` : 'not set (Cash flow tab)' });
+  return [{ group: 'Settings', rows }];
+}
+function propSetupCheckHtml(s) {
+  const groups = propSetupCheck(s);
+  const all = groups[0].rows;
+  const worst = all.some(r => r.st === 'bad') ? 'bad' : all.some(r => r.st === 'warn') ? 'warn' : 'good';
+  return `<div class="card" style="border-left:4px solid ${PROP_STATUS[worst].c}">
+    <div class="card-title">Setup check</div>
+    ${propStatusSummaryHtml(groups, 'Everything is set up')}
+    ${propStatusRowsHtml(groups).replace(/<div style="font-size:11px;font-weight:600[^>]*>Settings<\/div>/, '')}
+  </div>`;
+}
+// Summary of the loan statements, for the home office window.
+function propLoanSummaryHtml(ho, r) {
+  const c = r.byCat.find(x => x.name === ho.loanCat), L = c && c.loan;
+  const toList = `<a href="#" onclick="closeModal();propTab='tax';propChecklistOpen=true;renderProperty();return false" style="color:var(--teal)">Tax → Year-end checklist</a>`;
+  if (!propHoMortgageCats(ho).length && !ho.loanCat) return '';
+  return `<div style="font-size:12px;font-weight:600;margin:14px 0 4px">Mortgage interest</div>
+    ${!ho.loanCat ? `<div style="font-size:11px;color:var(--red,#d64545)">Set which category holds the mortgage repayments in Setup → Setup check, then load the loan statements in ${toList}.</div>`
+    : L ? `${propRow(`Interest charged to ${fmtDay(L.coveredTo)}`, fmt(L.interest))}
+      ${L.paidAfter ? propRow(`Repayments after that ${fmt(L.paidAfter)}${L.ratio != null ? ` × ${Math.round(L.ratio * 1000) / 10}% interest` : ''}`, L.ratio != null ? fmt(L.estimate) : '<span style="color:#d97706">full repayment counted</span>') : ''}
+      ${propRow(`<strong>${escH(ho.loanCat)} counted</strong>`, `<strong>${fmt(L.total)}</strong>`)}
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Load newer statements in ${toList}.</div>`
+    : `<div style="font-size:11px;color:var(--red,#d64545)">No loan statements loaded, so the full repayments in ${escH(ho.loanCat)} are counted. Load them in ${toList}.</div>`}`;
+}
 // ── Calendar: day marks, travel, mixed-use usage ──
 const PROP_DAY_TYPES = {
   cleaning: { label:'Clean',         icon:'🧹' },
@@ -5311,6 +5558,7 @@ function propTaxHtml(s) {
   const owners = p.owners.filter(o => o.share);
   const inp = 'width:100px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px 6px;text-align:right;outline:none';
   return `${propYearNavHtml()}${propTaxToggleHtml()}${propForecastToggleHtml()}
+    ${propChecklistHtml(s)}
     <div class="card">
       <div class="card-title" style="margin-bottom:8px">Profit or loss${pnl.forecast ? ' (forecast)' : ''}</div>
       ${pnl.hasUpcoming ? '<div style="font-size:11px;color:var(--amber,#b7791f);margin-bottom:6px">Includes upcoming bookings, so this is a forecast until they complete.</div>' : ''}
@@ -5341,7 +5589,6 @@ function propTaxHtml(s) {
       ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
     </div>
     ${propForecastCardHtml(pnl)}
-    ${propRegularCheckHtml(s)}
     ${pnl.forecast ? '' : propPackCardHtml()}
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
@@ -5992,7 +6239,7 @@ function openPropHomeOffice() {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>House floor area (m²)</span><input type="number" min="0" step="0.1" value="${ho.houseM2 ?? ''}" style="${inp}" onchange="setPropHomeOffice('houseM2', this.value)"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span><strong>Share claimed (%)</strong></span><input type="number" min="0" max="100" step="0.01" value="${ho.pct ?? ''}" style="${inp}" onchange="setPropHomeOffice('pct', this.value)"></div>
     <div style="font-size:12px;font-weight:600;margin:12px 0 4px">Household costs to include (personal categories)</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, load the loan statements under <em>Mortgage interest</em> below, or leave it unticked and type the year's interest.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, load the loan statements in the Tax tab's year-end checklist, or leave it unticked and type the year's interest.</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tap a ticked category to see its transactions. Untick any that aren't for the house, or type words to keep only matching ones (e.g. <em>AMI</em> in Insurance).</div>
     <div>${cats.length ? cats.map(n => {
       const on = r.cats.includes(n);
@@ -6013,7 +6260,7 @@ function openPropHomeOffice() {
           <span style="white-space:nowrap">${fmt(-t.amount)}</span></label>`).join('') || '<div style="font-size:12px;color:var(--text3)">No transactions match.</div>'}
       </div>`;
     }).join('') : '<div style="font-size:12px;color:var(--text3)">No personal spending in this tax year.</div>'}</div>
-    ${propLoanSectionHtml(s, ho, r)}
+    ${propLoanSummaryHtml(ho, r)}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span>Other household costs this year<br><span style="font-size:11px;color:var(--text3)">e.g. mortgage interest from the bank's statement</span></span><input type="number" min="0" step="0.01" value="${extra || ''}" style="width:100px;${inp.replace('width:80px;', '')}" onchange="setPropHomeOffice('extra', this.value)"></div>
     ${propRow('Household costs', fmt(base))}
     ${costs.length ? propRow('Added with + Add a cost', fmt(costs.reduce((a, c) => a + (Number(c.amount) || 0), 0))) : ''}
@@ -6023,29 +6270,6 @@ function openPropHomeOffice() {
   document.getElementById('modal').classList.add('open');
 }
 
-// Loan statements for the home office's mortgage interest.
-function propLoanSectionHtml(s, ho, r) {
-  const loans = ho.loans || [];
-  const catOpts = ['', ...r.cats].map(n => `<option value="${escH(n)}" ${n === (ho.loanCat || '') ? 'selected' : ''}>${n ? escH(n) : 'None'}</option>`).join('');
-  const c = r.byCat.find(x => x.name === ho.loanCat), L = c && c.loan;
-  const sel = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px;outline:none';
-  return `<div style="font-size:12px;font-weight:600;margin:14px 0 4px">Mortgage interest</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Load the CSV statements of the loan accounts themselves (not the account the repayments come from). Only their interest lines are kept, and they stay out of your personal transactions, so budgets still see the full repayment. Load them monthly or once at year end; loading the same statement twice is fine.</div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>Repayments are in</span><select style="${sel}" onchange="setPropHomeOfficeLoanCat(this.value)">${catOpts}</select></div>
-    ${loans.map((l, i) => {
-      const dates = l.recs.map(x => x.date).sort();
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="flex:1;min-width:0">${escH(l.name)}<br><span style="font-size:11px;color:var(--text3)">${l.recs.length} interest lines${dates.length ? ` · ${fmtDay(dates[0])} – ${fmtDay(dates[dates.length - 1])}` : ''}</span></span><button class="btn-update" onclick="removePropLoan(${i})">Remove</button></div>`;
-    }).join('')}
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13px">
-      <input type="text" id="prop-loan-name" placeholder="Loan name, e.g. Home loan 1" list="prop-loan-names" style="flex:1;min-width:0;${sel};font-size:13px;padding:6px">
-      <datalist id="prop-loan-names">${loans.map(l => `<option value="${escH(l.name)}">`).join('')}</datalist>
-      <label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this)"></label></div>
-    <div style="font-size:11px;color:var(--text3)">Use the same name each time for the same loan, and a different name for each loan part.</div>
-    ${L ? `<div style="margin-top:6px">${propRow(`Interest charged to ${fmtDay(L.coveredTo)}`, fmt(L.interest))}
-      ${L.paidAfter ? propRow(`Repayments after that ${fmt(L.paidAfter)}${L.ratio != null ? ` × ${Math.round(L.ratio * 1000) / 10}% interest` : ''}`, L.ratio != null ? fmt(L.estimate) : '<span style="color:var(--amber,#d97706)">full repayment counted</span>') : ''}
-      ${propRow(`<strong>${escH(ho.loanCat)} counted</strong>`, `<strong>${fmt(L.total)}</strong>`)}</div>`
-      : ho.loanCat && !loans.length ? `<div style="font-size:11px;color:var(--text3)">No statements loaded yet, so the full repayments in ${escH(ho.loanCat)} are counted.</div>` : ''}`;
-}
 function setPropHomeOfficeLoanCat(name) { updatePropHo(ho => ({ ...ho, loanCat: name || null })); }
 function removePropLoan(i) {
   const s = currentPropStream(); if (!s) return;
@@ -6055,9 +6279,10 @@ function removePropLoan(i) {
 // Keeps the interest lines of a loan statement. Banks show interest charged
 // as a debit or as a credit, so the usual sign of the interest lines decides
 // which way round; an adjustment the other way reduces the total.
-function importPropLoanCsv(input) {
+function importPropLoanCsv(input, idx) {
   const file = input.files[0]; if (!file) return;
-  const name = (document.getElementById('prop-loan-name')?.value || '').trim() || 'Home loan';
+  const cur = currentPropStream(), existing = idx != null ? (propSettings(cur).homeOffice?.loans || [])[idx] : null;
+  const name = existing ? existing.name : (document.getElementById('prop-loan-name')?.value || '').trim() || 'Home loan';
   const reader = new FileReader();
   reader.onload = e => {
     const rows = parseCSV(e.target.result, '__loan__').filter(t => /interest/i.test(`${t.desc} ${t.detail || ''}`));
@@ -6088,7 +6313,8 @@ let propHoOpenCat = null;
 function refreshPropHomeOffice() {
   const body = document.getElementById('modal-body');
   const top = body ? body.scrollTop : 0;
-  scheduleSave(); renderProperty(); openPropHomeOffice();
+  const open = document.getElementById('modal').classList.contains('open') && document.getElementById('modal-title').textContent.startsWith('Home office');
+  scheduleSave(); renderProperty(); if (!open) return; openPropHomeOffice();
   if (body) body.scrollTop = top;
 }
 function updatePropHo(fn) {
@@ -6332,7 +6558,7 @@ function propSetupHtml(s) {
   const owners = [...p.owners, {name:'',share:''}, {name:'',share:''}].slice(0, Math.max(4, p.owners.length));
   const accOpts = accounts.map(a => `<option value="${escH(a.id)}" ${p.accountId===a.id?'selected':''}>${escH(a.name)}</option>`).join('');
   const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 10px;outline:none';
-  return `${propAccountCheckHtml(s)}<div class="card">
+  return `${propSetupCheckHtml(s)}${propAccountCheckHtml(s)}<div class="card">
     <div class="card-title" style="margin-bottom:10px">Property settings</div>
     <div class="input-group"><label>Owners and ownership share (%)</label>
       ${owners.map((o,i) => `<div style="display:flex;gap:8px;margin-bottom:6px">
