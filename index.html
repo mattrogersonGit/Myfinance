@@ -1261,6 +1261,7 @@
           <span class="s-icon">🗑️</span><span class="s-label">Data</span><span class="s-chev" id="s-data-chev">›</span>
         </div>
         <div id="s-data" class="s-body">
+          <div id="ignored-txns-box" style="margin-bottom:14px"></div>
           <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
         </div>
 
@@ -1647,6 +1648,39 @@ let propPayouts = [];
 // that isn't imported) | blocked.
 let propDays = [];
 let propCosts = []; // costs paid outside the app's accounts: {id, streamId, date, amount, line, note}
+// Imported transactions the user deleted (or rejected in import review), so a
+// re-import of the same bank CSV doesn't bring them back: {id, account, date
+// 'YYYY-MM-DD', amount, desc, at}. Matched on account + date + amount.
+let ignoredTxns = [];
+function rememberDeletedTxn(t) {
+  if (!t || !t.account || !(t.date instanceof Date)) return;
+  const id = 'ig' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  ignoredTxns.push({ id, account: t.account, date: dateToIso(t.date), amount: +(+t.amount).toFixed(2), desc: t.desc || '', at: Date.now() });
+  reviveTombstone('ignoredTxns', id);
+}
+function renderIgnoredTxns() {
+  const el = document.getElementById('ignored-txns-box'); if (!el) return;
+  const list = [...ignoredTxns].sort((a, b) => b.date.localeCompare(a.date));
+  const acct = id => accounts.find(a => a.id === id)?.name || id;
+  el.innerHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:4px">Deleted transactions (${list.length})</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Transactions you've deleted or rejected are skipped when you import the same bank file again. Restore one to let the next import bring it back.</div>
+    ${list.length ? `<div style="max-height:260px;overflow-y:auto">${list.map(r => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+        <div style="flex:1;min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(r.desc || '—')}</div><div style="color:var(--text3)">${fmtDay(r.date)} · ${escH(acct(r.account))}</div></div>
+        <span>${r.amount < 0 ? '−' : ''}${fmt(r.amount)}</span>
+        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="restoreIgnoredTxn('${r.id}')">Restore</button></div>`).join('')}</div>
+      <button class="btn btn-secondary btn-block" style="margin-top:8px" onclick="forgetAllIgnoredTxns()">Restore all</button>` : ''}`;
+}
+function restoreIgnoredTxn(id) {
+  ignoredTxns = ignoredTxns.filter(r => r.id !== id);
+  tombstone('ignoredTxns', id);
+  scheduleSave(); renderIgnoredTxns();
+}
+function forgetAllIgnoredTxns() {
+  if (!confirm(`Restore all ${ignoredTxns.length}? The next import of each bank file will bring them back for review.`)) return;
+  ignoredTxns.forEach(r => tombstone('ignoredTxns', r.id));
+  ignoredTxns = [];
+  scheduleSave(); renderIgnoredTxns();
+}
 let taxReturns = []; // one record per person per tax year: {id:'ty|person', ty, person, rows:[...]}
 let pnlPeriod = 'month';
 let pnlYear   = new Date().getFullYear();
@@ -1726,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.12';
+const APP_VERSION = '2026.11.09.13';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -2324,6 +2358,7 @@ function setCat(id, cat) {
   renderTransactions();
 }
 function deleteTxn(id) {
+  rememberDeletedTxn(transactions.find(t => t.id === id));
   transactions = transactions.filter(t=>t.id!==id);
   tombstone('transactions', id);
   scheduleSave();
@@ -3224,14 +3259,20 @@ function handleCSV(input, account) {
     // are both allowed through if both already exist, or both treated as new if neither exists.
     // Only compare against the same account: the same amount on the same day in two accounts
     // (a $300 rates payment from each, or a purchase and its repayment) is two real transactions.
-    const fp = t => `${t.date instanceof Date ? t.date.toISOString().slice(0,10) : String(t.date).slice(0,10)}|${(+t.amount).toFixed(2)}`;
+    const fp = t => `${t.date instanceof Date ? dateToIso(t.date) : String(t.date).slice(0,10)}|${(+t.amount).toFixed(2)}`;
     const existingCounts = new Map();
     [...transactions, ...pendingTxns].filter(t => t.account === account).forEach(t => { const k=fp(t); existingCounts.set(k,(existingCounts.get(k)||0)+1); });
-    const added = newTxns.filter(t => { const k=fp(t); const n=existingCounts.get(k)||0; if(n>0){existingCounts.set(k,n-1);return false;} return true; });
-    const dupes = newTxns.length - added.length;
+    const kept = newTxns.filter(t => { const k=fp(t); const n=existingCounts.get(k)||0; if(n>0){existingCounts.set(k,n-1);return false;} return true; });
+    const dupes = newTxns.length - kept.length;
+    // Then skip ones deleted before (counted, so deleting one of two identical
+    // rows still lets the other through).
+    const ignoredCounts = new Map();
+    ignoredTxns.filter(r => r.account === account).forEach(r => { const k = `${r.date}|${(+r.amount).toFixed(2)}`; ignoredCounts.set(k, (ignoredCounts.get(k) || 0) + 1); });
+    const added = kept.filter(t => { const k=fp(t); const n=ignoredCounts.get(k)||0; if(n>0){ignoredCounts.set(k,n-1);return false;} return true; });
+    const ignored = kept.length - added.length;
     pendingTxns = pendingTxns.concat(added);
     const statusEl = document.getElementById('status-' + account);
-    statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped`;
+    statusEl.textContent = `${added.length} staged for review · ${dupes} duplicates skipped${ignored ? ` · ${ignored} you deleted before skipped` : ''}`;
     scheduleSave();
     renderPendingBanner();
     if (added.length) openPendingReview();
@@ -3353,6 +3394,7 @@ function setPendingCat(id, cat) {
   scheduleSave();
 }
 function rejectPending(id) {
+  rememberDeletedTxn(pendingTxns.find(t => t.id === id));
   pendingTxns = pendingTxns.filter(t=>t.id!==id);
   tombstone('pendingTxns', id);
   if (!pendingTxns.length) { closeModal(); renderPendingBanner(); scheduleSave(); return; }
@@ -6197,7 +6239,7 @@ function getDataObj() {
   return {
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
-    bookings, propPayouts, propDays, taxReturns, propCosts,
+    bookings, propPayouts, propDays, taxReturns, propCosts, ignoredTxns,
     cats: CATS,
     tombstones,
     savedAt: new Date().toISOString()
@@ -6249,6 +6291,7 @@ function loadDataObj(obj) {
   if (obj.propDays) propDays = obj.propDays;
   if (obj.taxReturns) taxReturns = obj.taxReturns;
   if (obj.propCosts) propCosts = obj.propCosts;
+  if (obj.ignoredTxns) ignoredTxns = obj.ignoredTxns;
   if (obj.pendingTxns) pendingTxns = obj.pendingTxns.map(t=>({...t,date:new Date(t.date)}));
   if (obj.recurring) recurring = obj.recurring;
   if (obj.accounts && obj.accounts.length) {
@@ -6777,6 +6820,7 @@ function mergeWithCloud(data, cloud) {
   data.propDays           = mergeArraysById(data.propDays, cloud.propDays, 'id', 'propDays', tomb);
   data.taxReturns         = mergeArraysById(data.taxReturns, cloud.taxReturns, 'id', 'taxReturns', tomb);
   data.propCosts          = mergeArraysById(data.propCosts, cloud.propCosts, 'id', 'propCosts', tomb);
+  data.ignoredTxns        = mergeArraysById(data.ignoredTxns, cloud.ignoredTxns, 'id', 'ignoredTxns', tomb);
   data.mortgages          = mergeArraysById(data.mortgages, cloud.mortgages, 'id');
   data.cats               = mergeArraysById(data.cats, cloud.cats, 'name', 'cats_personal', tomb);
   data.rules              = mergeRules(data.rules, cloud.rules, tomb);
@@ -6974,6 +7018,7 @@ async function sbInviteSignin() {
 function toggleSettings(id) {
   const body = document.getElementById(id);
   if (!body) return;
+  if (id === 's-data') renderIgnoredTxns();
   const isOpen = body.classList.contains('open');
   document.querySelectorAll('.s-body.open').forEach(el => {
     el.classList.remove('open');
