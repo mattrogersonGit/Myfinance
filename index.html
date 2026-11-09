@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.10';
+const APP_VERSION = '2026.11.09.11';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4301,7 +4301,7 @@ function propRegularCheck(s, ty, r) {
   const { start, end } = taxYearRange(ty);
   const today = todayLocal();
   const txns = propRegularTxns(s, ty, r);
-  if (start > today) return { f, txns, missing: [], future: true };
+  if (start > today) return { f, txns, missing: [], future: true, usual: 0 };
   const until = end <= today ? end : today;
   const dates = [...new Set(txns.map(t => t.date))];
   // A payment about twice the usual size covers one that was skipped (e.g.
@@ -4313,7 +4313,7 @@ function propRegularCheck(s, ty, r) {
   if (!dates.length) {
     const n = Math.floor((daysBetween(start, until) - grace) / step + 0.5);
     for (let i = 0; i < n; i++) missing.push(addPeriodsIso(start, f, i));
-    return { f, txns, missing, none: true };
+    return { f, txns, missing, none: true, usual: 0 };
   }
   const lead = daysBetween(start, dates[0]);
   if (lead > step + grace) { const k = Math.floor((lead - grace) / step) - covers(dates[0]); for (let i = k; i >= 1; i--) missing.push(addPeriodsIso(dates[0], f, -i)); }
@@ -4323,7 +4323,7 @@ function propRegularCheck(s, ty, r) {
   }
   const last = dates[dates.length - 1], trail = daysBetween(last, until);
   if (trail > step + grace) { const k = Math.floor((trail - grace) / step); for (let i = 1; i <= k; i++) missing.push(addPeriodsIso(last, f, i)); }
-  return { f, txns, missing, last };
+  return { f, txns, missing, last, usual };
 }
 function propRegularCheckHtml(s) {
   const regs = propSettings(s).regular || [];
@@ -4464,7 +4464,86 @@ function propTxnsInYear(s, ty) {
   const { start, end } = taxYearRange(ty);
   return transactions.filter(t => t.stream === s.id && (d => d >= start && d < end)(dateToIso(t.date)));
 }
-function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
+// Forecast to 31 March (current tax year only): what's still to come is added
+// to each line --
+//  * regular payments: the remaining ones (and any missing) at their usual amount;
+//  * other costs: up to last year's total for the line, if not reached yet;
+//  * rent: last year's income for the rest of the year, less what's booked;
+//  * home office: the same per household category, and the typed-in extra
+//    (year to date) scaled up to a full year.
+let propForecast = true;
+const isoYearsAgo = (iso, n) => `${Number(iso.slice(0, 4)) - n}${iso.slice(4)}`;
+function propRegularProjection(s, ty, r) {
+  const c = propRegularCheck(s, ty, r);
+  const { end } = taxYearRange(ty), today = todayLocal();
+  if (!c.usual) {
+    const prev = round2(-propRegularTxns(s, ty - 1, r).reduce((a, t) => a + t.amount, 0));
+    return { amount: Math.max(0, prev - round2(-c.txns.reduce((a, t) => a + t.amount, 0))), how: `last year's total of ${fmt(prev)}` };
+  }
+  let future = 0;
+  for (let i = 1; i < 400; i++) { const d = addPeriodsIso(c.last, c.f, i); if (d >= end) break; if (d >= today) future++; }
+  const n = future + c.missing.length;
+  return { amount: round2(n * c.usual), how: `${n} more ${c.f.label.toLowerCase()} payment${n === 1 ? '' : 's'} of ${fmt(c.usual)}${c.missing.length ? ` (incl. ${c.missing.length} missing)` : ''}` };
+}
+function propForecastAdds(s, ty, matches, cur) {
+  const { start, end } = taxYearRange(ty), today = todayLocal();
+  if (!(today >= start && today < end)) return null;
+  const last = computePropPnL(s, ty - 1, matches);
+  const lastFull = {}; last.expenseLines.forEach(l => lastFull[l.id] = l.full);
+  const regs = propSettings(s).regular || [];
+  const lines = {}, items = [];
+  const put = (line, label, amount, how) => { if (amount < 0.5) return; lines[line] = (lines[line] || 0) + amount; items.push({ line, label, amount: round2(amount), how }); };
+  const lineLabel = id => PROP_LINES.find(l => l.id === id)?.label || id;
+  // Report lines
+  const covered = new Set(regs.filter(r => (r.src || '').startsWith('line:')).map(r => r.src.slice(5)));
+  regs.filter(r => (r.src || '').startsWith('line:') && propLineKind(r.src.slice(5)) === 'expense').forEach(r => {
+    const pr = propRegularProjection(s, ty, r);
+    put(r.src.slice(5), propRegularLabel(r), pr.amount, pr.how);
+  });
+  // Other lines: the larger of what was spent over the same months last year
+  // and what's needed to reach last year's total (catches one-off yearly bills).
+  const lwStart = isoYearsAgo(today, 1), lwEnd = isoYearsAgo(end, 1), inLw = d => d >= lwStart && d < lwEnd;
+  last.expenseLines.forEach(l => {
+    const id = l.id;
+    if (covered.has(id) || id === 'homeoffice' || id === 'depreciation') return;
+    const win = -l.txns.filter(t => inLw(dateToIso(t.date))).reduce((a, t) => a + t.amount, 0) + l.costs.filter(c => inLw(c.date)).reduce((a, c) => a + (Number(c.amount) || 0), 0);
+    const topUp = l.full - (cur.lines[id] || 0);
+    if (win >= topUp) put(id, lineLabel(id), win, `same months last year`);
+    else put(id, lineLabel(id), topUp, `to reach last year's ${fmt(l.full)}`);
+  });
+  // Home office
+  const ho = cur.homeOffice;
+  if (ho.pct) {
+    let hoAdd = 0; const hoHow = [];
+    ho.byCat.forEach(c => {
+      const reg = regs.find(r => r.src === 'cat:' + c.name);
+      let a = 0;
+      if (reg) a = propRegularProjection(s, ty, reg).amount;
+      else a = Math.max(0, (last.homeOffice.byCat.find(x => x.name === c.name)?.total || 0) - c.total);
+      if (a >= 0.5) { hoAdd += a; hoHow.push(`${c.name} ${fmt(a)}`); }
+    });
+    if (ho.extra) {
+      const elapsed = Math.max(1, daysBetween(start, today)), a = ho.extra * daysBetween(start, end) / elapsed - ho.extra;
+      if (a >= 0.5) { hoAdd += a; hoHow.push(`other household costs scaled to a full year ${fmt(a)}`); }
+    }
+    put('homeoffice', 'Home office', hoAdd * ho.pct / 100, `${ho.pct}% of ${hoHow.join(', ') || 'nothing more'}`);
+  }
+  // Rent still to be booked
+  const lw = { start: isoYearsAgo(today, 1), end: isoYearsAgo(end, 1) };
+  const sumBk = (a, b) => bookings.filter(x => x.streamId === s.id && !x.cancelled).reduce((acc, x) => {
+    const { share } = bookingShareInRange(x, a, b);
+    if (share) { acc.inc += (x.gross + x.hostTax + x.adjustments) * share; acc.fees += x.serviceFee * share; }
+    return acc;
+  }, { inc: 0, fees: 0 });
+  const lastBk = sumBk(lw.start, lw.end), nowBk = sumBk(today, end);
+  const lastOther = last.otherIncomeTxns.filter(t => (d => d >= lw.start && d < lw.end)(dateToIso(t.date))).reduce((a, t) => a + t.amount, 0);
+  const lastInc = lastBk.inc + lastOther;
+  const income = Math.max(0, lastInc - nowBk.inc);
+  const fees = lastInc > 0 ? income * lastBk.fees / lastInc : 0;
+  const rent = { income: round2(income), fees: round2(fees), lastInc: round2(lastInc), booked: round2(nowBk.inc) };
+  return { asAt: today, lines, items, rent, total: round2(items.reduce((a, i) => a + i.amount, 0)) };
+}
+function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   const y = propYearSummary(s.id, ty);
   const c = y.completed, u = y.upcoming;
   const lines = {}; PROP_LINES.forEach(l => lines[l.id] = 0);
@@ -4496,6 +4575,8 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
   lines.cleaning += cleanCost;
   const homeOffice = propHomeOfficeForYear(s, ty);
   lines.homeoffice += homeOffice.value;
+  const fc = opts.forecast ? propForecastAdds(s, ty, matches, { lines, homeOffice }) : null;
+  if (fc) Object.entries(fc.lines).forEach(([k, v]) => lines[k] += v);
   // Mixed-use basis: shared holding costs are cut to the income-use share;
   // costs incurred only to earn income (fees, cleaning, travel to service
   // guests, management, accountancy) stay at 100%.
@@ -4507,9 +4588,9 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
   // asset is deductible, a gain (depreciation recovered) is income.
   const dep = propDepreciationForYear(s, ty);
   lines.depreciation = dep.depreciation + dep.loss;
-  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments;
+  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments + (fc ? fc.rent.income : 0);
   const rent = bookingIncome + otherIncome;
-  const commissions = c.fees + u.fees + lines.commissions;
+  const commissions = c.fees + u.fees + lines.commissions + (fc ? fc.rent.fees : 0);
   const expenseLines = [...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions'), { id: 'depreciation', label: 'Depreciation' }]
     .map(l => {
       const full = lines[l.id] || 0, cut = apportioned.has(l.id) && share < 1;
@@ -4517,13 +4598,13 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s)) {
       if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
       if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
       if (l.id === 'homeoffice' && homeOffice.value) label += ` (${homeOffice.pct}% of household costs)`;
-      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [] };
+      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [], forecast: fc ? fc.lines[l.id] || 0 : 0 };
     });
   const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
   return {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis,
+    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc,
   };
 }
 
@@ -4830,9 +4911,29 @@ function propTaxToggleHtml() {
   const b = (id, l) => `<button class="tab ${propTaxView===id?'active':''}" onclick="propTaxView='${id}';renderProperty()">${l}</button>`;
   return `<div class="tabs" style="margin-bottom:12px">${b('pnl','Property P&amp;L')}${b('returns',"Owners' tax returns")}</div>`;
 }
+// The forecast switch shows only for the tax year that's under way.
+const propForecastOn = () => propForecast && propTaxYear === currentTaxYear();
+function propForecastToggleHtml() {
+  if (propTaxYear !== currentTaxYear()) return '';
+  const b = (on, l) => `<button class="tab ${propForecast === on ? 'active' : ''}" onclick="propForecast=${on};renderProperty()">${l}</button>`;
+  return `<div class="tabs" style="margin:-4px 0 12px">${b(false, 'So far')}${b(true, 'Forecast to 31 March')}</div>`;
+}
+function propForecastCardHtml(pnl) {
+  const fc = pnl.forecast; if (!fc) return '';
+  const r = fc.rent;
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:4px">What the forecast adds</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Estimated from today (${fmtDay(fc.asAt)}) to 31 March. Set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> for the most accurate costs; anything else is assumed to end the year at last year's total.</div>
+    ${propRow('Rent not yet booked', fmt(r.income))}
+    <div style="font-size:11px;color:var(--text3);margin:-2px 0 6px">Last year this period earned ${fmt(r.lastInc)}; ${fmt(r.booked)} is booked so far${r.fees ? `. Fees on it: ${fmt(r.fees)}` : ''}.</div>
+    ${fc.items.map(i => `${propRow(escH(i.label), fmt(i.amount))}<div style="font-size:11px;color:var(--text3);margin:-2px 0 6px">${escH(i.how)}</div>`).join('')}
+    ${propRow('<strong>Costs still to come</strong>', `<strong>${fmt(fc.total)}</strong>`)}
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">Mixed-use share uses the nights marked so far; mark planned personal stays on the calendar to include them.</div>
+  </div>`;
+}
 function propTaxHtml(s) {
-  if (propTaxView === 'returns') return propYearNavHtml() + propTaxToggleHtml() + propReturnsHtml(s);
-  const pnl = computePropPnL(s, propTaxYear);
+  if (propTaxView === 'returns') return propYearNavHtml() + propTaxToggleHtml() + propForecastToggleHtml() + propReturnsHtml(s);
+  const pnl = computePropPnL(s, propTaxYear, undefined, { forecast: propForecastOn() });
   const p = propSettings(s);
   const checks = (p.checks || {})[propTaxYear] || {};
   const appVal = { rent: pnl.rent, commissions: pnl.commissions, net: pnl.net };
@@ -4840,22 +4941,25 @@ function propTaxHtml(s) {
   const shown = pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005 || l.id === 'homeoffice');
   const owners = p.owners.filter(o => o.share);
   const inp = 'width:100px;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px 6px;text-align:right;outline:none';
-  return `${propYearNavHtml()}${propTaxToggleHtml()}
+  return `${propYearNavHtml()}${propTaxToggleHtml()}${propForecastToggleHtml()}
     <div class="card">
-      <div class="card-title" style="margin-bottom:8px">Profit or loss</div>
+      <div class="card-title" style="margin-bottom:8px">Profit or loss${pnl.forecast ? ' (forecast)' : ''}</div>
       ${pnl.hasUpcoming ? '<div style="font-size:11px;color:var(--amber,#b7791f);margin-bottom:6px">Includes upcoming bookings, so this is a forecast until they complete.</div>' : ''}
       ${propRow('<strong>Rent received</strong>', `<strong>${fmt(pnl.rent)}</strong>`)}
       ${propRow('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
+      ${pnl.forecast?.rent.income ? propRow('&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--text3)">incl. not yet booked (forecast)</span>', `<span style="color:var(--text3)">${fmt(pnl.forecast.rent.income)}</span>`) : ''}
       ${pnl.otherIncome ? `<div onclick="openPropLineTxns('income')" style="cursor:pointer">${propRow(`&nbsp;&nbsp;Other bank deposits (${pnl.otherIncomeTxns.length}) <span style="font-size:10px;color:var(--teal)">›</span>`, fmt(pnl.otherIncome))}</div>` : ''}
       ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
       ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
       ${shown.map(l => {
         if (l.id === 'homeoffice') {
           const label = escH(l.label) + ' <span style="font-size:10px;color:var(--teal)">›</span>';
-          return `<div onclick="openPropHomeOffice()" style="cursor:pointer">${propRow(label, pnl.homeOffice.pct ? fmt(l.amount) : '<span style="font-size:12px;color:var(--teal)">Set up</span>')}</div>`;
+          const fcTag = l.forecast ? ` <span style="font-size:11px;color:var(--text3)">incl. ${fmt(l.forecast)} forecast</span>` : '';
+          return `<div onclick="openPropHomeOffice()" style="cursor:pointer">${propRow(label + fcTag, pnl.homeOffice.pct ? fmt(l.amount) : '<span style="font-size:12px;color:var(--teal)">Set up</span>')}</div>`;
         }
         const n = l.txns.length + l.costs.length;
-        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : ''), l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
+        const fcTag = l.forecast ? ` <span style="font-size:11px;color:var(--text3)">incl. ${fmt(l.forecast)} forecast</span>` : '';
+        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : '') + fcTag, l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
         return n ? `<div onclick="openPropLineTxns('${l.id}')" style="cursor:pointer">${row}</div>` : row;
       }).join('')}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px"><span style="font-size:11px;color:var(--text3)">Tap a line with › to see its transactions.</span>
@@ -4867,6 +4971,7 @@ function propTaxHtml(s) {
       ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.net * o.share / 100))).join('')}` : ''}
       ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
     </div>
+    ${propForecastCardHtml(pnl)}
     ${propRegularCheckHtml(s)}
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
@@ -4919,12 +5024,12 @@ const TAX_ROW_KINDS = {
 };
 const taxReturnId = (ty, person) => `${ty}|${String(person).trim().toLowerCase()}`;
 function taxReturnFor(ty, person) { return taxReturns.find(r => r.id === taxReturnId(ty, person)); }
-function ownerShareOfProperties(person, ty) {
+function ownerShareOfProperties(person, ty, forecast = false) {
   const key = String(person).trim().toLowerCase();
   const parts = [];
   propertyStreams().forEach(st => {
     const o = propSettings(st).owners.find(x => String(x.name).trim().toLowerCase() === key && x.share);
-    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty).net * o.share / 100) });
+    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty, undefined, { forecast }).net * o.share / 100) });
   });
   return parts;
 }
@@ -4952,7 +5057,7 @@ function grossFromNetPay(net, ty, ksRate) {
   }
   return round2((lo + hi) / 2);
 }
-function computeTaxReturn(o, ty) {
+function computeTaxReturn(o, ty, forecast = false) {
   const rec = taxReturnFor(ty, o.name);
   const rows = rec?.rows || [];
   const sum = (kind, f) => rows.filter(r => r.kind === kind).reduce((a, r) => a + (Number(r[f]) || 0), 0);
@@ -4971,7 +5076,7 @@ function computeTaxReturn(o, ty) {
   const div = sum('div', 'gross'), imputation = sum('div', 'credit'), divRwt = sum('div', 'tax');
   const interest = sum('int', 'gross'), intRwt = sum('int', 'tax');
   const other = sum('other', 'gross');
-  const rentalParts = ownerShareOfProperties(o.name, ty);
+  const rentalParts = ownerShareOfProperties(o.name, ty, forecast);
   const rental = rentalParts.reduce((a, p) => a + p.amount, 0);
   const taxable = round2(gross + div + interest + other + rental);
   const tax = nzIncomeTax(taxable, ty);
@@ -4988,7 +5093,9 @@ function propReturnsHtml(s) {
   if (!owners.length) return `<div class="card" style="font-size:13px;color:var(--text3)">Add the owners and their shares in Setup first.</div>`;
   if (propReturnOwner >= owners.length) propReturnOwner = 0;
   const o = owners[propReturnOwner];
-  const r = computeTaxReturn(o, propTaxYear);
+  const isFc = propForecastOn();
+  const r = computeTaxReturn(o, propTaxYear, isFc);
+  const soFar = isFc ? computeTaxReturn(o, propTaxYear, false) : null;
   const money = v => (v < 0 ? '−' : '') + fmt(v);
   const srcTxt = r.source === 'ird' ? 'From the IRD income summary you entered.'
     : r.source === 'bank' ? `Estimated from ${r.bank.count} pay deposit${r.bank.count === 1 ? '' : 's'} (${fmt(r.bank.net)} take-home${r.bank.partYear ? ', projected to a full year' : ''}), grossed up for PAYE, ACC levy and ${Number(o.ksRate ?? 3)}% KiwiSaver. Add the IRD summary figures below when you have them.`
@@ -4999,7 +5106,8 @@ function propReturnsHtml(s) {
   const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:7px 8px;outline:none';
   return `<div class="tabs" style="margin-bottom:12px">${owners.map((x, i) => `<button class="tab ${i === propReturnOwner ? 'active' : ''}" onclick="propReturnOwner=${i};renderProperty()">${escH(x.name)}</button>`).join('')}</div>
     <div class="card">
-      <div class="card-title" style="margin-bottom:4px">${escH(o.name)} · ${taxYearLabel(propTaxYear)} (IR3 estimate)</div>
+      <div class="card-title" style="margin-bottom:4px">${escH(o.name)} · ${taxYearLabel(propTaxYear)} (${isFc ? 'forecast to 31 March' : 'IR3 estimate'})</div>
+      ${isFc ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Property figures include the rest of the year's rent and costs (see the P&amp;L's forecast). On costs so far it would be ${soFar.result <= 0 ? 'a refund of ' : 'tax to pay of '}${fmt(Math.abs(soFar.result))}.</div>` : ''}
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${srcTxt}</div>
       ${propRow('Income with tax deducted' + (r.source === 'bank' ? ' (estimate)' : ''), fmt(r.gross))}
       ${r.div ? propRow('Dividends', fmt(r.div)) : ''}
@@ -5013,7 +5121,7 @@ function propReturnsHtml(s) {
       ${propRow(`Less PAYE <span style="font-size:11px;color:var(--text3)">(${fmt(r.payeIncl)} less ${fmt(r.levy)} ACC levy)</span>`, '−' + fmt(r.paye))}
       ${r.divRwt + r.intRwt ? propRow('Less RWT', '−' + fmt(r.divRwt + r.intRwt)) : ''}
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 2px;font-size:15px;font-weight:700">
-        <span>${r.result <= 0 ? 'Refund due' : 'Tax to pay'}</span><span class="${r.result <= 0 ? 'pos' : 'neg'}">${fmt(Math.abs(r.result))}</span></div>
+        <span>${r.result <= 0 ? 'Refund due' : 'Tax to pay'}${isFc ? ' (forecast)' : ''}</span><span class="${r.result <= 0 ? 'pos' : 'neg'}">${fmt(Math.abs(r.result))}</span></div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">${r.taxable < 0 ? 'Taxable income is a loss. It carries forward to next year. ' : ''}${r.rit > 5000 ? 'Tax to pay is over $5,000, so provisional tax may apply next year. ' : ''}KiwiSaver and other PIE income are taxed at your PIR and aren't included. Student loan and Working for Families aren't included. An estimate only; your accountant's return is final.</div>
     </div>
     <div class="card">
