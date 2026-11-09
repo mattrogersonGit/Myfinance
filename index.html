@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.15';
+const APP_VERSION = '2026.11.09.16';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4511,7 +4511,7 @@ function propTxnsInYear(s, ty) {
 // to each line --
 //  * regular payments: the remaining ones (and any missing) at their usual amount;
 //  * other costs: up to last year's total for the line, if not reached yet;
-//  * rent: last year's income for the rest of the year, less what's booked;
+//  * rent: booked stays only (already in the P&L);
 //  * home office: the same per household category, and the typed-in extra
 //    (year to date) scaled up to a full year.
 let propForecast = true;
@@ -4571,19 +4571,9 @@ function propForecastAdds(s, ty, matches, cur) {
     }
     put('homeoffice', 'Home office', hoAdd * ho.pct / 100, `${ho.pct}% of ${hoHow.join(', ') || 'nothing more'}`);
   }
-  // Rent still to be booked
-  const lw = { start: isoYearsAgo(today, 1), end: isoYearsAgo(end, 1) };
-  const sumBk = (a, b) => bookings.filter(x => x.streamId === s.id && !x.cancelled).reduce((acc, x) => {
-    const { share } = bookingShareInRange(x, a, b);
-    if (share) { acc.inc += (x.gross + x.hostTax + x.adjustments) * share; acc.fees += x.serviceFee * share; }
-    return acc;
-  }, { inc: 0, fees: 0 });
-  const lastBk = sumBk(lw.start, lw.end), nowBk = sumBk(today, end);
-  const lastOther = last.otherIncomeTxns.filter(t => (d => d >= lw.start && d < lw.end)(dateToIso(t.date))).reduce((a, t) => a + t.amount, 0);
-  const lastInc = lastBk.inc + lastOther;
-  const income = Math.max(0, lastInc - nowBk.inc);
-  const fees = lastInc > 0 ? income * lastBk.fees / lastInc : 0;
-  const rent = { income: round2(income), fees: round2(fees), lastInc: round2(lastInc), booked: round2(nowBk.inc) };
+  // Rent: only stays already booked (counted by the P&L itself) -- guessing
+  // at future bookings would be wrong whenever the owners block dates out.
+  const rent = { income: 0, fees: 0 };
   return { asAt: today, lines, items, rent, total: round2(items.reduce((a, i) => a + i.amount, 0)) };
 }
 function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
@@ -5088,12 +5078,9 @@ function propForecastToggleHtml() {
 }
 function propForecastCardHtml(pnl) {
   const fc = pnl.forecast; if (!fc) return '';
-  const r = fc.rent;
   return `<div class="card">
     <div class="card-title" style="margin-bottom:4px">What the forecast adds</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Estimated from today (${fmtDay(fc.asAt)}) to 31 March. Set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> for the most accurate costs; anything else is assumed to end the year at last year's total.</div>
-    ${propRow('Rent not yet booked', fmt(r.income))}
-    <div style="font-size:11px;color:var(--text3);margin:-2px 0 6px">Last year this period earned ${fmt(r.lastInc)}; ${fmt(r.booked)} is booked so far${r.fees ? `. Fees on it: ${fmt(r.fees)}` : ''}.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Costs estimated from today (${fmtDay(fc.asAt)}) to 31 March. Rent counts booked stays only. Set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> for the most accurate costs; anything else is assumed to end the year at last year's total.</div>
     ${fc.items.map(i => `${propRow(escH(i.label), fmt(i.amount))}<div style="font-size:11px;color:var(--text3);margin:-2px 0 6px">${escH(i.how)}</div>`).join('')}
     ${propRow('<strong>Costs still to come</strong>', `<strong>${fmt(fc.total)}</strong>`)}
     <div style="font-size:11px;color:var(--text3);margin-top:6px">Mixed-use share uses the nights marked so far; mark planned personal stays on the calendar to include them.</div>
@@ -5291,7 +5278,7 @@ function propReturnsHtml(s) {
   return `<div class="tabs" style="margin-bottom:12px">${owners.map((x, i) => `<button class="tab ${i === propReturnOwner ? 'active' : ''}" onclick="propReturnOwner=${i};renderProperty()">${escH(x.name)}</button>`).join('')}</div>
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">${escH(o.name)} · ${taxYearLabel(propTaxYear)} (${isFc ? 'forecast to 31 March' : 'IR3 estimate'})</div>
-      ${isFc ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Property figures include the rest of the year's rent and costs (see the P&amp;L's forecast). On costs so far it would be ${soFar.result <= 0 ? 'a refund of ' : 'tax to pay of '}${fmt(Math.abs(soFar.result))}.</div>` : ''}
+      ${isFc ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Property figures include the rest of the year's costs and the stays already booked (see the P&amp;L's forecast). On costs so far it would be ${soFar.result <= 0 ? 'a refund of ' : 'tax to pay of '}${fmt(Math.abs(soFar.result))}.</div>` : ''}
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${srcTxt}</div>
       ${propRow('Gross pay (salary or wages)' + (r.source === 'bank' || r.source === 'expected' ? ' (estimate)' : ''), fmt(r.gross))}
       ${r.div ? propRow('Dividends', fmt(r.div)) : ''}
