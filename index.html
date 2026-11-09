@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.11';
+const APP_VERSION = '2026.11.09.12';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -5044,8 +5044,17 @@ function bankPayForOwner(o, ty) {
   const net = txns.reduce((a, t) => a + t.amount, 0);
   const today = todayLocal();
   const elapsed = Math.max(1, daysBetween(start, today < end ? today : end));
-  const factor = today < end ? daysBetween(start, end) / elapsed : 1;
-  return { net, count: txns.length, annualNet: net * factor, partYear: factor > 1 };
+  let factor = today < end ? daysBetween(start, end) / elapsed : 1, freq = null;
+  // Part year: project by pay periods (7 monthly pays → 12), not days, so a
+  // pay that's due but not yet in doesn't drag the estimate down.
+  if (factor > 1 && txns.length >= 2) {
+    const ds = [...new Set(txns.map(t => dateToIso(t.date)))].sort();
+    const gaps = ds.slice(1).map((d, i) => daysBetween(ds[i], d)).sort((a, b) => a - b);
+    const g = gaps[Math.floor(gaps.length / 2)] || 0;
+    const per = g && g < 10 ? 52 : g < 20 ? 26 : g < 45 ? 12 : null;
+    if (per) { freq = per === 52 ? 'weekly' : per === 26 ? 'fortnightly' : 'monthly'; factor = Math.max(1, per / ds.length); }
+  }
+  return { net, count: txns.length, annualNet: net * factor, partYear: factor > 1, freq };
 }
 // Gross pay that leaves this take-home after PAYE, ACC levy and KiwiSaver.
 function grossFromNetPay(net, ty, ksRate) {
@@ -5062,7 +5071,13 @@ function computeTaxReturn(o, ty, forecast = false) {
   const rows = rec?.rows || [];
   const sum = (kind, f) => rows.filter(r => r.kind === kind).reduce((a, r) => a + (Number(r[f]) || 0), 0);
   let gross = sum('pay', 'gross'), payeIncl = sum('pay', 'tax'), source = 'ird', bank = null;
-  if (!rows.some(r => r.kind === 'pay')) {
+  const expected = Number((o.expectedGross || {})[ty]) || 0;
+  if (!rows.some(r => r.kind === 'pay') && expected > 0) {
+    gross = expected;
+    payeIncl = nzIncomeTax(gross, ty) + accEarnerLevy(gross, ty);
+    source = 'expected';
+    bank = bankPayForOwner(o, ty);
+  } else if (!rows.some(r => r.kind === 'pay')) {
     bank = bankPayForOwner(o, ty);
     if (bank && bank.net > 0) {
       const ks = (Number(o.ksRate ?? 3) || 0) / 100;
@@ -5098,7 +5113,8 @@ function propReturnsHtml(s) {
   const soFar = isFc ? computeTaxReturn(o, propTaxYear, false) : null;
   const money = v => (v < 0 ? '−' : '') + fmt(v);
   const srcTxt = r.source === 'ird' ? 'From the IRD income summary you entered.'
-    : r.source === 'bank' ? `Estimated from ${r.bank.count} pay deposit${r.bank.count === 1 ? '' : 's'} (${fmt(r.bank.net)} take-home${r.bank.partYear ? ', projected to a full year' : ''}), grossed up for PAYE, ACC levy and ${Number(o.ksRate ?? 3)}% KiwiSaver. Add the IRD summary figures below when you have them.`
+    : r.source === 'expected' ? `Using the expected gross pay you entered, with PAYE worked out on it. Add the IRD summary figures below when you have them.`
+    : r.source === 'bank' ? `Estimated from ${r.bank.count} ${r.bank.freq ? r.bank.freq + ' ' : ''}pay deposit${r.bank.count === 1 ? '' : 's'} (${fmt(r.bank.net)} take-home${r.bank.partYear ? ', projected to a full year' : ''}), grossed up for PAYE, ACC levy and ${Number(o.ksRate ?? 3)}% KiwiSaver. If you know what the year's pay will be, enter it under Estimate from bank pay.`
     : 'No pay yet. Enter the IRD summary figures below, or set the employer name so pay in your "Pay" category can be found.';
   const rowList = r.rows.map((x, i) => `<div onclick="openTaxRow(${propReturnOwner}, ${i})" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
       <div style="min-width:0"><div>${escH(x.name || TAX_ROW_KINDS[x.kind].label)}</div><div style="font-size:11px;color:var(--text3)">${TAX_ROW_KINDS[x.kind].label}${x.credit ? ' · imputation ' + fmt(x.credit) : ''}${x.tax ? ` · ${x.kind === 'pay' ? 'PAYE' : 'RWT'} ${fmt(x.tax)}` : ''}</div></div>
@@ -5109,7 +5125,7 @@ function propReturnsHtml(s) {
       <div class="card-title" style="margin-bottom:4px">${escH(o.name)} · ${taxYearLabel(propTaxYear)} (${isFc ? 'forecast to 31 March' : 'IR3 estimate'})</div>
       ${isFc ? `<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Property figures include the rest of the year's rent and costs (see the P&amp;L's forecast). On costs so far it would be ${soFar.result <= 0 ? 'a refund of ' : 'tax to pay of '}${fmt(Math.abs(soFar.result))}.</div>` : ''}
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${srcTxt}</div>
-      ${propRow('Income with tax deducted' + (r.source === 'bank' ? ' (estimate)' : ''), fmt(r.gross))}
+      ${propRow('Gross pay (salary or wages)' + (r.source === 'bank' || r.source === 'expected' ? ' (estimate)' : ''), fmt(r.gross))}
       ${r.div ? propRow('Dividends', fmt(r.div)) : ''}
       ${r.interest ? propRow('Interest', fmt(r.interest)) : ''}
       ${r.other ? propRow('Other income', fmt(r.other)) : ''}
@@ -5134,8 +5150,18 @@ function propReturnsHtml(s) {
       <div class="card-title" style="margin-bottom:4px">Estimate from bank pay</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Used until salary is entered above. Pay deposits in your personal "Pay" category that mention the employer are counted.</div>
       <div class="input-group"><label>Employer name as it appears on pay deposits (comma-separate several)</label><input type="text" value="${escH(o.payMatch || '')}" placeholder="e.g. Acme Ltd" style="${inp};width:100%;box-sizing:border-box" onchange="setOwnerTaxField('payMatch', this.value)"></div>
+      <div class="input-group"><label>Expected gross pay for ${taxYearLabel(propTaxYear)} ($, optional)</label><input type="number" min="0" step="100" value="${(o.expectedGross || {})[propTaxYear] ?? ''}" placeholder="${r.source === 'bank' ? 'Estimate ' + fmtWhole(r.gross) : 'e.g. 85000'}" style="${inp};width:160px" onchange="setOwnerExpectedGross(this.value)">
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Before tax, for the whole year. Overrides the bank estimate${r.bank?.net ? ` (${fmtWhole(grossFromNetPay(r.bank.annualNet, propTaxYear, (Number(o.ksRate ?? 3) || 0) / 100))} from pay deposits)` : ''}.</div></div>
       <div class="input-group"><label>KiwiSaver employee contribution (%)</label><input type="number" min="0" max="10" step="1" value="${o.ksRate ?? 3}" style="${inp};width:90px" onchange="setOwnerTaxField('ksRate', this.value === '' ? null : Number(this.value))"></div>
     </div>`;
+}
+function setOwnerExpectedGross(val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const name = p.owners.filter(o => o.name && o.share)[propReturnOwner]?.name;
+  const n = val === '' || isNaN(Number(val)) ? null : Number(val);
+  s.property = { ...p, owners: p.owners.map(o => o.name === name ? { ...o, expectedGross: { ...(o.expectedGross || {}), [propTaxYear]: n } } : o) };
+  scheduleSave(); renderProperty();
 }
 function setOwnerTaxField(field, val) {
   const s = currentPropStream(); if (!s) return;
