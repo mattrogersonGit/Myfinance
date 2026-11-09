@@ -1726,7 +1726,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.9';
+const APP_VERSION = '2026.11.09.10';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4304,6 +4304,11 @@ function propRegularCheck(s, ty, r) {
   if (start > today) return { f, txns, missing: [], future: true };
   const until = end <= today ? end : today;
   const dates = [...new Set(txns.map(t => t.date))];
+  // A payment about twice the usual size covers one that was skipped (e.g.
+  // August's rates paid with September's), so it fills the gap before it.
+  const byDate = {}; txns.forEach(t => byDate[t.date] = (byDate[t.date] || 0) + Math.abs(t.amount));
+  const amts = Object.values(byDate).sort((a, b) => a - b), usual = amts[Math.floor((amts.length - 1) / 2)] || 0;
+  const covers = d => usual > 0 ? Math.max(1, Math.round(byDate[d] / usual)) - 1 : 0;
   const missing = [];
   if (!dates.length) {
     const n = Math.floor((daysBetween(start, until) - grace) / step + 0.5);
@@ -4311,10 +4316,10 @@ function propRegularCheck(s, ty, r) {
     return { f, txns, missing, none: true };
   }
   const lead = daysBetween(start, dates[0]);
-  if (lead > step + grace) { const k = Math.floor((lead - grace) / step); for (let i = k; i >= 1; i--) missing.push(addPeriodsIso(dates[0], f, -i)); }
+  if (lead > step + grace) { const k = Math.floor((lead - grace) / step) - covers(dates[0]); for (let i = k; i >= 1; i--) missing.push(addPeriodsIso(dates[0], f, -i)); }
   for (let i = 1; i < dates.length; i++) {
     const gap = daysBetween(dates[i-1], dates[i]);
-    if (gap > step * 1.5) { const k = Math.max(1, Math.round(gap / step) - 1); for (let j = 1; j <= k; j++) missing.push(addPeriodsIso(dates[i-1], f, j)); }
+    if (gap > step * 1.5) { const k = Math.max(1, Math.round(gap / step) - 1) - covers(dates[i]); for (let j = 1; j <= k; j++) missing.push(addPeriodsIso(dates[i-1], f, j)); }
   }
   const last = dates[dates.length - 1], trail = daysBetween(last, until);
   if (trail > step + grace) { const k = Math.floor((trail - grace) / step); for (let i = 1; i <= k; i++) missing.push(addPeriodsIso(last, f, i)); }
