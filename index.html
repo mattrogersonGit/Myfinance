@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.16';
+const APP_VERSION = '2026.11.09.18';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4616,7 +4616,9 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   const usage = propUsageForYear(s, ty);
   const basis = propSettings(s).deductionBasis;
   const share = basis === 'mixeduse' && usage.share != null ? usage.share : 1;
-  const apportioned = new Set(['insurance','interest','power','rates','rm','phone','purchases','other','depreciation']);
+  const apportioned = new Set(PROP_APPORTIONABLE);
+  // Lines the owners claim in full anyway (e.g. repairs from guest use).
+  (propSettings(s).fullLines || []).forEach(id => apportioned.delete(id));
   // Depreciation from the asset register; a loss on selling or scrapping an
   // asset is deductible, a gain (depreciation recovered) is income.
   const dep = propDepreciationForYear(s, ty);
@@ -4764,6 +4766,182 @@ function setPropCash(field, val) {
   cb[field] = field === 'amount' ? (val === '' || isNaN(Number(val)) ? null : Number(val)) : val;
   s.property = { ...p, cashBalance: cb };
   scheduleSave(); renderProperty();
+}
+
+const PROP_APPORTIONABLE = ['insurance','interest','power','rates','rm','phone','purchases','other','depreciation'];
+function togglePropFullLine(id, on) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const set = new Set(p.fullLines || []); if (on) set.add(id); else set.delete(id);
+  s.property = { ...p, fullLines: [...set] };
+  scheduleSave(); renderProperty();
+}
+
+// ── Year-end pack for the accountant ──
+// A self-contained page (opens in a new tab to print or save as PDF; falls
+// back to a download) with everything behind the property's P&L for one tax
+// year, plus a CSV of every transaction by report line.
+function propPackData(s, ty) {
+  const p = propSettings(s);
+  const pnl = computePropPnL(s, ty);
+  const { start, end } = taxYearRange(ty);
+  const bks = bookings.filter(b => b.streamId === s.id && !b.cancelled)
+    .map(b => ({ b, r: bookingShareInRange(b, start, end) })).filter(x => x.r.share)
+    .sort((a, b) => (a.b.checkIn || '').localeCompare(b.b.checkIn || ''));
+  const trips = propDaysInYear(s, ty, 'travel').sort((a, b) => a.date.localeCompare(b.date));
+  const cleans = propDaysInYear(s, ty, 'cleaning').sort((a, b) => a.date.localeCompare(b.date));
+  const personal = propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && ['personal', 'family'].includes(d.type)).sort((a, b) => a.date.localeCompare(b.date));
+  return { p, pnl, bks, trips, cleans, personal, dep: propDepreciationForYear(s, ty), ho: pnl.homeOffice, usage: pnl.usage, trav: pnl.travel };
+}
+// Runs of consecutive dates as "3 Jan – 9 Jan 2026 (7)".
+function propDateRuns(dates) {
+  const runs = [];
+  dates.forEach(d => { const r = runs[runs.length - 1]; if (r && daysBetween(r.to, d) === 1) { r.to = d; r.n++; } else runs.push({ from: d, to: d, n: 1 }); });
+  return runs.map(r => r.n === 1 ? fmtDay(r.from) : `${fmtDay(r.from)} – ${fmtDay(r.to)} (${r.n})`);
+}
+function propPackHtml(s, ty) {
+  const d = propPackData(s, ty), { p, pnl } = d;
+  const e = v => escH(String(v ?? ''));
+  const m = v => (v < 0 ? '−' : '') + fmt(v);
+  const acct = id => accounts.find(a => a.id === id)?.name || id || '';
+  const row = (l, v, cls = '') => `<tr class="${cls}"><td>${l}</td><td class="n">${v}</td></tr>`;
+  const owners = p.owners.filter(o => o.name && o.share);
+  const shareTxt = pnl.share < 1 ? `${Math.round(pnl.share * 1000) / 10}%` : '100%';
+  const lineTable = l => {
+    const items = [...l.txns.map(t => ({ date: dateToIso(t.date), desc: t.desc + (t.detail ? ' · ' + t.detail : ''), src: acct(t.account), amount: -t.amount })),
+      ...l.costs.map(c => ({ date: c.date, desc: c.note || 'Cost entered by hand', src: 'Entered by hand', amount: Number(c.amount) || 0 }))]
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (!items.length) return '';
+    return `<h3>${e(l.label)} <span class="sub">${fmt(l.full)}${l.apportioned ? ` · ${fmt(l.amount)} claimed at ${shareTxt}` : ''}</span></h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Account</th><th class="n">Amount</th></tr></thead><tbody>
+      ${items.map(i => `<tr><td class="nw">${fmtDay(i.date)}</td><td>${e(i.desc)}</td><td>${e(i.src)}</td><td class="n">${m(i.amount)}</td></tr>`).join('')}
+      </tbody></table>`;
+  };
+  const sumB = k => d.bks.reduce((a, x) => a + (Number(x.b[k]) || 0) * x.r.share, 0);
+  const tr = d.trav, rates = (p.kmRates || {})[ty] || {};
+  return `<!doctype html><html lang="en-NZ"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${e(s.name)} ${taxYearLabel(ty)} year-end pack</title>
+<style>
+  body{font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a;margin:24px auto;max-width:900px;padding:0 16px;background:#fff}
+  h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:28px 0 8px;border-bottom:2px solid #1a1a1a;padding-bottom:3px} h3{font-size:14px;margin:18px 0 6px}
+  .sub{font-weight:400;color:#666;font-size:12px} .muted{color:#666} table{width:100%;border-collapse:collapse;margin-bottom:6px}
+  th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #e3e3e3;vertical-align:top} th{font-size:11px;text-transform:uppercase;color:#666;font-weight:600}
+  .n{text-align:right;white-space:nowrap} .nw{white-space:nowrap} tr.tot td{font-weight:700;border-top:1.5px solid #1a1a1a} .summary td:first-child{width:70%}
+  .bar{position:sticky;top:0;background:#fff;padding:8px 0;margin-bottom:8px;border-bottom:1px solid #e3e3e3} button{font:inherit;padding:6px 14px;border-radius:6px;border:1px solid #888;background:#f4f4f4;cursor:pointer}
+  @media print{.bar{display:none} body{margin:0} h2{break-after:avoid} tr{break-inside:avoid}}
+</style></head><body>
+<div class="bar"><button onclick="window.print()">Print / save as PDF</button></div>
+<h1>${e(s.name)}: year-end pack</h1>
+<div class="muted">Tax year ${taxYearLabel(ty)} (1 April ${ty - 1} – 31 March ${ty}) · prepared ${fmtDay(todayLocal())} with MyFinance</div>
+<div class="muted">Owners: ${owners.map(o => `${e(o.name)} ${o.share}%`).join(', ') || '—'} · Deduction basis: ${p.deductionBasis === 'mixeduse' ? `mixed-use, income share ${shareTxt}` : '100% deductible'}</div>
+
+<h2>Profit or loss</h2>
+<table class="summary"><tbody>
+${row('Rent received', fmt(pnl.rent), 'tot')}
+${row('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
+${pnl.otherIncome ? row('&nbsp;&nbsp;Other bank deposits', fmt(pnl.otherIncome)) : ''}
+${row('Commissions (platform fees)', fmt(pnl.commissions))}
+${pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005).map(l => row(e(l.label) + (l.apportioned ? ` <span class="muted">(${fmt(l.full)} × ${shareTxt})</span>` : ''), fmt(l.amount))).join('')}
+${pnl.depRecovered ? row('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
+${row('Total expenses', fmt(pnl.totalExpenses))}
+${row('Net profit (loss)', m(pnl.net), 'tot')}
+${owners.map(o => row(`&nbsp;&nbsp;${e(o.name)} (${o.share}%)`, m(pnl.net * o.share / 100))).join('')}
+</tbody></table>
+
+<h2>Use of the property</h2>
+<table class="summary"><tbody>
+${row('Days in the year', d.usage.days)}
+${row('Income days (booked nights)', d.usage.income)}
+${row('Personal and family days', d.usage.personalDays)}
+${d.usage.blocked ? row('Blocked (not available)', d.usage.blocked) : ''}
+${row('Income share', shareTxt, 'tot')}
+</tbody></table>
+${d.personal.length ? `<div class="muted">Personal days: ${propDateRuns([...new Set(d.personal.map(x => x.date))]).join('; ')}</div>` : ''}
+
+<h2>Bookings (${d.bks.length})</h2>
+<table><thead><tr><th>Check-in</th><th>Guest</th><th>Platform</th><th class="n">Nights</th><th class="n">Gross</th><th class="n">Fees</th><th class="n">Host tax</th><th class="n">Payout</th></tr></thead><tbody>
+${d.bks.map(({ b, r }) => `<tr><td class="nw">${fmtDay(b.checkIn)}</td><td>${e(b.guest || b.code)}${r.share < 1 ? ' <span class="muted">(part in this year)</span>' : ''}${b.status !== 'completed' ? ' <span class="muted">(upcoming)</span>' : ''}</td><td>${e(platformName(b.platform))}</td><td class="n">${r.nights}</td>
+  <td class="n">${fmt((b.gross || 0) * r.share)}</td><td class="n">${fmt((b.serviceFee || 0) * r.share)}</td><td class="n">${fmt((b.hostTax || 0) * r.share)}</td><td class="n">${fmt((b.payout || 0) * r.share)}</td></tr>`).join('')}
+<tr class="tot"><td colspan="3">Total</td><td class="n">${d.bks.reduce((a, x) => a + x.r.nights, 0)}</td><td class="n">${fmt(sumB('gross'))}</td><td class="n">${fmt(sumB('serviceFee'))}</td><td class="n">${fmt(sumB('hostTax'))}</td><td class="n">${fmt(sumB('payout'))}</td></tr>
+</tbody></table>
+${pnl.otherIncomeTxns.length ? `<h3>Other bank deposits</h3><table><tbody>${pnl.otherIncomeTxns.map(t => `<tr><td class="nw">${fmtDay(dateToIso(t.date))}</td><td>${e(t.desc)}</td><td>${e(acct(t.account))}</td><td class="n">${fmt(t.amount)}</td></tr>`).join('')}</tbody></table>` : ''}
+
+<h2>Expenses by line</h2>
+${pnl.expenseLines.filter(l => l.id !== 'homeoffice' && l.id !== 'depreciation' && l.id !== 'travel').map(lineTable).join('')}
+
+${tr.trips ? `<h2>Travel</h2>
+<table class="summary"><tbody>
+${row('Trips', tr.trips)}${row('Business km', tr.km.toLocaleString('en-NZ'))}
+${tr.carKm ? row(`Car's total km${rates.odoStart && rates.odoEnd ? ` (odometer ${Number(rates.odoStart).toLocaleString('en-NZ')} → ${Number(rates.odoEnd).toLocaleString('en-NZ')})` : ''}`, tr.carKm.toLocaleString('en-NZ')) : ''}
+${row(`IRD kilometre rate`, `$${rates.t1 ?? '—'} tier 1 · $${rates.t2 ?? rates.t1 ?? '—'} tier 2`)}
+${row('Tier 1 km (business share of the first 14,000 km)', Math.round(Math.min(tr.km, tr.tier1Km)).toLocaleString('en-NZ'))}
+${row('Travel claimed', fmt(tr.value), 'tot')}
+</tbody></table>
+<table><thead><tr><th>Date</th><th>Purpose</th><th class="n">Km</th></tr></thead><tbody>
+${d.trips.map(t => `<tr><td class="nw">${fmtDay(t.date)}</td><td>${e(t.note || (d.cleans.some(c => c.date === t.date) ? 'Clean / changeover' : 'Property visit'))}</td><td class="n">${Number(t.km ?? p.travelKm) || 0}</td></tr>`).join('')}
+</tbody></table>` : ''}
+
+${d.cleans.some(c => c.cost) ? `<h2>Cleaning paid</h2><table><tbody>${d.cleans.filter(c => c.cost).map(c => `<tr><td class="nw">${fmtDay(c.date)}</td><td>${e(c.note || 'Clean')}</td><td class="n">${fmt(Number(c.cost))}</td></tr>`).join('')}</tbody></table>` : ''}
+
+${d.ho.pct ? `<h2>Home office</h2>
+<div class="muted">${d.ho.pct}% of household running costs${p.homeOffice?.officeM2 && p.homeOffice?.houseM2 ? ` (office ${p.homeOffice.officeM2} m² of ${p.homeOffice.houseM2} m²)` : ''}. Not apportioned for mixed use.</div>
+<table class="summary"><tbody>
+${d.ho.byCat.map(c => row(`${e(c.name)}${c.words.length ? ` <span class="muted">(${e(c.words.join(', '))})</span>` : ''} · ${c.txns.length} payments`, fmt(c.total))).join('')}
+${d.ho.extra ? row('Other household costs (entered)', fmt(d.ho.extra)) : ''}
+${row('Household costs', fmt(d.ho.total))}
+${row(`Home office claim (${d.ho.pct}%)`, fmt(d.ho.value), 'tot')}
+</tbody></table>
+${d.ho.byCat.map(c => c.txns.length ? `<h3>${e(c.name)}</h3><table><tbody>${c.txns.map(t => `<tr><td class="nw">${fmtDay(dateToIso(t.date))}</td><td>${e(t.desc)}</td><td>${e(acct(t.account))}</td><td class="n">${m(-t.amount)}</td></tr>`).join('')}</tbody></table>` : '').join('')}` : ''}
+
+${d.dep.rows.length ? `<h2>Depreciation</h2>
+<table><thead><tr><th>Asset</th><th>Method</th><th class="n">Opening</th><th class="n">Bought</th><th class="n">Depreciation</th><th class="n">Closing</th></tr></thead><tbody>
+${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span class="muted">bought ${fmtDay(a.purchased)}</span>` : ''}${r.sale != null ? ` <span class="muted">sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}</span>` : ''}</td>
+  <td class="nw">${a.method === 'none' || !Number(a.rate) ? 'None' : `${Math.round(Number(a.rate) * 1000) / 10}% ${e(a.method)}`}</td><td class="n">${fmt(r.open)}</td><td class="n">${r.bought ? fmt(r.bought) : ''}</td><td class="n">${fmt(r.dep || 0)}</td><td class="n">${fmt(r.close)}</td></tr>`).join('')}
+<tr class="tot"><td colspan="2">Total</td><td class="n">${fmt(d.dep.open)}</td><td class="n">${d.dep.bought ? fmt(d.dep.bought) : ''}</td><td class="n">${fmt(d.dep.depreciation)}</td><td class="n">${fmt(d.dep.close)}</td></tr>
+</tbody></table>` : ''}
+
+<p class="muted" style="margin-top:28px">Prepared from the owners' bank imports, booking platform reports and records kept in MyFinance. For the accountant's review; figures are not a tax return.</p>
+</body></html>`;
+}
+function propPackFileName(s, ty, ext) { return `${s.name} ${taxYearLabel(ty)} year-end pack.${ext}`.replace(/[\\/:*?"<>|]/g, ''); }
+function propDownload(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function openPropPack() {
+  const s = currentPropStream(); if (!s) return;
+  const html = propPackHtml(s, propTaxYear);
+  const w = window.open('', '_blank');
+  if (w && w.document) { w.document.open(); w.document.write(html); w.document.close(); }
+  else propDownload(propPackFileName(s, propTaxYear, 'html'), html, 'text/html');
+}
+function downloadPropPackCsv() {
+  const s = currentPropStream(); if (!s) return;
+  const pnl = computePropPnL(s, propTaxYear);
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const acct = id => accounts.find(a => a.id === id)?.name || id || '';
+  const rows = [['Date', 'Line', 'Description', 'Account', 'Category', 'Amount', 'Claimed share', 'Claimed']];
+  const share = pnl.share;
+  pnl.otherIncomeTxns.forEach(t => rows.push([dateToIso(t.date), 'Other bank deposits', t.desc, acct(t.account), t.cat, t.amount.toFixed(2), '', '']));
+  pnl.expenseLines.forEach(l => {
+    const sh = l.apportioned ? share : 1;
+    l.txns.forEach(t => rows.push([dateToIso(t.date), l.label, `${t.desc}${t.detail ? ' · ' + t.detail : ''}`, acct(t.account), t.cat, (-t.amount).toFixed(2), sh.toFixed(4), (-t.amount * sh).toFixed(2)]));
+    l.costs.forEach(c => rows.push([c.date, l.label, c.note || 'Cost entered by hand', 'Entered by hand', '', (Number(c.amount) || 0).toFixed(2), sh.toFixed(4), ((Number(c.amount) || 0) * sh).toFixed(2)]));
+  });
+  const csv = '﻿' + rows.map(r => r.map(q).join(',')).join('\n');
+  propDownload(propPackFileName(s, propTaxYear, 'csv'), csv, 'text/csv;charset=utf-8');
+}
+function propPackCardHtml() {
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:4px">Year-end pack for your accountant</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Everything behind this year's P&amp;L: bookings, every transaction by line, use of the property, travel log, home office and depreciation. Open it to print or save as a PDF, and attach the spreadsheet for their working papers.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="openPropPack()">Open pack</button>
+      <button class="btn btn-secondary" onclick="downloadPropPackCsv()">Download spreadsheet (CSV)</button>
+    </div>
+  </div>`;
 }
 
 // ── Calendar: day marks, travel, mixed-use usage ──
@@ -5128,6 +5306,7 @@ function propTaxHtml(s) {
     </div>
     ${propForecastCardHtml(pnl)}
     ${propRegularCheckHtml(s)}
+    ${pnl.forecast ? '' : propPackCardHtml()}
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Type in the figures from the accountant's statement for this tax year to see where the app differs. Rent and commissions are reported differently (the accountant uses what guests paid, the app uses the Airbnb CSV), so compare <strong>net profit</strong> for those.</div>
@@ -6077,6 +6256,9 @@ function propSetupHtml(s) {
         <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (apportion by income vs personal days)</option>
       </select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
+    ${p.deductionBasis === 'mixeduse' ? `<div class="input-group"><label>Claim these in full (not cut to the income share)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 14px">${PROP_APPORTIONABLE.map(id => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400"><input type="checkbox" ${(p.fullLines || []).includes(id) ? 'checked' : ''} onchange="togglePropFullLine('${id}', this.checked)"> ${escH(id === 'depreciation' ? 'Depreciation' : PROP_LINES.find(l => l.id === id).label)}</label>`).join('')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Only for costs that relate solely to guests, such as repairing damage from a booking. Your accountant decides; last year they claimed repairs &amp; maintenance in full.</div></div>` : ''}
     <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
   </div>
   ${propRegularSetupHtml(s)}
