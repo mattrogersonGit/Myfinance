@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.09.13';
+const APP_VERSION = '2026.11.09.14';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4037,7 +4037,7 @@ function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 
 const PROP_TABS = [
   {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
-  {id:'calendar', label:'Calendar'}, {id:'cashflow', label:'Cash flow', soon:true},
+  {id:'calendar', label:'Calendar'}, {id:'cashflow', label:'Cash flow'},
   {id:'tax', label:'Tax'}, {id:'assets', label:'Assets'}, {id:'setup', label:'Setup'},
 ];
 function renderProperty() {
@@ -4069,6 +4069,7 @@ function renderProperty() {
   else if (propTab === 'calendar') body.innerHTML = propCalendarHtml(s);
   else if (propTab === 'review')   body.innerHTML = propReviewHtml(s);
   else if (propTab === 'assets')   body.innerHTML = propAssetsHtml(s);
+  else if (propTab === 'cashflow') body.innerHTML = propCashflowHtml(s);
   else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
 }
 
@@ -4648,6 +4649,138 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
     net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc,
   };
+}
+
+// ── Cash flow: the property account month by month, 12 months ahead ──
+// Starts from a balance the user types in (as at a date), adds anything
+// imported for the account since, then projects:
+//  * booked stays: the payout, the day after check-in;
+//  * rent not yet booked: last year's income deposits into the account that
+//    month, less what's booked;
+//  * regular payments paid from the account: on schedule at the usual amount;
+//  * other costs from the account: what went out the same month last year.
+// Top-ups and other transfers aren't forecast -- the point is to see when one
+// is needed.
+let propCashOpen = null;
+function propCashflow(s) {
+  const p = propSettings(s), acc = p.accountId;
+  if (!acc) return { noAccount: true };
+  const today = todayLocal();
+  const cb = p.cashBalance || {};
+  if (cb.amount == null || cb.amount === '') return { noBalance: true, acc };
+  const asAt = cb.date || today;
+  // Imported since the balance date (after that day).
+  const since = transactions.filter(t => t.account === acc && dateToIso(t.date) > asAt && dateToIso(t.date) <= today);
+  const start = today, startBal = round2(Number(cb.amount) + since.reduce((a, t) => a + t.amount, 0));
+  const m0 = isoToDate(today);
+  const horizon = dateToIso(new Date(m0.getFullYear(), m0.getMonth() + 12, 1));
+  const events = []; // {date, amount, label, kind: booked|forecast|regular|pattern}
+  const inRange = d => d > start && d < horizon;
+  // Booked stays not yet paid.
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.status !== 'completed' && b.checkIn).forEach(b => {
+    const d = addDaysIso(b.checkIn, 1);
+    const amt = Number(b.payout) || (Number(b.gross) - Number(b.serviceFee)) || 0;
+    if (inRange(d) && amt) events.push({ date: d, amount: round2(amt), label: `${b.platform === 'bookabach' ? 'Bookabach' : 'Airbnb'} payout${b.guest ? ' · ' + b.guest : ''}`, kind: 'booked' });
+  });
+  // Regular payments from this account (personal-category ones aren't).
+  const regs = (p.regular || []).filter(r => (r.src || '').startsWith('line:'));
+  const regTxnIds = new Set();
+  const accTxns = transactions.filter(t => t.account === acc && t.stream === s.id);
+  regs.forEach(r => {
+    const line = r.src.slice(5), words = String(r.words || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+    const match = t => propLineForTxn(s, t) === line && (!words.length || words.some(w => `${t.desc || ''} ${t.detail || ''}`.toLowerCase().includes(w)));
+    const hist = accTxns.filter(match);
+    hist.forEach(t => regTxnIds.add(t.id));
+    const recent = hist.filter(t => t.amount < 0).sort((a, b) => b.date - a.date);
+    if (!recent.length) return; // paid from another account
+    const f = PROP_FREQS.find(x => x.id === r.freq) || PROP_FREQS[2];
+    const lastDate = dateToIso(recent[0].date);
+    const amts = recent.slice(0, 6).map(t => -t.amount).sort((a, b) => a - b), usual = amts[Math.floor((amts.length - 1) / 2)];
+    for (let i = 1; i < 800; i++) {
+      const d = addPeriodsIso(lastDate, f, i); if (d >= horizon) break;
+      if (inRange(d)) events.push({ date: d, amount: -round2(usual), label: propRegularLabel(r), kind: 'regular' });
+    }
+  });
+  // Last year's pattern for everything else, and income deposits.
+  const lyStart = isoYearsAgo(start, 1), lyEnd = isoYearsAgo(horizon, 1);
+  const monthKey = d => d.slice(0, 7);
+  const bookedIn = {};
+  events.filter(e => e.kind === 'booked').forEach(e => { bookedIn[monthKey(e.date)] = (bookedIn[monthKey(e.date)] || 0) + e.amount; });
+  const lyIncome = {}, patt = {};
+  accTxns.forEach(t => {
+    const d = dateToIso(t.date);
+    if (!(d > lyStart && d < lyEnd) || regTxnIds.has(t.id)) return;
+    const kind = propLineKind(propLineForTxn(s, t));
+    if (kind === 'none') return;
+    const nd = isoYearsAgo(d, -1);
+    if (kind === 'income') { if (t.amount > 0) lyIncome[monthKey(nd)] = (lyIncome[monthKey(nd)] || 0) + t.amount; return; }
+    const line = propLineForTxn(s, t), k = monthKey(nd) + '|' + line;
+    const g = patt[k] || (patt[k] = { date: nd, amount: 0, n: 0, label: PROP_LINES.find(l => l.id === line)?.label || 'Other', kind: 'pattern' });
+    g.amount += t.amount; g.n++; if (nd > g.date) g.date = nd;
+  });
+  Object.values(patt).forEach(g => { if (Math.abs(g.amount) >= 0.5) events.push({ ...g, amount: round2(g.amount), label: g.label + (g.n > 1 ? ` (${g.n} last year)` : '') }); });
+  Object.entries(lyIncome).forEach(([m, v]) => {
+    const extra = round2(v - (bookedIn[m] || 0));
+    if (extra > 0.5) events.push({ date: m + '-15', amount: extra, label: 'Rent not yet booked (last year this month)', kind: 'forecast' });
+  });
+  events.sort((a, b) => a.date.localeCompare(b.date));
+  // Roll up by month with a running balance.
+  const months = [];
+  let bal = startBal, low = { bal: startBal, date: start };
+  for (let i = 0; i < 12; i++) {
+    const md = new Date(m0.getFullYear(), m0.getMonth() + i, 1), key = dateToIso(md).slice(0, 7);
+    const ev = events.filter(e => monthKey(e.date) === key);
+    const inn = ev.filter(e => e.amount > 0).reduce((a, e) => a + e.amount, 0);
+    const out = ev.filter(e => e.amount < 0).reduce((a, e) => a + e.amount, 0);
+    ev.forEach(e => { bal += e.amount; e.bal = round2(bal); if (bal < low.bal) low = { bal: round2(bal), date: e.date }; });
+    months.push({ key, label: md.toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' }), inn: round2(inn), out: round2(out), end: round2(bal), events: ev });
+  }
+  return { acc, asAt, cb, since: since.length, startBal, months, low };
+}
+function propCashflowHtml(s) {
+  const p = propSettings(s), c = propCashflow(s);
+  const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:8px 10px;outline:none';
+  if (c.noAccount) return `<div class="card" style="font-size:13px;color:var(--text3)">Choose the property's bank account in <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">Setup</a> first. The cash flow follows that account.</div>`;
+  const accName = accounts.find(a => a.id === p.accountId)?.name || 'the property account';
+  const cb = p.cashBalance || {};
+  const balCard = `<div class="card">
+    <div class="card-title" style="margin-bottom:4px">Starting balance</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">The balance of ${escH(accName)} from your banking app. Anything imported for the account after that date is added on.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="number" step="0.01" placeholder="Balance $" value="${cb.amount ?? ''}" onchange="setPropCash('amount', this.value)" style="${inp};width:140px">
+      <input type="date" value="${escH(cb.date || todayLocal())}" onchange="setPropCash('date', this.value)" style="${inp}">
+    </div>
+    ${c.since ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">${c.since} transaction${c.since === 1 ? '' : 's'} imported since then, so it's ${fmtSigned(c.startBal)} today.</div>` : ''}
+  </div>`;
+  if (c.noBalance) return balCard;
+  const money = v => `${v < 0 ? '−' : ''}${fmt(v)}`;
+  const tag = { booked: 'booked', forecast: 'forecast', regular: 'regular', pattern: 'like last year' };
+  const cols = 'display:grid;grid-template-columns:minmax(0,1fr) 72px 72px 84px;gap:6px';
+  return `${balCard}
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">Next 12 months</div>
+      <div style="font-size:13px;margin-bottom:8px">${c.low.bal < 0
+        ? `<span class="neg" style="font-weight:600">Goes ${fmt(c.low.bal)} overdrawn around ${fmtDay(c.low.date)}.</span> Top up before then.`
+        : `Lowest point: <strong>${money(c.low.bal)}</strong> around ${fmtDay(c.low.date)}.`}</div>
+      <div style="${cols};font-size:11px;color:var(--text3);padding-bottom:4px;border-bottom:0.5px solid var(--border)"><span>Month</span><span style="text-align:right">In</span><span style="text-align:right">Out</span><span style="text-align:right">Balance</span></div>
+      ${c.months.map(m => `<div onclick="propCashOpen=propCashOpen==='${m.key}'?null:'${m.key}';renderProperty()" style="cursor:pointer;${cols};font-size:13px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+          <span>${m.label} <span style="font-size:10px;color:var(--teal)">${propCashOpen === m.key ? '▾' : '›'}</span></span>
+          <span style="text-align:right" class="pos">${m.inn ? fmtWhole(m.inn) : '—'}</span>
+          <span style="text-align:right">${m.out ? fmtWhole(m.out) : '—'}</span>
+          <span style="text-align:right;font-weight:600" class="${m.end < 0 ? 'neg' : ''}">${m.end < 0 ? '−' : ''}${fmtWhole(m.end)}</span></div>
+        ${propCashOpen === m.key ? `<div style="padding:4px 0 8px 8px">${m.events.length ? m.events.map(e => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0">
+            <span style="min-width:0">${fmtDay(e.date)} · ${escH(e.label)} <span style="font-size:10px;color:var(--text3)">${tag[e.kind]}</span></span>
+            <span class="${e.amount > 0 ? 'pos' : ''}" style="white-space:nowrap">${e.amount > 0 ? '+' : '−'}${fmt(e.amount)}</span></div>`).join('') : '<div style="font-size:12px;color:var(--text3)">Nothing expected.</div>'}</div>` : ''}`).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Booked stays are paid the day after check-in. Rent not yet booked and other costs follow last year's activity in this account; set up <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">regular payments</a> to schedule bills exactly. Top-ups from your own accounts aren't included.</div>
+    </div>`;
+}
+function setPropCash(field, val) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const cb = { date: todayLocal(), ...(p.cashBalance || {}) };
+  cb[field] = field === 'amount' ? (val === '' || isNaN(Number(val)) ? null : Number(val)) : val;
+  s.property = { ...p, cashBalance: cb };
+  scheduleSave(); renderProperty();
 }
 
 // ── Calendar: day marks, travel, mixed-use usage ──
