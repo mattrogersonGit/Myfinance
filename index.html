@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.10.1';
+const APP_VERSION = '2026.11.10.2';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4286,9 +4286,42 @@ function propHomeOfficeForYear(s, ty) {
     const txns = matching.filter(t => !excluded.has(t.id));
     return { name, words, all, matching, txns, total: round2(-txns.reduce((a, t) => a + t.amount, 0)) };
   });
+  byCat.forEach(c => { if (c.name === ho.loanCat) { c.loan = propLoanInterest(ho, c.txns, start, end); if (c.loan) { c.paid = c.total; c.total = c.loan.total; } } });
   const extra = Number((ho.extra || {})[ty]) || 0;
   const total = round2(byCat.reduce((a, c) => a + c.total, 0) + extra);
   return { pct, cats, byCat, extra, total, value: round2(total * pct / 100) };
+}
+// Mortgage repayments in a personal category are principal plus interest, and
+// only the interest is a household cost. Interest lines come from the loan
+// accounts' own statements (loaded in the home office window, kept apart from
+// the personal transactions so budgets still see the full repayment). Up to
+// the last statement date the interest is taken as charged; repayments after
+// it are cut by the interest share seen in the statements, so a statement
+// loaded monthly or once at year end both work.
+function propLoanInterest(ho, txns, start, end) {
+  const loans = (ho.loans || []).filter(l => (l.recs || []).length);
+  if (!loans.length) return null;
+  const coveredTo = loans.map(l => l.recs.reduce((m, r) => r.date > m ? r.date : m, '')).sort()[0];
+  // From the start of the month of the first statement line, so the
+  // repayment that month is matched with the interest charged in it.
+  const firstRec = loans.map(l => l.recs.reduce((m, r) => !m || r.date < m ? r.date : m, '')).sort().pop().slice(0, 8) + '01';
+  const recs = loans.flatMap(l => l.recs.map(r => ({ ...r, loan: l.name }))).filter(r => r.date >= start && r.date < end && r.date <= coveredTo)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const interest = round2(recs.reduce((a, r) => a + r.interest, 0));
+  const paidOf = list => -list.reduce((a, t) => a + t.amount, 0);
+  const before = txns.filter(t => dateToIso(t.date) <= coveredTo), after = txns.filter(t => dateToIso(t.date) > coveredTo);
+  const paidCovered = paidOf(before.filter(t => dateToIso(t.date) >= firstRec)), paidAfter = paidOf(after);
+  // Interest share of repayments over the months both are known.
+  const intCovered = recs.filter(r => r.date >= firstRec).reduce((a, r) => a + r.interest, 0);
+  let ratio = paidCovered > 0 ? intCovered / paidCovered : null;
+  if (ratio == null) {
+    const all = loans.flatMap(l => l.recs), paid = paidOf(transactions.filter(t => t.cat === ho.loanCat && (t.stream || 'personal') === 'personal' && (d => d >= firstRec && d <= coveredTo)(dateToIso(t.date))));
+    ratio = paid > 0 ? all.filter(r => r.date >= firstRec).reduce((a, r) => a + r.interest, 0) / paid : null;
+  }
+  if (ratio != null) ratio = Math.min(1, Math.max(0, ratio));
+  const estimate = paidAfter > 0 && ratio != null ? round2(paidAfter * ratio) : 0;
+  return { recs, interest, coveredTo, paidAfter: round2(paidAfter), ratio, estimate, unknown: paidAfter > 0 && ratio == null ? round2(paidAfter) : 0,
+    total: round2(interest + estimate + (paidAfter > 0 && ratio == null ? paidAfter : 0)) };
 }
 // Regular payments: costs that should turn up on a schedule (rates monthly,
 // mortgage fortnightly). Each is a report line or a personal category, can be
@@ -4561,7 +4594,7 @@ function propForecastAdds(s, ty, matches, cur) {
     ho.byCat.forEach(c => {
       const reg = regs.find(r => r.src === 'cat:' + c.name);
       let a = 0;
-      if (reg) a = propRegularProjection(s, ty, reg).amount;
+      if (reg) a = propRegularProjection(s, ty, reg).amount * (c.loan && c.loan.ratio != null ? c.loan.ratio : 1);
       else a = Math.max(0, (last.homeOffice.byCat.find(x => x.name === c.name)?.total || 0) - c.total);
       if (a >= 0.5) { hoAdd += a; hoHow.push(`${c.name} ${fmt(a)}`); }
     });
@@ -4886,16 +4919,19 @@ ${d.cleans.some(c => c.cost) ? `<h2>Cleaning paid</h2><table><tbody>${d.cleans.f
 ${d.ho.pct ? `<h2>Home office</h2>
 <div class="muted">${d.ho.pct}% of household running costs${p.homeOffice?.officeM2 && p.homeOffice?.houseM2 ? ` (office ${p.homeOffice.officeM2} m² of ${p.homeOffice.houseM2} m²)` : ''}. Not apportioned for mixed use.</div>
 <table class="summary"><tbody>
-${d.ho.byCat.map(c => row(`${e(c.name)}${c.words.length ? ` <span class="muted">(${e(c.words.join(', '))})</span>` : ''} · ${c.txns.length} payments`, fmt(c.total))).join('')}
+${d.ho.byCat.map(c => row(`${e(c.name)}${c.words.length ? ` <span class="muted">(${e(c.words.join(', '))})</span>` : ''} · ${c.loan ? `interest only, of ${fmt(c.paid)} repaid` : `${c.txns.length} payments`}`, fmt(c.total))).join('')}
 ${d.ho.extra ? row('Other household costs (entered)', fmt(d.ho.extra)) : ''}
 ${row('Household costs', fmt(d.ho.total))}
 ${row(`Home office claim (${d.ho.pct}%)`, fmt(d.ho.value), 'tot')}
 </tbody></table>
-${d.ho.byCat.map(c => c.txns.length ? `<h3>${e(c.name)}</h3><table><tbody>${c.txns.map(t => `<tr><td class="nw">${fmtDay(dateToIso(t.date))}</td><td>${e(t.desc)}</td><td>${e(acct(t.account))}</td><td class="n">${m(-t.amount)}</td></tr>`).join('')}</tbody></table>` : '').join('')}` : ''}
+${d.ho.byCat.map(c => c.loan ? `<h3>${e(c.name)}: interest from the loan statements</h3><table><tbody>${c.loan.recs.map(r => `<tr><td class="nw">${fmtDay(r.date)}</td><td>${e(r.desc)}</td><td>${e(r.loan)}</td><td class="n">${m(r.interest)}</td></tr>`).join('')}
+<tr class="tot"><td colspan="3">Interest charged to ${fmtDay(c.loan.coveredTo)}</td><td class="n">${fmt(c.loan.interest)}</td></tr>
+${c.loan.paidAfter ? `<tr><td colspan="3">Repayments after ${fmtDay(c.loan.coveredTo)}: ${fmt(c.loan.paidAfter)}${c.loan.ratio != null ? ` × ${Math.round(c.loan.ratio * 1000) / 10}% interest share (estimate)` : ' (no interest share known, full repayment counted)'}</td><td class="n">${fmt(c.loan.ratio != null ? c.loan.estimate : c.loan.paidAfter)}</td></tr>` : ''}
+</tbody></table>` : c.txns.length ? `<h3>${e(c.name)}</h3><table><tbody>${c.txns.map(t => `<tr><td class="nw">${fmtDay(dateToIso(t.date))}</td><td>${e(t.desc)}</td><td>${e(acct(t.account))}</td><td class="n">${m(-t.amount)}</td></tr>`).join('')}</tbody></table>` : '').join('')}` : ''}
 
-${d.dep.rows.length ? `<h2>Depreciation</h2>
+${d.dep.rows.length ? `<h2>Depreciation ${taxYearLabel(ty)}</h2>
 <table><thead><tr><th>Asset</th><th>Method</th><th class="n">Opening</th><th class="n">Bought</th><th class="n">Depreciation</th><th class="n">Closing</th></tr></thead><tbody>
-${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span class="muted">bought ${fmtDay(a.purchased)}</span>` : ''}${r.sale != null ? ` <span class="muted">sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}</span>` : ''}</td>
+${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span class="muted">bought ${fmtDay(a.purchased)} · year ${ty - taxYearOf(isoToDate(a.purchased)) + 1}</span>` : ''}${r.sale != null ? ` <span class="muted">sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}</span>` : ''}</td>
   <td class="nw">${a.method === 'none' || !Number(a.rate) ? 'None' : `${Math.round(Number(a.rate) * 1000) / 10}% ${e(a.method)}`}</td><td class="n">${fmt(r.open)}</td><td class="n">${r.bought ? fmt(r.bought) : ''}</td><td class="n">${fmt(r.dep || 0)}</td><td class="n">${fmt(r.close)}</td></tr>`).join('')}
 <tr class="tot"><td colspan="2">Total</td><td class="n">${fmt(d.dep.open)}</td><td class="n">${d.dep.bought ? fmt(d.dep.bought) : ''}</td><td class="n">${fmt(d.dep.depreciation)}</td><td class="n">${fmt(d.dep.close)}</td></tr>
 </tbody></table>` : ''}
@@ -5956,7 +5992,7 @@ function openPropHomeOffice() {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>House floor area (m²)</span><input type="number" min="0" step="0.1" value="${ho.houseM2 ?? ''}" style="${inp}" onchange="setPropHomeOffice('houseM2', this.value)"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span><strong>Share claimed (%)</strong></span><input type="number" min="0" max="100" step="0.01" value="${ho.pct ?? ''}" style="${inp}" onchange="setPropHomeOffice('pct', this.value)"></div>
     <div style="font-size:12px;font-weight:600;margin:12px 0 4px">Household costs to include (personal categories)</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, leave it unticked and type the year's interest below.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, load the loan statements under <em>Mortgage interest</em> below, or leave it unticked and type the year's interest.</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tap a ticked category to see its transactions. Untick any that aren't for the house, or type words to keep only matching ones (e.g. <em>AMI</em> in Insurance).</div>
     <div>${cats.length ? cats.map(n => {
       const on = r.cats.includes(n);
@@ -5965,7 +6001,7 @@ function openPropHomeOffice() {
       const head = `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
         <input type="checkbox" data-cat="${escH(n)}" ${on ? 'checked' : ''} onchange="togglePropHomeOfficeCat(this.dataset.cat, this.checked)">
         <span data-cat="${escH(n)}" style="flex:1;min-width:0;${on ? 'cursor:pointer' : ''}" ${on ? 'onclick="togglePropHoOpen(this.dataset.cat)"' : ''}>${escH(n)}${on ? ` <span style="font-size:11px;color:var(--teal)">${c.txns.length} of ${c.all.length} ${open ? '▾' : '›'}</span>` : ''}</span>
-        <span style="white-space:nowrap;color:var(--text2)">${on ? `<strong>${fmt(c.total)}</strong>${Math.abs(c.total - (totals[n] || 0)) > 0.005 ? ` <span style="font-size:11px;color:var(--text3)">of ${fmt(totals[n] || 0)}</span>` : ''}` : fmt(totals[n] || 0)}</span></div>`;
+        <span style="white-space:nowrap;color:var(--text2)">${on ? `<strong>${fmt(c.total)}</strong>${c.loan ? ` <span style="font-size:11px;color:var(--text3)">interest of ${fmt(c.paid)}</span>` : Math.abs(c.total - (totals[n] || 0)) > 0.005 ? ` <span style="font-size:11px;color:var(--text3)">of ${fmt(totals[n] || 0)}</span>` : ''}` : fmt(totals[n] || 0)}</span></div>`;
       if (!open) return head;
       const ex = new Set(ho.excluded || []);
       return head + `<div style="padding:6px 0 8px 24px;border-bottom:0.5px solid var(--border)">
@@ -5977,6 +6013,7 @@ function openPropHomeOffice() {
           <span style="white-space:nowrap">${fmt(-t.amount)}</span></label>`).join('') || '<div style="font-size:12px;color:var(--text3)">No transactions match.</div>'}
       </div>`;
     }).join('') : '<div style="font-size:12px;color:var(--text3)">No personal spending in this tax year.</div>'}</div>
+    ${propLoanSectionHtml(s, ho, r)}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span>Other household costs this year<br><span style="font-size:11px;color:var(--text3)">e.g. mortgage interest from the bank's statement</span></span><input type="number" min="0" step="0.01" value="${extra || ''}" style="width:100px;${inp.replace('width:80px;', '')}" onchange="setPropHomeOffice('extra', this.value)"></div>
     ${propRow('Household costs', fmt(base))}
     ${costs.length ? propRow('Added with + Add a cost', fmt(costs.reduce((a, c) => a + (Number(c.amount) || 0), 0))) : ''}
@@ -5984,6 +6021,67 @@ function openPropHomeOffice() {
   const btn = document.getElementById('modal-confirm');
   btn.textContent = 'Done'; btn.style.display = ''; btn.disabled = false; btn.onclick = () => closeModal();
   document.getElementById('modal').classList.add('open');
+}
+
+// Loan statements for the home office's mortgage interest.
+function propLoanSectionHtml(s, ho, r) {
+  const loans = ho.loans || [];
+  const catOpts = ['', ...r.cats].map(n => `<option value="${escH(n)}" ${n === (ho.loanCat || '') ? 'selected' : ''}>${n ? escH(n) : 'None'}</option>`).join('');
+  const c = r.byCat.find(x => x.name === ho.loanCat), L = c && c.loan;
+  const sel = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px;outline:none';
+  return `<div style="font-size:12px;font-weight:600;margin:14px 0 4px">Mortgage interest</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Load the CSV statements of the loan accounts themselves (not the account the repayments come from). Only their interest lines are kept, and they stay out of your personal transactions, so budgets still see the full repayment. Load them monthly or once at year end; loading the same statement twice is fine.</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px"><span>Repayments are in</span><select style="${sel}" onchange="setPropHomeOfficeLoanCat(this.value)">${catOpts}</select></div>
+    ${loans.map((l, i) => {
+      const dates = l.recs.map(x => x.date).sort();
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span style="flex:1;min-width:0">${escH(l.name)}<br><span style="font-size:11px;color:var(--text3)">${l.recs.length} interest lines${dates.length ? ` · ${fmtDay(dates[0])} – ${fmtDay(dates[dates.length - 1])}` : ''}</span></span><button class="btn-update" onclick="removePropLoan(${i})">Remove</button></div>`;
+    }).join('')}
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13px">
+      <input type="text" id="prop-loan-name" placeholder="Loan name, e.g. Home loan 1" list="prop-loan-names" style="flex:1;min-width:0;${sel};font-size:13px;padding:6px">
+      <datalist id="prop-loan-names">${loans.map(l => `<option value="${escH(l.name)}">`).join('')}</datalist>
+      <label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this)"></label></div>
+    <div style="font-size:11px;color:var(--text3)">Use the same name each time for the same loan, and a different name for each loan part.</div>
+    ${L ? `<div style="margin-top:6px">${propRow(`Interest charged to ${fmtDay(L.coveredTo)}`, fmt(L.interest))}
+      ${L.paidAfter ? propRow(`Repayments after that ${fmt(L.paidAfter)}${L.ratio != null ? ` × ${Math.round(L.ratio * 1000) / 10}% interest` : ''}`, L.ratio != null ? fmt(L.estimate) : '<span style="color:var(--amber,#d97706)">full repayment counted</span>') : ''}
+      ${propRow(`<strong>${escH(ho.loanCat)} counted</strong>`, `<strong>${fmt(L.total)}</strong>`)}</div>`
+      : ho.loanCat && !loans.length ? `<div style="font-size:11px;color:var(--text3)">No statements loaded yet, so the full repayments in ${escH(ho.loanCat)} are counted.</div>` : ''}`;
+}
+function setPropHomeOfficeLoanCat(name) { updatePropHo(ho => ({ ...ho, loanCat: name || null })); }
+function removePropLoan(i) {
+  const s = currentPropStream(); if (!s) return;
+  const l = (propSettings(s).homeOffice?.loans || [])[i]; if (!l || !confirm(`Remove the ${l.recs.length} interest lines loaded for ${l.name}?`)) return;
+  updatePropHo(ho => ({ ...ho, loans: (ho.loans || []).filter((_, j) => j !== i) }));
+}
+// Keeps the interest lines of a loan statement. Banks show interest charged
+// as a debit or as a credit, so the usual sign of the interest lines decides
+// which way round; an adjustment the other way reduces the total.
+function importPropLoanCsv(input) {
+  const file = input.files[0]; if (!file) return;
+  const name = (document.getElementById('prop-loan-name')?.value || '').trim() || 'Home loan';
+  const reader = new FileReader();
+  reader.onload = e => {
+    const rows = parseCSV(e.target.result, '__loan__').filter(t => /interest/i.test(`${t.desc} ${t.detail || ''}`));
+    input.value = '';
+    if (!rows.length) { alert('No interest lines found in that file. Is it the loan account\'s statement?'); return; }
+    const neg = rows.filter(t => t.amount < 0).length >= rows.length / 2;
+    const recs = rows.map(t => ({ date: dateToIso(t.date), amount: t.amount, desc: [t.desc, t.detail].filter(Boolean).join(' · '), interest: round2(neg ? -t.amount : t.amount) }));
+    let added = 0;
+    updatePropHo(ho => {
+      const loans = [...(ho.loans || [])];
+      let i = loans.findIndex(l => l.name.toLowerCase() === name.toLowerCase());
+      if (i < 0) { loans.push({ name, recs: [] }); i = loans.length - 1; }
+      const key = r => `${r.date}|${(+r.amount).toFixed(2)}|${r.desc}`;
+      const have = new Map(); loans[i].recs.forEach(r => have.set(key(r), (have.get(key(r)) || 0) + 1));
+      const seen = new Map(), fresh = [];
+      recs.forEach(r => { const k = key(r), n = (seen.get(k) || 0) + 1; seen.set(k, n); if (n > (have.get(k) || 0)) fresh.push(r); });
+      added = fresh.length;
+      loans[i] = { ...loans[i], recs: [...loans[i].recs, ...fresh].sort((a, b) => a.date.localeCompare(b.date)) };
+      const loanCat = ho.loanCat || (ho.cats || []).find(n => /mortgage/i.test(n)) || null;
+      return { ...ho, loans, loanCat };
+    });
+    setTimeout(() => alert(`${name}: ${added} interest line${added === 1 ? '' : 's'} added${rows.length - added ? `, ${rows.length - added} already loaded` : ''}.`), 50);
+  };
+  reader.readAsText(file);
 }
 let propHoOpenCat = null;
 // Re-render the home office window without losing the scroll position.
