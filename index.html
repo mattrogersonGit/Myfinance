@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <!-- Google tag (gtag.js) -->
@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.10.4';
+const APP_VERSION = '2026.11.10.5';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -5095,7 +5095,8 @@ function propChecklist(s, ty) {
     detail: !bks.length ? 'none this year' : `${bks.length} this year${stale.length ? ` · ${stale.length} finished stay${stale.length === 1 ? '' : 's'} still marked upcoming, so import the completed earnings CSV` : ''}`,
     action: `<button class="btn-update" onclick="document.getElementById('prop-csv-input').click()">Import</button>` }];
   if (propPayouts.some(x => x.streamId === s.id)) bkRows.push({ st: oldMiss.length ? 'bad' : missPay.length ? 'warn' : 'good', label: 'Payouts found in the bank',
-    detail: missPay.length ? `${missPay.length} not found (${fmt(missPay.reduce((a, x) => a + x.amount, 0))}). Import the account they're paid into.` : 'all matched' });
+    detail: missPay.length ? `${missPay.length} not found: ${missPay.slice(0, 4).map(x => `${fmt(x.amount)} due ${fmtDay(x.arriveBy || x.date)}`).join(', ')}${missPay.length > 4 ? '…' : ''}. Look for it in the account the platform pays into; it may be under Personal or a different amount.` : 'all matched',
+    action: missPay.length ? `<button class="btn-update" onclick="setPropTab('bookings')">Show</button>` : '' });
   items.push({ group: 'Bookings', rows: bkRows });
 
   // 5. To review: personal transactions in the property's category, and
