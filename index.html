@@ -1094,8 +1094,8 @@
           <div class="card-title">Property</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="input-group"><label>Own Home ($)</label><input type="number" id="prop-home-val" value="0" oninput="recalcNetWorth()"></div>
-          <div class="input-group"><label>Beach House ($)</label><input type="number" id="prop-beach-val" value="0" oninput="recalcNetWorth()"></div>
+          <div class="input-group"><label>Home ($)</label><input type="number" id="prop-home-val" value="0" oninput="recalcNetWorth()"></div>
+          <div class="input-group"><label>Other property ($)</label><input type="number" id="prop-beach-val" value="0" oninput="recalcNetWorth()"></div>
         </div>
         <div class="stat-row"><span class="stat-label">Combined property</span><span class="stat-val" id="prop-combined">—</span></div>
         <div class="stat-row"><span class="stat-label">Combined equity</span><span class="stat-val pos" id="prop-equity">—</span></div>
@@ -1463,14 +1463,9 @@ let CATS = [
   {name:'Phone',emoji:'📞',fixed:true},
   {name:'Investments',emoji:'📈',fixed:true},
   {name:'CapEx',emoji:'🔨',fixed:false},
-  {name:'Beach',emoji:'🏖️',fixed:false},
   {name:'Business',emoji:'💼',fixed:false},
   {name:'Work',emoji:'👔',fixed:false},
   {name:'Reimbursment',emoji:'💱',fixed:false},
-  {name:'Eggs',emoji:'🥚',fixed:true},
-  {name:'Chickens',emoji:'🐓',fixed:true},
-  {name:'Roos',emoji:'🦘',fixed:true},
-  {name:'Vape',emoji:'💨',fixed:false},
   {name:'Misc',emoji:'📌',fixed:false},
   {name:'Other',emoji:'📌',fixed:false},
 ];
@@ -1554,14 +1549,14 @@ let rules = [
 ];
 let investments = [];
 let mortgages = [
-  {id:'home',  name:'Own Home', parts:['Mortgage 1','Mortgage 3','Offset'],                     history:[]},
-  {id:'beach', name:'Beach House',        parts:['Beach Section','Beach House 1','Beach House 2'], history:[]}
+  {id:'home',  name:'Home',                parts:['Loan 1','Loan 2','Offset'], history:[]},
+  {id:'beach', name:'Investment property', parts:['Loan 1','Loan 2','Loan 3'], history:[]}
 ];
 let savings = {current:0, updatedAt:null, history:[]};
 let property = {homeVal:0, beachVal:0};
 let otherDebts = [];
-// Each Other Income stream has its own categories + budgets (Waihi Beach and a
-// future Business stream are separate, not one shared "Other Income" bucket) —
+// Each Other Income stream has its own categories + budgets (a rental property
+// and a business are separate, not one shared "Other Income" bucket) —
 // otherIncomeStreams entries carry {id, name, type, linkedDebtId, cats, budgets}.
 // New streams start from this template, then diverge independently.
 const DEFAULT_STREAM_CATS = () => [
@@ -1760,7 +1755,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.11.3';
+const APP_VERSION = '2026.11.11.4';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -1784,7 +1779,7 @@ const catEmoji = name => (CATS.find(c=>c.name===name)||allStreamCats().find(c=>c
 const catColor = name => { const i=CATS.findIndex(c=>c.name===name); if (i>=0) return CAT_COLORS[i]; const j=allStreamCats().findIndex(c=>c.name===name); return j>=0?CAT_COLORS[j%CAT_COLORS.length]:'#8b90a7'; };
 // Rules are one shared list, but each is tagged to a stream ('personal' or an
 // otherIncomeStreams id) so the same keyword can map to a different category per
-// stream — e.g. a mortgage-servicer keyword maps to Waihi Beach's own "Mortgage"
+// stream — e.g. a mortgage-servicer keyword maps to the property's own "Mortgage"
 // category, not Personal's, when the transaction belongs to that stream.
 function categorise(desc, stream) {
   const want = stream || 'personal';
@@ -2342,7 +2337,7 @@ function setCat(id, cat) {
   t.cat = cat;
   if (oldCat !== cat && t.desc) {
     // Fold in the Particulars/Analysis Code detail so a generic payer name reused
-    // for several purposes (e.g. "Rogerson M J" covering phone, gas, power) gets a
+    // for several purposes (e.g. the account holder's own name covering phone, gas, power) gets a
     // rule specific to this purpose, not one that grabs every transaction from them.
     const kw = (t.desc.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
     const stream = t.stream || 'personal';
@@ -2802,7 +2797,7 @@ function incomeStreamFormHtml(s) {
   const mortOpts = mortgages.map(m=>`<option value="m:${m.id}" ${cur==='m:'+m.id?'selected':''}>${m.name} (${fmt(m.history?.slice(-1)[0]?.total||0)} owing)</option>`).join('');
   const debtOpts = otherDebts.map(d=>`<option value="d:${d.id}" ${cur==='d:'+d.id?'selected':''}>${d.name} (${fmt(d.balance)} owing)</option>`).join('');
   return `
-    <div class="input-group"><label>Name</label><input type="text" id="is-name" value="${v('name')}" placeholder="e.g. 123 Beach Rd"></div>
+    <div class="input-group"><label>Name</label><input type="text" id="is-name" value="${v('name')}" placeholder="e.g. 12 Main Road"></div>
     <div class="input-group"><label>Type</label><select id="is-type">${typeOpts}</select></div>
     <div class="input-group"><label>Linked debt (optional)</label><select id="is-debt"><option value="">— None —</option>${mortOpts}${debtOpts}</select></div>`;
 }
@@ -2868,8 +2863,8 @@ function renderIncomeStreams() {
   if (!otherIncomeStreams.length) { el.innerHTML = '<div class="empty" style="padding:8px 0">No other income streams yet</div>'; return; }
   el.innerHTML = otherIncomeStreams.map(s => {
     const debt = resolveLinkedDebt(s.linkedDebtId);
-    const linkedCat = s.type==='Investment Property' ? (hasAddon('property') ? propPersonalCat(s) : 'Beach') : null;
-    const beachCount = linkedCat
+    const linkedCat = s.type==='Investment Property' && hasAddon('property') ? propPersonalCat(s) : null;
+    const linkedCount = linkedCat
       ? transactions.filter(t => (t.stream||'personal')==='personal' && t.cat===linkedCat && t.propReviewed!==s.id).length
       : 0;
     return `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
@@ -2881,26 +2876,9 @@ function renderIncomeStreams() {
         <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openUpdateIncomeStream(${s.id})">Edit</button>
         <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteIncomeStream(${s.id})">✕</button>
       </div>
-      ${beachCount ? (hasAddon('property')
-        ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="openPropReview(${s.id})">Review ${beachCount} "${escH(linkedCat)}"-categorised transaction${beachCount===1?'':'s'} →</button>`
-        : `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="bulkMoveBeachTxns(${s.id})">Move ${beachCount} "Beach"-categorised transaction${beachCount===1?'':'s'} here →</button>`) : ''}
+      ${linkedCount ? `<button class="btn btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 8px" onclick="openPropReview(${s.id})">Review ${linkedCount} "${escH(linkedCat)}"-categorised transaction${linkedCount===1?'':'s'} →</button>` : ''}
     </div>`;
   }).join('');
-}
-// One-off migration helper: transactions that predate a property's own income
-// stream often ended up tagged Personal with a loose category like "Beach" --
-// this moves them onto the stream (recategorised to its "Other" bucket, since
-// the two category lists don't correspond 1:1) so the tax year's data is
-// continuous instead of starting the stream from zero partway through.
-function bulkMoveBeachTxns(streamId) {
-  const stream = otherIncomeStreams.find(s=>s.id===streamId);
-  if (!stream) return;
-  const matches = transactions.filter(t => (t.stream||'personal')==='personal' && t.cat==='Beach');
-  if (!matches.length) return;
-  if (!confirm(`Move ${matches.length} "Beach"-categorised transaction${matches.length===1?'':'s'} to "${stream.name}"? They'll be recategorised to "Other" within that stream -- re-tag them individually afterward if needed.`)) return;
-  const otherCat = stream.cats.find(c=>c.name==='Other')?.name || stream.cats[0]?.name || 'Other';
-  matches.forEach(t => { t.stream = streamId; t.cat = otherCat; });
-  renderIncomeStreams(); renderTransactions(); renderOverview(); scheduleSave();
 }
 function openDebtHistory(id) {
   const m = mortgages.find(x => x.id === id);
@@ -3327,7 +3305,7 @@ function addRuleFromPending(id) {
   if (!t || !t.desc) return;
   // Fold in the Particulars/Analysis Code detail (same text categorise() actually
   // matches against, via txnSearchText) so a generic payer name that's reused for
-  // several different purposes -- e.g. "Rogerson M J" covering phone, gas, power --
+  // several different purposes -- e.g. the account holder's own name covering phone, gas, power --
   // produces a rule specific to *this* purpose instead of a rule that grabs all of them.
   const kw = (t.desc.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
   if (!kw) return;
@@ -3996,7 +3974,7 @@ function defaultPropSettings() {
   return { owners: [{name:'Owner 1', share:50}, {name:'Owner 2', share:50}], purchaseDate: '', accountId: '', travelKm: null, deductionBasis: 'full' };
 }
 function propSettings(s) { return { ...defaultPropSettings(), ...(s.property || {}) }; }
-// Each property has one linked personal category (e.g. "Beach") for its costs
+// Each property has one linked personal category (named after it) for its costs
 // paid from personal accounts; the review looks only there by default. Stored
 // by name -- renaming the category in Settings updates it (updateCatName).
 function propPersonalCat(s) {
@@ -4006,10 +3984,8 @@ function propPersonalCat(s) {
 function ensurePropPersonalCat(s) {
   const cur = propPersonalCat(s);
   if (cur) return cur;
-  // Before this setting existed, property costs went under a "Beach" category;
-  // keep using it if it's in use. Otherwise create one named after the property.
-  const usesBeach = CATS.some(c => c.name === 'Beach') && transactions.some(t => t.propMovedFrom === 'Beach' || ((t.stream || 'personal') === 'personal' && t.cat === 'Beach'));
-  const name = usesBeach ? 'Beach' : s.name;
+  // Create one named after the property.
+  const name = s.name;
   if (!CATS.some(c => c.name === name)) { CATS.push({ name, emoji: '🏠', fixed: false }); reviveTombstone('cats_personal', name); }
   s.property = { ...propSettings(s), personalCat: name };
   scheduleSave();
@@ -4274,8 +4250,8 @@ function propHomeOfficeForYear(s, ty) {
   const pct = Number(ho.pct) || 0;
   const cats = ho.cats || [];
   const { start, end } = taxYearRange(ty);
-  // A category can be narrowed by words in the description (e.g. only "AMI"
-  // within Insurance), and single transactions can be left out (a car policy
+  // A category can be narrowed by words in the description (e.g. only the house
+  // insurer within Insurance), and single transactions can be left out (a car policy
   // paid to the same insurer).
   const excluded = new Set(ho.excluded || []);
   const byCat = cats.map(name => {
@@ -4325,7 +4301,7 @@ function propLoanInterest(ho, txns, start, end) {
 }
 // Regular payments: costs that should turn up on a schedule (rates monthly,
 // mortgage fortnightly). Each is a report line or a personal category, can be
-// narrowed by words in the description (e.g. "AMP" within Insurance), and is
+// narrowed by words in the description (e.g. one insurer within Insurance), and is
 // checked for gaps in the tax year -- usually a sign of a missing import or a
 // transaction coded somewhere else. Stored as property.regular[].
 const PROP_FREQS = [
@@ -4433,7 +4409,7 @@ function propRegularSetupHtml(s) {
     </select>`;
   return `<div class="card">
     <div class="card-title" style="margin-bottom:4px">Regular payments</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Costs that come out on a schedule. The Tax tab checks each tax year for gaps. Add words to pick out one payee when a line has several, e.g. Insurance with "AMP" and again with "AMI".</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Costs that come out on a schedule. The Tax tab checks each tax year for gaps. Add words to pick out one payee when a line has several, e.g. Insurance once with one insurer's name and again with another's.</div>
     ${regs.map((r, i) => `<div style="padding:8px 0;border-bottom:0.5px solid var(--border)">
       <div style="display:flex;gap:6px;margin-bottom:6px">${srcSelect(r, i)}
         <select onchange="setPropRegular(${i},'freq',this.value)" style="width:110px;${sel}">${PROP_FREQS.map(f => `<option value="${f.id}" ${r.freq === f.id ? 'selected' : ''}>${f.label}</option>`).join('')}</select>
@@ -5617,7 +5593,7 @@ function propTaxHtml(s) {
     ${pnl.forecast ? '' : propPackCardHtml()}
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">Check against your accountant</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Type in the figures from the accountant's statement for this tax year to see where the app differs. Rent and commissions are reported differently (the accountant uses what guests paid, the app uses the Airbnb CSV), so compare <strong>net profit</strong> for those.</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Type in the figures from the accountant's statement for this tax year to see where the app differs. Accountants don't all show rent and platform fees the same way (gross or net of fees), so if those two differ, compare <strong>net profit</strong>.</div>
       <div style="display:grid;grid-template-columns:minmax(0,1fr) 92px 100px;gap:8px;font-size:11px;color:var(--text3);padding-bottom:4px;border-bottom:0.5px solid var(--border)"><span>Line</span><span style="text-align:right">App</span><span style="text-align:right">Accountant</span></div>
       ${PROP_CHECK_LINES.map(l => {
         const a = appVal[l.id] || 0, has = checks[l.id] != null && checks[l.id] !== '';
@@ -6033,7 +6009,7 @@ function setPropCheck(lineId, val) {
 }
 
 // ── Review personal transactions that belong to the property ──
-// Replaces the old blanket "move all Beach transactions" button: each one is
+// Each personal transaction in the property's category is
 // either moved onto the property with a proper category, or left in Personal
 // (typical for Airbnb payouts landing in a personal account, and transfers
 // from personal into the property account -- moving those would double count).
@@ -6052,8 +6028,8 @@ function propReviewSuggestion(s, t, matches) {
   // Transfers between the owners' own accounts usually carry an owner's name
   // or the property's name -- built from the user's Setup, never hardcoded.
   // Owner names match on any word (a surname is enough); the property name
-  // only as a whole phrase, so "Beach Expense" isn't taken for a transfer
-  // just because the property is called "Waihi Beach".
+  // only as a whole phrase, so "Bay Expense" isn't taken for a transfer
+  // just because the property is called "Sunny Bay".
   const esc = w => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
   const words = [
     ...propSettings(s).owners.flatMap(o => String(o.name || '').split(/\s+/)).filter(w => w.length >= 4 && !/^owner$/i.test(w)).map(esc),
@@ -6265,7 +6241,7 @@ function openPropHomeOffice() {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px;border-bottom:0.5px solid var(--border)"><span><strong>Share claimed (%)</strong></span><input type="number" min="0" max="100" step="0.01" value="${ho.pct ?? ''}" style="${inp}" onchange="setPropHomeOffice('pct', this.value)"></div>
     <div style="font-size:12px;font-weight:600;margin:12px 0 4px">Household costs to include (personal categories)</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Only the interest on a mortgage counts, not repayments of the loan. If your mortgage category includes repayments, set it as the mortgage repayments category in Setup and load the loan statements in the Tax tab's year-end checklist. Only their interest is counted.</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tap a ticked category to see its transactions. Untick any that aren't for the house, or type words to keep only matching ones (e.g. <em>AMI</em> in Insurance).</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tap a ticked category to see its transactions. Untick any that aren't for the house, or type words to keep only matching ones (e.g. your house insurer's name in Insurance).</div>
     <div>${cats.length ? cats.map(n => {
       const on = r.cats.includes(n);
       const c = r.byCat.find(x => x.name === n);
@@ -6909,7 +6885,7 @@ function loadDataObj(obj) {
   if (obj.mortgages) mortgages = obj.mortgages;
   else if (obj.mortgage) {
     // Migrate old single-mortgage format
-    mortgages[0].history = [{date:todayLocal(),balances:{'Mortgage 1':obj.mortgage.bal,'Mortgage 3':0,'Offset':0},total:obj.mortgage.bal,payment:obj.mortgage.rep}];
+    mortgages[0].history = [{date:todayLocal(),balances:Object.fromEntries(mortgages[0].parts.map((p, i) => [p, i === 0 ? obj.mortgage.bal : 0])),total:obj.mortgage.bal,payment:obj.mortgage.rep}];
   }
   // Savings
   if (obj.savings && typeof obj.savings === 'object' && 'current' in obj.savings) {
