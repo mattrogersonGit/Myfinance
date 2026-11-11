@@ -1760,7 +1760,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.10.5';
+const APP_VERSION = '2026.11.11.1';
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -4508,7 +4508,7 @@ function computePayoutMatches(s) {
   const payouts = propPayouts.filter(p => p.streamId === s.id && p.amount > 0).sort((a,b) => (a.date||'').localeCompare(b.date||''));
   payouts.forEach(p => {
     const cands = (byCents.get(cents(p.amount)) || []).filter(t => !matchedTxnIds.has(t.id));
-    const lo = p.date, hiD = isoToDate(p.arriveBy || p.date); hiD.setDate(hiD.getDate() + 7);
+    const lo = addDaysIso(p.date, -3), hiD = isoToDate(p.arriveBy || p.date); hiD.setDate(hiD.getDate() + 7);
     const hi = dateToIso(hiD);
     const inWin = cands.filter(t => { const d = dateToIso(t.date); return d >= lo && d <= hi; }).sort((a, b) => a.date - b.date);
     const orig = inWin.find(t => /airbnb|payoneer|bookabach|vrbo|homeaway|expedia/i.test((t.desc||'') + ' ' + (t.detail||''))) || inWin.find(t => t.stream !== s.id) || inWin[0];
@@ -4526,6 +4526,21 @@ function computePayoutMatches(s) {
     }
   });
   return { payoutTxn, matchedTxnIds };
+}
+// Why a payout wasn't matched: a deposit of the same amount outside the date
+// window, or one already matched to another payout (often a duplicate).
+function propPayoutMissReason(s, p, matches) {
+  const c = Math.round(p.amount * 100);
+  const near = transactions.filter(t => t.amount > 0 && Math.round(t.amount * 100) === c && Math.abs(daysBetween(p.arriveBy || p.date, dateToIso(t.date))) <= 45)
+    .sort((a, b) => Math.abs(daysBetween(p.date, dateToIso(a.date))) - Math.abs(daysBetween(p.date, dateToIso(b.date))));
+  if (!near.length) return 'no deposit of that amount in the bank';
+  const t = near[0], d = dateToIso(t.date);
+  const other = [...matches.payoutTxn.entries()].find(([, x]) => x.id === t.id);
+  if (other) {
+    const op = propPayouts.find(x => x.id === other[0]);
+    return `the ${fmtDay(d)} deposit is already matched to another ${fmt(p.amount)} payout${op ? ` dated ${fmtDay(op.date)}` : ''}${op && op.date === p.date ? ', so this looks like a duplicate' : ''}`;
+  }
+  return `a deposit on ${fmtDay(d)} is outside the dates allowed (paid ${fmtDay(p.date)}, due ${fmtDay(p.arriveBy || p.date)})`;
 }
 // A booking is "in the bank" when every payment date it was paid on has a
 // payout that was matched to a deposit.
@@ -5095,7 +5110,7 @@ function propChecklist(s, ty) {
     detail: !bks.length ? 'none this year' : `${bks.length} this year${stale.length ? ` · ${stale.length} finished stay${stale.length === 1 ? '' : 's'} still marked upcoming, so import the completed earnings CSV` : ''}`,
     action: `<button class="btn-update" onclick="document.getElementById('prop-csv-input').click()">Import</button>` }];
   if (propPayouts.some(x => x.streamId === s.id)) bkRows.push({ st: oldMiss.length ? 'bad' : missPay.length ? 'warn' : 'good', label: 'Payouts found in the bank',
-    detail: missPay.length ? `${missPay.length} not found: ${missPay.slice(0, 4).map(x => `${fmt(x.amount)} due ${fmtDay(x.arriveBy || x.date)}`).join(', ')}${missPay.length > 4 ? '…' : ''}. Look for it in the account the platform pays into; it may be under Personal or a different amount.` : 'all matched',
+    detail: missPay.length ? `${missPay.length} not found: ${missPay.slice(0, 4).map(x => `${fmt(x.amount)} due ${fmtDay(x.arriveBy || x.date)} (${propPayoutMissReason(s, x, matches)})`).join('; ')}${missPay.length > 4 ? '…' : ''}.` : 'all matched',
     action: missPay.length ? `<button class="btn-update" onclick="setPropTab('bookings')">Show</button>` : '' });
   items.push({ group: 'Bookings', rows: bkRows });
 
