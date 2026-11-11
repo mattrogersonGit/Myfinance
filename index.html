@@ -345,6 +345,19 @@
     .s-meta { font-size:12px; color:var(--text3); max-width:130px; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .s-chev { color:var(--text3); font-size:20px; font-weight:300; flex-shrink:0; transition:transform 0.2s; }
     .s-chev.open { transform:rotate(90deg); }
+    .s-group-title { font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:0.07em; margin:18px 2px 8px; }
+    .s-group-title:first-child { margin-top:4px; }
+    .s-tiles { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
+    @media (min-width:600px) { .s-tiles { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+    @media (min-width:900px) { .s-tiles { grid-template-columns:repeat(4, minmax(0,1fr)); } }
+    .s-tile { position:relative; background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); padding:14px; min-height:96px; display:flex; flex-direction:column; gap:4px; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent; transition:border-color 0.15s, transform 0.1s; }
+    .s-tile:hover { border-color:var(--border2); }
+    .s-tile:active { transform:scale(0.97); }
+    .s-tile-icon { font-size:24px; line-height:1; margin-bottom:6px; }
+    .s-tile-label { font-size:14px; font-weight:600; color:var(--text); }
+    .s-tile-meta { font-size:12px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .s-tile-dot { position:absolute; top:12px; right:12px; width:9px; height:9px; border-radius:50%; }
+    #settings-detail .s-body { border-top:none; padding-top:0; padding-bottom:0; }
     .s-body { display:none; padding-bottom:16px; border-top:0.5px solid var(--border); padding-top:12px; }
     .s-body.open { display:block; }
 
@@ -1123,13 +1136,19 @@
 
     <!-- IMPORT / SETTINGS -->
     <div id="page-import" class="page">
-      <div class="section-header"><div class="section-title">Import & Settings</div></div>
-      <div id="pending-banner"></div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-import')">
-          <span class="s-icon">📥</span><span class="s-label">Import CSV</span><span class="s-chev" id="s-import-chev">›</span>
+      <div id="settings-home">
+        <div class="section-header"><div class="section-title">Import &amp; Settings</div></div>
+        <div id="pending-banner"></div>
+        <div id="settings-tiles"></div>
+        <div id="app-version" style="text-align:center;font-size:11px;color:var(--text3);padding:18px 0 6px"></div>
+      </div>
+      <div id="settings-detail" style="display:none">
+        <div class="section-header" style="gap:8px">
+          <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="settingsBack()">← Settings</button>
+          <div class="section-title" id="settings-detail-title" style="flex:1;text-align:center"></div>
+          <span style="width:84px"></span>
         </div>
+        <div class="card">
         <div id="s-import" class="s-body">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em">Bank CSV — Westpac · ANZ · BNZ · ASB</span>
@@ -1137,22 +1156,10 @@
           </div>
           <div id="import-zones"></div>
         </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-recurring')">
-          <span class="s-icon">🔁</span><span class="s-label">Recurring transactions</span><span class="s-meta" id="s-recurring-meta"></span><span class="s-chev" id="s-recurring-chev">›</span>
-        </div>
         <div id="s-recurring" class="s-body">
           <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Expected monthly items shown as ghost entries when viewing the current month</div>
           <div id="recurring-list"></div>
           <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addRecurring()">+ Add recurring item</button>
-        </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-accounts')">
-          <span class="s-icon">🏦</span><span class="s-label">Accounts</span><span class="s-meta" id="s-accounts-meta"></span><span class="s-chev" id="s-accounts-chev">›</span>
         </div>
         <div id="s-accounts" class="s-body">
           <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
@@ -1163,29 +1170,11 @@
           </div>
           <div id="accounts-list"></div>
         </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-income')">
-          <span class="s-icon">💼</span><span class="s-label">Other Income</span><span class="s-meta" id="s-income-meta"></span><span class="s-chev" id="s-income-chev">›</span>
-        </div>
         <div id="s-income" class="s-body">
           <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
             <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openAddIncomeStream()">+ Add</button>
           </div>
           <div id="income-streams-list"></div>
-        </div>
-      </div>
-
-      <div class="card" style="padding:0 16px;display:none" id="prop-entry-card">
-        <div class="s-row" onclick="openPropertyModule()">
-          <span class="s-icon">🏖️</span><span class="s-label">Property <span style="font-size:10px;font-weight:600;color:var(--teal)">BETA</span></span><span class="s-meta">Bookings · tax</span><span class="s-chev">›</span>
-        </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-cats')">
-          <span class="s-icon">🏷️</span><span class="s-label">Categories &amp; Budgets</span><span class="s-chev" id="s-cats-chev">›</span>
         </div>
         <div id="s-cats" class="s-body">
           <div class="tabs" id="cat-mgmt-tabs"></div>
@@ -1203,12 +1192,6 @@
           <div id="cat-mgmt-list"></div>
           <button class="btn btn-secondary btn-block" style="margin-top:10px;font-size:13px" onclick="addCategory()">+ Add category</button>
         </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-rules')">
-          <span class="s-icon">📋</span><span class="s-label">Auto-categorisation rules</span><span class="s-chev" id="s-rules-chev">›</span>
-        </div>
         <div id="s-rules" class="s-body">
           <div class="tabs" id="rule-mgmt-tabs"></div>
           <input type="text" class="rules-search" id="rules-search" placeholder="Filter rules…" oninput="renderRules()">
@@ -1220,57 +1203,15 @@
             <button class="btn btn-primary" onclick="addRule()" style="padding:10px 14px">Add</button>
           </div>
         </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="exportCSV()">
-          <span class="s-icon">📤</span><span class="s-label">Export to CSV</span><span class="s-meta">Excel</span><span class="s-chev" style="opacity:0.4">↓</span>
-        </div>      </div>
-
-      <div class="card" style="padding:14px 16px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <span class="s-icon">🌓</span><span class="s-label">Appearance</span>
-        </div>
-        <div class="tabs" style="margin-bottom:0">
-          <button id="theme-tab-system" class="tab" onclick="setTheme('system')">System</button>
-          <button id="theme-tab-light" class="tab" onclick="setTheme('light')">Light</button>
-          <button id="theme-tab-dark" class="tab" onclick="setTheme('dark')">Dark</button>
-        </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-account')">
-          <span class="s-icon">👤</span><span class="s-label">Account</span><span class="s-meta" id="s-account-meta">Not signed in</span><span class="s-chev" id="s-account-chev">›</span>
-        </div>
         <div id="s-account" class="s-body">
           <div id="account-content"><div style="font-size:13px;color:var(--text3)">Loading…</div></div>
-        </div>
-      </div>
-
-      <div class="card" style="padding:0 16px" id="storage-card">
-        <div class="s-row" onclick="toggleSettings('s-storage')">
-          <span class="s-icon">💾</span><span class="s-label">Storage usage</span><span class="s-meta" id="s-storage-meta"></span><span class="s-chev" id="s-storage-chev">›</span>
         </div>
         <div id="s-storage" class="s-body">
           <div id="storage-summary"></div>
         </div>
-      </div>
-
-      <div class="card" style="padding:0 16px">
-        <div class="s-row" onclick="toggleSettings('s-data')">
-          <span class="s-icon">🗑️</span><span class="s-label">Data</span><span class="s-chev" id="s-data-chev">›</span>
-        </div>
         <div id="s-data" class="s-body">
           <div id="ignored-txns-box" style="margin-bottom:14px"></div>
           <button class="btn btn-danger btn-block" onclick="clearData()">Clear all data</button>
-        </div>
-
-        <div class="s-row" onclick="rateApp()">
-          <span class="s-icon">⭐</span><span class="s-label">Rate this app</span>
-        </div>
-
-        <div class="s-row" onclick="toggleSettings('s-help')">
-          <span class="s-icon">❓</span><span class="s-label">Help &amp; Guide</span><span class="s-chev" id="s-help-chev">›</span>
         </div>
         <div id="s-help" class="s-body">
 
@@ -1359,7 +1300,14 @@
           </div>
 
         </div>
-        <div id="app-version" style="text-align:center;font-size:11px;color:var(--text3);padding:18px 0 6px"></div>
+        <div id="s-appearance" class="s-body">
+          <div class="tabs" style="margin-bottom:0">
+            <button id="theme-tab-system" class="tab" onclick="setTheme('system')">System</button>
+            <button id="theme-tab-light" class="tab" onclick="setTheme('light')">Light</button>
+            <button id="theme-tab-dark" class="tab" onclick="setTheme('dark')">Dark</button>
+          </div>
+        </div>
+        </div>
       </div>
     </div>
 
@@ -1755,7 +1703,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.11.5';
+const APP_VERSION = '2026.11.12.1';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -1916,7 +1864,7 @@ function navTo(page, el) {
   if (page==='debt') renderDebt();
   if (page==='assets') renderAssets();
   document.getElementById('bottom-nav').style.display = '';
-  if (page==='import') { renderPropertyEntry(); renderImportZones(); renderAccounts(); renderIncomeStreams(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); renderThemeControl(); const rm=document.getElementById('s-recurring-meta'); if(rm) rm.textContent=recurring.length?recurring.length+' item'+(recurring.length===1?'':'s'):''; }
+  if (page==='import') { settingsBack(); renderImportZones(); renderAccounts(); renderIncomeStreams(); renderCategories(); renderRules(); renderPendingBanner(); renderStorageSummary(); renderThemeControl(); }
   document.getElementById('page-container').scrollTop = 0;
 }
 
@@ -3891,7 +3839,7 @@ function renderRecurring() {
   const el = document.getElementById('recurring-list');
   if (!el) return;
   const meta = document.getElementById('s-recurring-meta');
-  if (meta) meta.textContent = recurring.length ? recurring.length + ' item' + (recurring.length===1?'':'s') : '';
+  if (meta) meta.textContent = recurring.length ? recurring.length + ' item' + (recurring.length===1?'':'s') : 'None yet';
   const catOpts = CATS.map(c=>`<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
   const acctOpts = accounts.map(a=>`<option value="${a.id}">${a.icon||'🏦'} ${a.name}</option>`).join('');
   if (!recurring.length) {
@@ -3955,10 +3903,7 @@ function hasAddon(name) {
   if (sbAddons.includes(name)) return true;
   try { return localStorage.getItem('myfinance_beta_' + name) === '1'; } catch(e) { return false; }
 }
-function renderPropertyEntry() {
-  const el = document.getElementById('prop-entry-card');
-  if (el) el.style.display = hasAddon('property') ? '' : 'none';
-}
+function renderPropertyEntry() { renderSettingsTiles(); }
 
 const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const round2 = n => Math.round(n * 100) / 100;
@@ -7122,6 +7067,11 @@ function armExitGuard() {
       history.pushState({exitGuard:true}, '');
       return;
     }
+    if (settingsDetailOpen()) {
+      settingsBack();
+      history.pushState({exitGuard:true}, '');
+      return;
+    }
     if (confirm('Exit MyFinance?')) {
       history.back();
     } else {
@@ -7659,24 +7609,114 @@ async function sbInviteSignin() {
   }
 }
 
+// Settings is a grid of tiles; each tile opens its section as its own screen.
+const SETTINGS_TITLES = {
+  's-import': 'Import CSV', 's-recurring': 'Recurring', 's-accounts': 'Accounts', 's-income': 'Other income',
+  's-cats': 'Categories & budgets', 's-rules': 'Auto-categorisation rules', 's-account': 'Account',
+  's-appearance': 'Appearance', 's-storage': 'Storage', 's-data': 'Data', 's-help': 'Help & guide',
+};
 function toggleSettings(id) {
   const body = document.getElementById(id);
   if (!body) return;
+  if (currentPage !== 'import') tourGoToPage('import');
+  document.querySelectorAll('#settings-detail .s-body').forEach(el => el.classList.toggle('open', el === body));
+  document.getElementById('settings-home').style.display = 'none';
+  document.getElementById('settings-detail').style.display = '';
+  document.getElementById('settings-detail-title').textContent = SETTINGS_TITLES[id] || '';
   if (id === 's-data') renderIgnoredTxns();
-  const isOpen = body.classList.contains('open');
-  document.querySelectorAll('.s-body.open').forEach(el => {
-    el.classList.remove('open');
-    const chev = document.getElementById(el.id + '-chev');
-    if (chev) chev.classList.remove('open');
-  });
-  if (!isOpen) {
-    body.classList.add('open');
-    const chev = document.getElementById(id + '-chev');
-    if (chev) chev.classList.add('open');
-    if (id === 's-storage') renderStorageSummary();
-    if (id === 's-recurring') renderRecurring();
-    if (id === 's-help') renderHelpUpgradeBtns();
+  if (id === 's-storage') renderStorageSummary();
+  if (id === 's-recurring') renderRecurring();
+  if (id === 's-help') renderHelpUpgradeBtns();
+  if (id === 's-appearance') renderThemeControl();
+  document.getElementById('page-container').scrollTop = 0;
+}
+function settingsDetailOpen() {
+  const el = document.getElementById('settings-detail');
+  return currentPage === 'import' && el && el.style.display !== 'none';
+}
+function settingsBack() {
+  document.querySelectorAll('#settings-detail .s-body.open').forEach(el => el.classList.remove('open'));
+  document.getElementById('settings-detail').style.display = 'none';
+  document.getElementById('settings-home').style.display = '';
+  renderSettingsTiles();
+  document.getElementById('page-container').scrollTop = 0;
+}
+function settingsTileStatus() {
+  const DAY = 86400000, now = Date.now();
+  const latest = {};
+  transactions.forEach(t => { const d = +t.date; if (!latest[t.account] || d > latest[t.account]) latest[t.account] = d; });
+  const newest = Math.max(0, ...Object.values(latest));
+  // Accounts used in the last 4 months but not imported in the last 5 weeks.
+  const behind = accounts.filter(a => latest[a.id] && now - latest[a.id] > 35 * DAY && now - latest[a.id] < 120 * DAY);
+  let prop = null;
+  if (hasAddon('property')) {
+    try {
+      const rows = propertyStreams().flatMap(ps => propChecklist(ps, currentTaxYear()).flatMap(g => g.rows)).filter(r => r.st && r.st !== 'na');
+      const n = k => rows.filter(r => r.st === k).length;
+      prop = !rows.length ? { st: null, meta: 'Bookings · tax' }
+        : n('bad') ? { st: 'bad', meta: `${n('bad')} off track` }
+        : n('warn') ? { st: 'warn', meta: `${n('warn')} to check` }
+        : { st: 'good', meta: 'Checklist on track' };
+    } catch (e) { prop = { st: null, meta: 'Bookings · tax' }; }
   }
+  let bytes = 0;
+  try { bytes = new Blob([JSON.stringify(getDataObj())]).size; } catch (e) {}
+  const pref = localStorage.getItem('myfinance_theme') || 'system';
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  return {
+    importMeta: newest ? `Latest ${new Date(newest).toLocaleDateString('en-NZ', {day:'numeric', month:'short'})}` : 'Nothing imported yet',
+    importSt: newest && now - newest > 35 * DAY ? 'warn' : null,
+    accountsMeta: behind.length ? `${behind.length} not up to date` : plural(accounts.length, 'account'),
+    accountsSt: behind.length ? 'warn' : null,
+    recurringMeta: recurring.length ? plural(recurring.length, 'item') : 'None yet',
+    catsMeta: plural(CATS.length, 'category').replace('categorys', 'categories'),
+    rulesMeta: plural(rules.length, 'rule'),
+    incomeMeta: otherIncomeStreams.length ? plural(otherIncomeStreams.length, 'stream') : 'None yet',
+    accountMeta: !sbConn ? 'Unavailable' : sbUser ? sbUser.email.split('@')[0] + (isPro() ? ' · Pro' : '') : 'Not signed in',
+    accountSt: sbConn && !sbUser ? 'warn' : null,
+    themeMeta: pref[0].toUpperCase() + pref.slice(1),
+    storageMeta: bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : (bytes / 1024).toFixed(0) + ' KB',
+    prop,
+  };
+}
+function renderSettingsTiles() {
+  const el = document.getElementById('settings-tiles');
+  if (!el) return;
+  const st = settingsTileStatus();
+  const tile = (o) => `<div class="s-tile"${o.id ? ` id="${o.id}"` : ''} onclick="${o.on}">
+      ${o.st ? `<span class="s-tile-dot" style="background:${PROP_STATUS[o.st].c}"></span>` : ''}
+      <span class="s-tile-icon">${o.icon}</span>
+      <span class="s-tile-label">${o.label}</span>
+      <span class="s-tile-meta"${o.metaId ? ` id="${o.metaId}"` : ''}${o.st && o.st !== 'good' ? ` style="color:${PROP_STATUS[o.st].c}"` : ''}>${escH(o.meta || '')}</span>
+    </div>`;
+  const open = id => `toggleSettings('${id}')`;
+  const groups = [
+    ['Get data in', [
+      { icon:'📥', label:'Import CSV', on:open('s-import'), meta:st.importMeta, st:st.importSt, id:'s-import-tile' },
+      { icon:'🏦', label:'Accounts', on:open('s-accounts'), meta:st.accountsMeta, st:st.accountsSt, id:'s-accounts-tile' },
+      { icon:'🔁', label:'Recurring', on:open('s-recurring'), meta:st.recurringMeta, metaId:'s-recurring-meta' },
+    ]],
+    ['Organise', [
+      { icon:'🏷️', label:'Categories &amp; budgets', on:open('s-cats'), meta:st.catsMeta, id:'s-cats-tile' },
+      { icon:'📋', label:'Rules', on:open('s-rules'), meta:st.rulesMeta, id:'s-rules-tile' },
+      { icon:'💼', label:'Other income', on:open('s-income'), meta:st.incomeMeta },
+    ]],
+    st.prop ? ['Modules', [
+      { icon:'🏖️', label:'Property <span style="font-size:10px;font-weight:600;color:var(--teal)">BETA</span>', on:'openPropertyModule()', meta:st.prop.meta, st:st.prop.st, id:'prop-entry-card' },
+    ]] : null,
+    ['Account', [
+      { icon:'👤', label:'Account', on:open('s-account'), meta:st.accountMeta, st:st.accountSt, metaId:'s-account-meta' },
+      { icon:'🌓', label:'Appearance', on:open('s-appearance'), meta:st.themeMeta },
+      { icon:'💾', label:'Storage', on:open('s-storage'), meta:st.storageMeta },
+    ]],
+    ['Data &amp; help', [
+      { icon:'📤', label:'Export CSV', on:'exportCSV()', meta:'Opens in Excel' },
+      { icon:'🗑️', label:'Data', on:open('s-data'), meta:'Deleted items · reset' },
+      { icon:'❓', label:'Help &amp; guide', on:open('s-help'), meta:'Tour · tips · Free vs Pro' },
+      { icon:'⭐', label:'Rate this app', on:'rateApp()', meta:'Tell us what you think' },
+    ]],
+  ].filter(Boolean);
+  el.innerHTML = groups.map(([title, tiles]) => `<div class="s-group-title">${title}</div><div class="s-tiles">${tiles.map(tile).join('')}</div>`).join('');
 }
 
 async function sbRenameHousehold() {
