@@ -1755,7 +1755,12 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.11.4';
+const APP_VERSION = '2026.11.11.5';
+// Version of the saved data's shape. Bump it whenever a release adds a saved
+// key or field that an older copy of the app would drop when it saves: a copy
+// that finds newer data in the cloud stops saving and asks to be reloaded.
+const DATA_SCHEMA = 1;
+let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
 // of UTC (e.g. NZ, UTC+12/13) sees "today" default to yesterday's date for
@@ -6858,6 +6863,7 @@ window.addEventListener('storage', (e) => {
 });
 function getDataObj() {
   return {
+    schema: DATA_SCHEMA, appVersion: APP_VERSION,
     transactions: transactions.map(t=>({...t,date:t.date.toISOString()})),
     rules, investments, mortgages, savings, property, otherDebts, otherIncomeStreams, debtOrder, pendingTxns, budgets, accounts, recurring,
     bookings, propPayouts, propDays, taxReturns, propCosts, ignoredTxns,
@@ -6957,6 +6963,18 @@ function loadFromLocal() {
   } catch(e) {}
 }
 
+// A newer version of the app has saved this household's data. Saving from
+// this copy could lose what it doesn't understand, so it stops until reloaded.
+function showUpdateNeeded() {
+  sbNeedsUpdate = true;
+  setSyncStatus('error', 'Update needed');
+  if (document.getElementById('update-needed-bar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'update-needed-bar';
+  bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:9999;background:var(--teal);color:#fff;border-radius:var(--radius);padding:12px 14px;display:flex;gap:10px;align-items:center;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.25)';
+  bar.innerHTML = '<span style="flex:1">A newer version of MyFinance is available. Reload to update. Changes made here won\'t sync until you do.</span><button onclick="location.reload()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Reload</button>';
+  document.body.appendChild(bar);
+}
 function setSyncStatus(state, text) {
   const el = document.getElementById('sync-status');
   const txt = document.getElementById('sync-text');
@@ -7327,6 +7345,7 @@ async function sbLoadData() {
     .single();
   if (error) { setSyncStatus('error', 'Cloud load failed'); return; }
   if (data?.data && Object.keys(data.data).length > 0) {
+    if ((Number(data.data.schema) || 0) > DATA_SCHEMA) showUpdateNeeded();
     loadDataObj(data.data);
     localStorage.setItem('myfinance_data', JSON.stringify(data.data));
     renderOverview(); renderDebt(); renderAssets();
@@ -7399,7 +7418,7 @@ function mergeIncomeStreams(localArr, cloudArr, tomb) {
   return [...ids].filter(id => !isTombDead(dead[String(id)])).map(id => {
     const c = cloudMap.get(id), l = localMap.get(id);
     if (c && l) return {
-      ...l,
+      ...c, ...l,
       cats: mergeArraysById(l.cats, c.cats, 'name', `cats_stream_${id}`, tomb),
       budgets: mergeYearMap(l.budgets, c.budgets),
     };
@@ -7448,6 +7467,9 @@ function mergeWithCloud(data, cloud) {
   data.budgets            = mergeYearMap(data.budgets, cloud.budgets);
   data.otherIncomeStreams = mergeIncomeStreams(data.otherIncomeStreams, cloud.otherIncomeStreams, tomb);
   if (cloud.savings && data.savings) data.savings = mergeItemHistory(cloud.savings, data.savings);
+  // Anything saved by a newer version that this one doesn't know about.
+  Object.keys(cloud).forEach(k => { if (!(k in data)) data[k] = cloud[k]; });
+  data.schema = Math.max(Number(data.schema) || 0, Number(cloud.schema) || 0);
   return data;
 }
 async function sbSaveData(data) {
@@ -7462,6 +7484,7 @@ async function sbSaveData(data) {
   sbSaving = true;
   try {
     const { data: existing } = await sbConn.from('household_data').select('data').eq('household_id', sbHousehold.id).single();
+    if (sbNeedsUpdate || (Number(existing?.data?.schema) || 0) > DATA_SCHEMA) { showUpdateNeeded(); return; }
     if (existing?.data && Object.keys(existing.data).length) {
       data = mergeWithCloud(data, existing.data);
     }
