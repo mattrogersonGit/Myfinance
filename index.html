@@ -362,7 +362,7 @@
     /* ─── Property workspace: sidebar on wide screens, tabs on phones ─── */
     #prop-side { display:none; }
     #prop-head-wide { display:none; }
-    body.prop-wide #page-container { max-width:none; padding-bottom:0; }
+    body.prop-wide #page-container { max-width:none; width:100%; margin:0; padding-bottom:0; }
     body.prop-wide #bottom-nav { display:none; }
     body.prop-wide #page-property.active { display:grid; grid-template-columns:236px minmax(0,1fr); padding:0; min-height:calc(100vh - 56px); }
     body.prop-wide #prop-side { display:flex; flex-direction:column; gap:12px; position:sticky; top:0; align-self:start; height:calc(100vh - 56px); overflow-y:auto; background:var(--bg2); border-right:0.5px solid var(--border); padding:16px 12px; }
@@ -437,6 +437,14 @@
     .tl-use { position:absolute; top:9px; height:8px; border-radius:3px; }
     .tl-rate { position:absolute; top:6px; font-size:10.5px; color:var(--text2); font-variant-numeric:tabular-nums; text-align:center; }
     .tl-ico { position:absolute; top:3px; font-size:12px; }
+    #prop-fab { position:fixed; right:16px; bottom:calc(78px + var(--safe-bottom)); width:52px; height:52px; border-radius:50%; background:var(--teal); color:#fff; font-size:28px; line-height:1; border:none; box-shadow:0 6px 16px rgba(0,0,0,0.35); cursor:pointer; z-index:90; display:none; }
+    #page-property.active ~ #prop-fab, body:not(.prop-wide) #page-property.active #prop-fab { display:block; }
+    body.prop-wide #prop-fab { display:none !important; }
+    .po-row { display:grid; grid-template-columns:96px 92px minmax(0,1fr) 24px minmax(0,1.3fr) auto; gap:10px; align-items:center; padding:9px 0; border-bottom:0.5px solid var(--border); font-size:13px; }
+    .po-row.head { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; padding-top:0; }
+    .po-row small, .po-m small { display:block; color:var(--text3); font-size:11.5px; }
+    .po-m .btn { white-space:nowrap; }
+    body:not(.prop-wide) #prop-body { padding-bottom:64px; }
     .cv-switch { display:inline-flex; background:var(--bg3); border-radius:9px; padding:3px; gap:2px; }
     .cv-switch button { font:inherit; font-size:12.5px; border:0; background:none; color:var(--text2); padding:5px 12px; border-radius:7px; cursor:pointer; }
     .cv-switch button.on { background:var(--bg2); color:var(--text); font-weight:600; }
@@ -1412,6 +1420,7 @@
         <div id="prop-picker"></div>
         <div class="tabs" id="prop-tabs" style="flex-wrap:wrap"></div>
         <div id="prop-body"></div>
+        <button id="prop-fab" onclick="openPropAddMenu()" aria-label="Add">+</button>
       </div>
       <input type="file" id="prop-csv-input" accept=".csv" style="display:none" onchange="handlePropCSV(this)">
     </div>
@@ -1806,11 +1815,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.8';
+const APP_VERSION = '2026.11.12.9';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 4; // 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 5; // 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -4092,6 +4101,7 @@ const PROP_ICONS = {
   home: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   bookings: '<path d="M3 7h18M3 12h18M3 17h12"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  payouts: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
   cashflow: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   review: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
   tax: '<path d="M9 14l6-6M9.5 8.5h.01M14.5 13.5h.01"/><rect x="3" y="3" width="18" height="18" rx="2"/>',
@@ -4102,7 +4112,7 @@ const PROP_ICONS = {
 };
 const PROP_SECTIONS = [
   { id: 'home', label: 'Overview' }, { id: 'bookings', label: 'Bookings' }, { id: 'calendar', label: 'Calendar' },
-  { id: 'cashflow', label: 'Cash flow' }, { id: 'review', label: 'Review' }, null,
+  { id: 'payouts', label: 'Payouts' }, { id: 'cashflow', label: 'Cash flow' }, { id: 'review', label: 'Review' }, null,
   { id: 'tax', label: 'Tax & pack' }, { id: 'returns', label: "Owners' returns" }, { id: 'assets', label: 'Assets' }, { id: 'setup', label: 'Setup' },
 ];
 const PROP_PHONE_TABS = [{ id: 'home', label: 'Home' }, { id: 'calendar', label: 'Calendar' }, { id: 'cashflow', label: 'Money' }, { id: 'tax', label: 'Tax' }, { id: 'more', label: 'More' }];
@@ -4134,7 +4144,9 @@ function propPickerHtml(props, s, cls) {
 }
 function propSideHtml(props, s) {
   const sec = propSection(), cc = propCheckCounts(s), rv = propReviewCount(s);
+  const miss = propPayoutsMissing(s);
   const badge = id => id === 'tax' && (cc.bad || cc.warn) ? `<span class="badge" style="background:${cc.bad ? 'var(--red)' : 'var(--amber)'}">${cc.bad + cc.warn}</span>`
+    : id === 'payouts' && miss ? `<span class="badge" style="background:var(--red)">${miss}</span>`
     : id === 'review' && rv ? `<span class="badge" style="background:var(--teal)">${rv}</span>` : '';
   return `<div style="font-size:15px;font-weight:650;padding:0 6px">Property <span style="font-size:10px;font-weight:600;color:var(--teal)">BETA</span></div>
     <div style="display:flex;flex-direction:column;gap:6px">${propPickerHtml(props, s, 'ps-picker')}</div>
@@ -4143,7 +4155,7 @@ function propSideHtml(props, s) {
 }
 function propHeadHtml(s) {
   const sec = PROP_SECTIONS.find(x => x && x.id === propSection());
-  const cc = propCheckCounts(s), yearly = ['home', 'tax', 'returns', 'calendar', 'assets'].includes(propSection());
+  const cc = propCheckCounts(s), yearly = ['home', 'tax', 'returns', 'calendar', 'assets', 'payouts'].includes(propSection());
   const chip = cc.bad ? `<button class="ph-chip" style="background:rgba(224,82,82,0.15);color:var(--red)" onclick="setPropTab('tax')"><i></i>${cc.bad} off track</button>`
     : cc.warn ? `<button class="ph-chip" style="background:rgba(224,160,48,0.15);color:var(--amber)" onclick="setPropTab('tax')"><i></i>${cc.warn} to check</button>`
     : `<button class="ph-chip" style="background:rgba(29,184,138,0.14);color:var(--teal)" onclick="setPropTab('tax')"><i></i>On track</button>`;
@@ -4167,7 +4179,8 @@ function propMoreHtml(s) {
   const rv = propReviewCount(s);
   const item = (id, label, sub) => `<button onclick="setPropTab('${id}')" style="display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:none;border-bottom:0.5px solid var(--border);padding:12px 2px;color:var(--text);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:var(--teal);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none">${PROP_ICONS[id]}</svg><span style="flex:1"><strong style="font-size:14px">${label}</strong><span style="display:block;font-size:12px;color:var(--text3)">${sub}</span></span><span style="color:var(--text3)">›</span></button>`;
   return `<div class="card" style="padding:4px 14px">
-    ${item('bookings', 'Bookings', 'Import CSVs, stays and payouts')}
+    ${item('bookings', 'Bookings', 'Import CSVs and stays')}
+    ${item('payouts', 'Payouts', 'Payouts matched to bank deposits')}
     ${item('review', 'Review' + (rv ? ` (${rv})` : ''), 'Personal transactions that may belong to the property')}
     ${item('returns', "Owners' returns", 'Each owner\'s tax estimate')}
     ${item('assets', 'Assets', 'Depreciation register')}
@@ -4199,13 +4212,14 @@ function renderProperty() {
       : `<div style="flex:1;font-size:16px;font-weight:650">${escH(s.name)}</div>`}
     <button class="ps-add" style="white-space:nowrap" onclick="openAddProperty()">+ Add property</button></div>`;
   const sec = propSection();
-  const phoneActive = t => t === sec || (t === 'more' && ['bookings', 'review', 'returns', 'assets', 'setup', 'more'].includes(sec)) || (t === 'tax' && sec === 'tax');
+  const phoneActive = t => t === sec || (t === 'more' && ['bookings', 'payouts', 'review', 'returns', 'assets', 'setup', 'more'].includes(sec)) || (t === 'tax' && sec === 'tax');
   tabsEl.innerHTML = PROP_PHONE_TABS.map(t => `<button class="tab ${phoneActive(t.id) ? 'active' : ''}" onclick="setPropTab('${t.id}')">${t.label}</button>`).join('');
   side.innerHTML = propSideHtml(props, s);
   headW.innerHTML = propHeadHtml(s);
   propChartData = null;
   if (propTab === 'home')          body.innerHTML = propDashHtml(s);
   else if (propTab === 'more')     body.innerHTML = propMoreHtml(s);
+  else if (propTab === 'payouts')  body.innerHTML = propPayoutsHtml(s);
   else if (propTab === 'bookings') body.innerHTML = propBookingsHtml(s);
   else if (propTab === 'setup')    body.innerHTML = propSetupHtml(s);
   else if (propTab === 'tax')      body.innerHTML = propTaxHtml(s);
@@ -4282,6 +4296,88 @@ function propBookingIncomeBetween(s, from, to) {
     const r = bookingShareInRange(b, from, to);
     return a + ((b.gross || 0) + (b.hostTax || 0) + (b.adjustments || 0)) * r.share;
   }, 0);
+}
+// ── Payouts: each platform payout beside the bank deposit it was matched to ──
+function propPayoutsMissing(s) {
+  try {
+    const m = computePayoutMatches(s), cut = addDaysIso(todayLocal(), -7);
+    return propPayouts.filter(p => p.streamId === s.id && p.amount > 0 && p.date <= cut && taxYearOf(isoToDate(p.date)) === propTaxYear && !m.payoutTxn.has(p.id)).length;
+  } catch (e) { return 0; }
+}
+function propPayoutsHtml(s) {
+  const { start, end } = taxYearRange(propTaxYear);
+  const m = computePayoutMatches(s), today = todayLocal();
+  const list = propPayouts.filter(p => p.streamId === s.id && p.amount > 0 && p.date >= start && p.date < end).sort((a, b) => a.date.localeCompare(b.date));
+  const acct = id => accounts.find(a => a.id === id)?.name || id || '';
+  const guestsFor = p => bookings.filter(b => b.streamId === s.id && b.platform === p.platform && (b.payments || []).some(pm => pm.date === p.date)).map(b => b.guest || fmtDay(b.checkIn));
+  const found = list.filter(p => m.payoutTxn.has(p.id)).length;
+  const waiting = list.filter(p => !m.payoutTxn.has(p.id) && p.date > addDaysIso(today, -7)).length;
+  const missing = list.length - found - waiting;
+  const orphan = propTxnsInYear(s, propTaxYear).filter(t => t.amount > 0 && propLineKind(propLineForTxn(s, t)) === 'income' && !m.matchedTxnIds.has(t.id));
+  const chip = (txt, col) => `<span style="background:var(--bg3);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text2)">${txt.replace(/(\d+)/, `<b style="color:${col || 'var(--text)'}">$1</b>`)}</span>`;
+  const status = p => {
+    const t = m.payoutTxn.get(p.id);
+    if (t) return { ok: true, dep: `${fmtDay(dateToIso(t.date))}<small>${escH(acct(t.account))} · ${escH((t.desc || '').slice(0, 40))}</small>`, amt: t.amount,
+      act: m.manual.has(p.id) ? `<button class="btn btn-secondary" style="padding:4px 9px;font-size:12px" onclick="propPayoutUnlink('${escH(p.id)}')">Unmatch</button>`
+        : `<button class="btn btn-secondary" style="padding:4px 9px;font-size:12px" onclick="propPayoutReject('${escH(p.id)}', ${escH(JSON.stringify(t.id))})">Not this one</button>`,
+      tag: m.manual.has(p.id) ? 'matched by you' : 'matched' };
+    if (p.date > addDaysIso(today, -7)) return { ok: null, dep: `<span style="color:var(--text3)">Waiting<small>due ${fmtDay(p.arriveBy || p.date)}</small></span>`, act: `<button class="btn btn-secondary" style="padding:4px 9px;font-size:12px" onclick="openPropPayoutMatch('${escH(p.id)}')">Match…</button>` };
+    return { ok: false, dep: `<span style="color:var(--red)">Not found<small>${escH(propPayoutMissReason(s, p, m))}</small></span>`, act: `<button class="btn btn-primary" style="padding:4px 9px;font-size:12px" onclick="openPropPayoutMatch('${escH(p.id)}')">Match…</button>` };
+  };
+  const rows = list.map(p => {
+    const st = status(p), g = guestsFor(p);
+    const icon = st.ok ? '<span style="color:var(--teal);font-weight:700">✓</span>' : st.ok === false ? '<span style="color:var(--red);font-weight:700">!</span>' : '<span style="color:var(--text3)">…</span>';
+    return `<div class="po-row"><span>${fmtDay(p.date)}</span><span style="color:${PLATFORM_BAR[p.platform] || 'var(--text2)'};font-weight:600">${escH(platformName(p.platform))}</span>
+      <span><b style="font-variant-numeric:tabular-nums">${fmt(p.amount)}</b><small>${g.length ? escH(g.slice(0, 3).join(', ')) + (g.length > 3 ? '…' : '') : ''}</small></span>
+      <span style="text-align:center">${icon}</span>
+      <span>${st.dep}${st.tag ? `<small style="color:var(--teal)">${st.tag}</small>` : ''}</span>
+      <span style="text-align:right">${st.act}</span></div>`;
+  }).join('');
+  return `${propYearNavHtml()}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip(`${list.length} payouts`)}${chip(`${found} in the bank`, 'var(--teal)')}${missing ? chip(`${missing} not found`, 'var(--red)') : ''}${waiting ? chip(`${waiting} waiting`) : ''}${orphan.length ? chip(`${orphan.length} deposits with no payout`, 'var(--amber)') : ''}</div>
+    <div class="card">
+      ${list.length ? (propIsWide() ? `<div style="overflow-x:auto"><div style="min-width:620px">
+        <div class="po-row head"><span>Paid</span><span>Platform</span><span>Payout</span><span></span><span>Bank deposit</span><span></span></div>
+        ${rows}</div></div>` : list.map(p => { const st = status(p), g = guestsFor(p);
+          return `<div class="po-m" style="padding:10px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+            <div style="display:flex;justify-content:space-between;gap:10px"><span><b style="color:${PLATFORM_BAR[p.platform] || 'var(--text)'}">${escH(platformName(p.platform))}</b> · ${fmtDay(p.date)}${g.length ? `<small style="display:block;color:var(--text3);font-size:11.5px">${escH(g.slice(0, 3).join(', '))}</small>` : ''}</span><b style="font-variant-numeric:tabular-nums">${fmt(p.amount)}</b></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px"><span style="font-size:12px;min-width:0">${st.ok ? '<span style="color:var(--teal)">✓ In the bank </span>' : ''}${st.dep}</span>${st.act}</div></div>`; }).join('')) : '<div style="font-size:13px;color:var(--text3)">No payouts in this tax year. Import the platform CSVs in Bookings.</div>'}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Payouts are matched to deposits by amount and date, including money paid into another account and moved across later. Use Match… when a payout wasn't found, or Not this one if it picked the wrong deposit.</div>
+    </div>
+    ${orphan.length ? `<div class="card"><div class="pd-ct" style="margin-bottom:6px">Deposits with no payout <small>counted as other income</small></div>
+      ${orphan.map(t => `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px"><span>${fmtDay(dateToIso(t.date))}<small style="display:block;color:var(--text3);font-size:11.5px">${escH(acct(t.account))} · ${escH((t.desc || '').slice(0, 50))}</small></span><b style="font-variant-numeric:tabular-nums">${fmt(t.amount)}</b></div>`).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Direct bookings or other platforms usually show here. If one is really an Airbnb or Bookabach payout, use Match… on that payout above.</div></div>` : ''}`;
+}
+function openPropPayoutMatch(pid) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propPayouts.find(x => x.id === pid); if (!p) return;
+  const m = computePayoutMatches(s), taken = new Map([...m.payoutTxn.entries()].map(([k, t]) => [t.id, k]));
+  const acct = id => accounts.find(a => a.id === id)?.name || id || '';
+  const cands = transactions.filter(t => t.amount > 0 && Math.abs(daysBetween(p.date, dateToIso(t.date))) <= 60)
+    .map(t => ({ t, diff: Math.abs(t.amount - p.amount), days: Math.abs(daysBetween(p.date, dateToIso(t.date))) }))
+    .sort((a, b) => (a.diff < 0.005 ? 0 : 1) - (b.diff < 0.005 ? 0 : 1) || a.diff - b.diff || a.days - b.days).slice(0, 15);
+  document.getElementById('modal-title').textContent = `Match ${fmt(p.amount)} paid ${fmtDay(p.date)}`;
+  document.getElementById('modal-body').innerHTML = `<div style="font-size:12px;color:var(--text3);margin-bottom:8px">Deposits within 60 days, closest amount first. Pick the one this payout became.</div>
+    ${cands.length ? cands.map(({ t, diff }) => { const other = taken.get(t.id); return `<button ${other && other !== pid ? 'disabled' : ''} onclick="propPayoutLink('${escH(pid)}', ${escH(JSON.stringify(t.id))})" style="display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;background:var(--bg3);border:0.5px solid ${diff < 0.005 ? 'var(--teal)' : 'var(--border)'};border-radius:var(--radius-sm);padding:9px 10px;margin-bottom:6px;color:var(--text);font:inherit;cursor:pointer;${other && other !== pid ? 'opacity:.45;cursor:default' : ''}">
+      <span>${fmtDay(dateToIso(t.date))}<span style="display:block;font-size:11.5px;color:var(--text3)">${escH(acct(t.account))} · ${escH((t.desc || '').slice(0, 44))}${other && other !== pid ? ' · matched to another payout' : ''}</span></span>
+      <b style="font-variant-numeric:tabular-nums;color:${diff < 0.005 ? 'var(--teal)' : 'var(--text)'}">${fmt(t.amount)}</b></button>`; }).join('') : '<div style="font-size:13px;color:var(--text3)">No deposits within 60 days. Import the bank account the platform pays into.</div>'}`;
+  const btn = document.getElementById('modal-confirm'); btn.textContent = 'Cancel'; btn.onclick = closeModal;
+  document.getElementById('modal').classList.add('open');
+}
+function propPayoutLink(pid, txnId) {
+  const p = propPayouts.find(x => x.id === pid); if (!p) return;
+  p.linkTxn = txnId; p.rejectTxn = (p.rejectTxn || []).filter(x => x !== txnId);
+  closeModal(); scheduleSave(); renderProperty();
+}
+function propPayoutUnlink(pid) {
+  const p = propPayouts.find(x => x.id === pid); if (!p) return;
+  if (p.linkTxn != null) p.rejectTxn = [...new Set([...(p.rejectTxn || []), p.linkTxn])];
+  delete p.linkTxn; scheduleSave(); renderProperty();
+}
+function propPayoutReject(pid, txnId) {
+  const p = propPayouts.find(x => x.id === pid); if (!p) return;
+  p.rejectTxn = [...new Set([...(p.rejectTxn || []), txnId])];
+  scheduleSave(); renderProperty();
 }
 function propDashHtml(s) {
   const has = bookings.some(b => b.streamId === s.id);
@@ -4827,8 +4923,22 @@ function computePayoutMatches(s) {
   const byCents = new Map();
   pos.forEach(t => { const k = cents(t.amount); if (!byCents.has(k)) byCents.set(k, []); byCents.get(k).push(t); });
   const payouts = propPayouts.filter(p => p.streamId === s.id && p.amount > 0).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const manual = new Set();
+  // Deposits matched by hand (on the Payouts page) win over the automatic match.
+  payouts.filter(p => p.linkTxn != null).forEach(p => {
+    const t = transactions.find(x => x.id === p.linkTxn);
+    if (!t || matchedTxnIds.has(t.id)) return;
+    payoutTxn.set(p.id, t); matchedTxnIds.add(t.id); manual.add(p.id);
+    if (t.stream !== s.id) {
+      const od = dateToIso(t.date), fe = addDaysIso(od, 31);
+      const fwd = (byCents.get(cents(t.amount)) || []).filter(x => x !== t && x.stream === s.id && !matchedTxnIds.has(x.id) && dateToIso(x.date) >= addDaysIso(od, -5) && dateToIso(x.date) <= fe).sort((a, b) => a.date - b.date)[0];
+      if (fwd) matchedTxnIds.add(fwd.id);
+    }
+  });
   payouts.forEach(p => {
-    const cands = (byCents.get(cents(p.amount)) || []).filter(t => !matchedTxnIds.has(t.id));
+    if (manual.has(p.id) || p.linkTxn != null && payoutTxn.has(p.id)) return;
+    const rejected = new Set(p.rejectTxn || []);
+    const cands = (byCents.get(cents(p.amount)) || []).filter(t => !matchedTxnIds.has(t.id) && !rejected.has(t.id));
     const lo = addDaysIso(p.date, -3), hiD = isoToDate(p.arriveBy || p.date); hiD.setDate(hiD.getDate() + 7);
     const hi = dateToIso(hiD);
     const inWin = cands.filter(t => { const d = dateToIso(t.date); return d >= lo && d <= hi; }).sort((a, b) => a.date - b.date);
@@ -4854,7 +4964,7 @@ function computePayoutMatches(s) {
       if (fwd) matchedTxnIds.add(fwd.id);
     }
   });
-  return { payoutTxn, matchedTxnIds };
+  return { payoutTxn, matchedTxnIds, manual };
 }
 // Why a payout wasn't matched: a deposit of the same amount outside the date
 // window, or one already matched to another payout (often a duplicate).
