@@ -1715,11 +1715,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.4';
+const APP_VERSION = '2026.11.12.5';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 2; // 2: repair days, below-market flags, actual-cost basis
+const DATA_SCHEMA = 3; // 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -4619,7 +4619,7 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   // costs incurred only to earn income (fees, cleaning, travel to service
   // guests, management, accountancy) stay at 100%.
   const usage = propUsageForYear(s, ty);
-  const basis = propSettings(s).deductionBasis;
+  const basis = propBasisFor(s, ty);
   const share = basis === 'mixeduse' ? (usage.share ?? 1) : basis === 'actualcost' ? usage.availShare : 1;
   // Under the mixed-use rules, rent from private use (a stay below 80% of
   // market rent) is exempt, so it and its platform fee come out.
@@ -4653,7 +4653,10 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
     });
   const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
+  const net = rent + depRecovered - totalExpenses;
+  const mua = basis === 'mixeduse' && !opts.noChain && !opts.forecast ? propMuaStep(s, ty, { rent, net }, propMuaOpening(s, ty, matches)) : null;
   return {
+    taxNet: mua ? mua.taxNet : net, mua,
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
     net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc, privateRent,
   };
@@ -4849,7 +4852,7 @@ function propPackHtml(s, ty) {
 <div class="bar"><button onclick="window.print()">Print / save as PDF</button></div>
 <h1>${e(s.name)}: year-end pack</h1>
 <div class="muted">Tax year ${taxYearLabel(ty)} (1 April ${ty - 1} – 31 March ${ty}) · prepared ${fmtDay(todayLocal())} with MyFinance</div>
-<div class="muted">Owners: ${owners.map(o => `${e(o.name)} ${o.share}%`).join(', ') || '—'} · Deduction basis: ${p.deductionBasis === 'mixeduse' ? `mixed-use, income share ${shareTxt} (${pnl.usage.income} income days, ${pnl.usage.personalDays} private)` : p.deductionBasis === 'actualcost' ? `actual cost, ${pnl.usage.availDays} of ${pnl.usage.days} days rented or available (${shareTxt})` : '100% deductible'}${pnl.privateRent ? ` · ${fmt(pnl.privateRent)} rent from below-market stays left out (exempt under mixed-use)` : ''}</div>
+<div class="muted">Owners: ${owners.map(o => `${e(o.name)} ${o.share}%`).join(', ') || '—'} · Deduction basis: ${pnl.basis === 'mixeduse' ? `mixed-use, income share ${shareTxt} (${pnl.usage.income} income days, ${pnl.usage.personalDays} private)` : pnl.basis === 'actualcost' ? `actual cost, ${pnl.usage.availDays} of ${pnl.usage.days} days rented or available (${shareTxt})` : '100% deductible'}${pnl.privateRent ? ` · ${fmt(pnl.privateRent)} rent from below-market stays left out (exempt under mixed-use)` : ''}</div>
 
 <h2>Profit or loss</h2>
 <table class="summary"><tbody>
@@ -4861,6 +4864,13 @@ ${pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005).map(l => row(e(l.lab
 ${pnl.depRecovered ? row('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
 ${row('Total expenses', fmt(pnl.totalExpenses))}
 ${row('Net profit (loss)', m(pnl.net), 'tot')}
+${pnl.mua ? `${row(`Mixed-use: income ${fmt(pnl.mua.income)}, property value ${pnl.mua.value ? `${fmt(pnl.mua.value.amount)} (${e(pnl.mua.value.source)}, ${fmtDay(pnl.mua.value.date)})` : 'not entered'}`, '')}
+${pnl.mua.optedOut ? row('Opted out of the mixed-use rules for this year (income under $4,000 or under 2% of value)', '') : ''}
+${row('Quarantined loss brought forward', fmt(pnl.mua.open))}
+${pnl.mua.quarantined ? row('Loss quarantined this year (income under 2% of value)', fmt(pnl.mua.quarantined)) : ''}
+${pnl.mua.used ? row('Brought-forward loss used this year', fmt(pnl.mua.used)) : ''}
+${row('Quarantined loss carried forward', fmt(pnl.mua.close))}
+${row('Profit (loss) for tax', m(pnl.taxNet), 'tot')}` : ''}
 ${owners.map(o => row(`&nbsp;&nbsp;${e(o.name)} (${o.share}%)`, m(pnl.net * o.share / 100))).join('')}
 </tbody></table>
 
@@ -5097,9 +5107,14 @@ function propChecklist(s, ty) {
     action: `<label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0" ${yc[key] ? 'checked' : ''} onchange="togglePropYearCheck('${key}', this.checked)">Done</label>` });
   const manual = [];
   {
-    const u = propUsageForYear(s, ty);
-    if (p.deductionBasis !== 'full' || u.personalDays) manual.push(tick('calendar', 'Personal and family days marked', `${u.personalDays} private day${u.personalDays === 1 ? '' : 's'} on the ${link('calendar', "setPropTab('calendar')")}`));
-    if (u.suggested !== p.deductionBasis) manual.push({ st: 'warn', label: 'Deduction basis', detail: `${propBasisLabel(p.deductionBasis)} chosen, but the calendar suggests ${propBasisLabel(u.suggested)} for ${taxYearLabel(ty)}. Check with your accountant.`, action: `<button class="btn-update" onclick="setPropTab('setup')">Setup</button>` });
+    const u = propUsageForYear(s, ty), basis = propBasisFor(s, ty);
+    if (basis !== 'full' || u.personalDays) manual.push(tick('calendar', 'Personal and family days marked', `${u.personalDays} private day${u.personalDays === 1 ? '' : 's'} on the ${link('calendar', "setPropTab('calendar')")}`));
+    if (u.suggested !== basis) manual.push({ st: 'warn', label: 'Deduction basis', detail: `${propBasisLabel(basis)} chosen, but the calendar suggests ${propBasisLabel(u.suggested)} for ${taxYearLabel(ty)}. Check with your accountant.`, action: `<button class="btn-update" onclick="setPropTab('setup')">Setup</button>` });
+    if (basis === 'mixeduse') {
+      const m = computePropPnL(s, ty).mua;
+      if (m?.valueMissing) manual.push({ st: 'bad', label: 'Property value', detail: 'Needed for the mixed-use 2% loss test. Enter the rating valuation or purchase price.', action: `<button class="btn-update" onclick="setPropTab('setup')">Setup</button>` });
+      else if (m?.optOutEligible && !m.optedOut) manual.push({ st: 'warn', label: 'Mixed-use opt-out', detail: `This year qualifies to be left out of the return (${m.lowIncome ? 'income under $4,000' : 'a loss with income under 2% of value'}). Decide with your accountant on the Tax tab.` });
+    }
   }
   const trav = propTravelForYear(s, ty);
   manual.push(trav.rateMissing ? { st: 'bad', label: 'Trips logged', detail: `${trav.trips} trips, ${trav.km} km, but no IRD km rate for ${taxYearLabel(ty)}. Enter it from the Travel line on the P&L.` }
@@ -5174,9 +5189,10 @@ function propSetupCheck(s) {
     { st: !guessed.length || ok.catLines ? 'good' : 'warn', label: 'Categories → report lines',
       detail: guessed.length ? `${guessed.length} guessed from the name: ${escH(guessed.slice(0, 5).join(', '))}${guessed.length > 5 ? '…' : ''}. Check them below.` : 'all set',
       body: guessed.length ? confirmBox('catLines', 'The guesses are right') : '' },
-    (() => { const sug = propUsageForYear(s, currentTaxYear()).suggested;
-      return { st: !raw.deductionBasis ? 'warn' : sug === p.deductionBasis ? 'good' : 'warn', label: 'Deduction basis',
-        detail: !raw.deductionBasis ? 'not chosen yet (100% assumed)' : sug === p.deductionBasis ? propBasisLabel(p.deductionBasis) : `${propBasisLabel(p.deductionBasis)} chosen; this year's calendar suggests ${propBasisLabel(sug)}` }; })(),
+    (() => { const ty = currentTaxYear(), sug = propUsageForYear(s, ty).suggested, basis = propBasisFor(s, ty);
+      const chosen = raw.deductionBasis || (raw.basisByYear || {})[ty];
+      return { st: !chosen ? 'warn' : sug === basis ? 'good' : 'warn', label: 'Deduction basis',
+        detail: !chosen ? 'not chosen yet (100% assumed)' : sug === basis ? `${propBasisLabel(basis)} for ${taxYearLabel(ty)}` : `${propBasisLabel(basis)} chosen for ${taxYearLabel(ty)}; the calendar suggests ${propBasisLabel(sug)}` }; })(),
     { st: p.travelKm ? 'good' : 'warn', label: 'Return trip distance', detail: p.travelKm ? `${p.travelKm} km` : 'not set' },
     { st: ((p.kmRates || {})[propTaxYear] || {}).t1 ? 'good' : 'warn', label: `IRD km rate ${taxYearLabel(propTaxYear)}`, detail: ((p.kmRates || {})[propTaxYear] || {}).t1 ? `$${p.kmRates[propTaxYear].t1} / $${p.kmRates[propTaxYear].t2 ?? p.kmRates[propTaxYear].t1} per km` : 'not entered (from the Travel line on the P&L). IRD publishes it after the year ends' },
     { st: (p.regular || []).length ? 'good' : 'warn', label: 'Regular payments', detail: (p.regular || []).length ? `${p.regular.length} set up` : 'none set up (below)' },
@@ -5240,6 +5256,67 @@ const PROP_BASES = {
   mixeduse:   { label: 'Mixed-use', long: 'Private and income use and unused for 62 days or more: the mixed-use rules apply (income days ÷ income and private days).' },
 };
 const propBasisLabel = b => (PROP_BASES[b] || PROP_BASES.full).label;
+// The basis is tested every tax year, so it's stored per year (basisByYear);
+// deductionBasis is the default for years without their own.
+function propBasisFor(s, ty) {
+  const p = propSettings(s);
+  return (p.basisByYear || {})[ty] || p.deductionBasis || 'full';
+}
+// Value for the mixed-use 2% test: the most recent of the council rating
+// valuation and the purchase price, as at the end of the tax year.
+function propValueAt(s, ty) {
+  const p = propSettings(s), end = taxYearRange(ty).end;
+  const opts = [];
+  const rv = p.ratingValue || {};
+  if (Number(rv.amount) > 0 && rv.date && rv.date < end) opts.push({ amount: Number(rv.amount), date: rv.date, source: 'Rating valuation' });
+  if (Number(p.purchasePrice) > 0 && p.purchaseDate && p.purchaseDate < end) opts.push({ amount: Number(p.purchasePrice), date: p.purchaseDate, source: 'Purchase price' });
+  return opts.sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+}
+// First tax year the property has anything recorded in.
+function propFirstYear(s) {
+  let first = null;
+  const see = iso => { if (iso && (!first || iso < first)) first = iso; };
+  bookings.forEach(b => { if (b.streamId === s.id) see(b.checkIn); });
+  transactions.forEach(t => { if (t.stream === s.id) see(dateToIso(t.date)); });
+  propDays.forEach(d => { if (d.streamId === s.id) see(d.date); });
+  return first ? taxYearOf(isoToDate(first)) : null;
+}
+// Mixed-use opt-out and loss quarantine for one year (IRD IR1021; subpart DG).
+//  Opt-out: gross income from income-earning use under $4,000, or a loss with
+//   that income under 2% of the property's value. Opting out leaves the year
+//   out of the return entirely (no income, no expenses).
+//  Quarantine: a loss with income under 2% of value can only be deducted up to
+//   the income; the rest is carried forward and used in a later mixed-use year
+//   with a profit, up to that profit.
+// Kept separate from residential ring-fencing (per owner, non-mixed-use years).
+const MUA_OPTOUT_INCOME = 4000, MUA_VALUE_PCT = 0.02;
+function propMuaStep(s, ty, cur, open) {
+  const val = propValueAt(s, ty);
+  const income = cur.rent;
+  const twoPct = val ? val.amount * MUA_VALUE_PCT : null;
+  const lowIncome = income < MUA_OPTOUT_INCOME;
+  const lossTest = cur.net < 0 && twoPct != null && income < twoPct;
+  const optOutEligible = lowIncome || lossTest;
+  const optedOut = optOutEligible && !!(propSettings(s).muaOptOut || {})[ty];
+  let quarantined = 0, used = 0, taxNet = cur.net;
+  if (optedOut) taxNet = 0;
+  else if (lossTest) { quarantined = -cur.net; taxNet = 0; }
+  else if (cur.net > 0 && open > 0) { used = Math.min(open, cur.net); taxNet = cur.net - used; }
+  return { value: val, twoPct, income, lowIncome, lossTest, optOutEligible, optedOut, open, quarantined, used,
+    close: round2(open - used + quarantined), taxNet: round2(taxNet), valueMissing: cur.net < 0 && !val };
+}
+// Quarantined balance brought forward into tax year ty.
+function propMuaOpening(s, ty, matches) {
+  const o = propSettings(s).muaOpening || {};
+  const startTy = o.ty != null && o.ty !== '' ? Number(o.ty) : propFirstYear(s);
+  if (startTy == null || ty < startTy) return 0;
+  let bal = Number(o.amount) || 0;
+  for (let y = startTy; y < ty; y++) {
+    if (propBasisFor(s, y) !== 'mixeduse') continue; // carried unchanged through other years
+    bal = propMuaStep(s, y, computePropPnL(s, y, matches, { noChain: true }), bal).close;
+  }
+  return bal;
+}
 function propDaysInYear(s, ty, type) {
   const { start, end } = taxYearRange(ty);
   return propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && (!type || d.type === type));
@@ -5415,7 +5492,7 @@ function propUsageCardHtml(s) {
   const t = propTravelForYear(s, propTaxYear);
   const cleans = propDaysInYear(s, propTaxYear, 'cleaning');
   const inp = 'width:70px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:5px 6px;text-align:right';
-  const chosen = propSettings(s).deductionBasis;
+  const chosen = propBasisFor(s, propTaxYear);
   const mixedNote = `Suggested basis: <strong style="color:var(--text2)">${propBasisLabel(u.suggested)}</strong>. ${PROP_BASES[u.suggested].long}${chosen !== u.suggested ? ` Setup has ${propBasisLabel(chosen)}: check with your accountant.` : ''}`;
   return `<div class="card">
       <div class="card-title" style="margin-bottom:8px">Tax year ${taxYearLabel(propTaxYear)} use</div>
@@ -5566,6 +5643,34 @@ function propForecastCardHtml(pnl) {
     <div style="font-size:11px;color:var(--text3);margin-top:6px">Mixed-use share uses the nights marked so far; mark planned personal stays on the calendar to include them.</div>
   </div>`;
 }
+function propMuaCardHtml(s, pnl) {
+  const m = pnl.mua, y = taxYearLabel(propTaxYear);
+  const valTxt = m.value ? `${fmt(m.value.amount)} <span style="color:var(--text3)">(${m.value.source}, ${fmtDay(m.value.date)})</span>` : `<a href="#" onclick="setPropTab('setup');return false" style="color:var(--red,#e5484d)">not entered: add it in Setup</a>`;
+  const reason = m.lowIncome ? 'income from income-earning use is under $4,000' : 'there is a loss and income is under 2% of the property\'s value';
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:8px">Mixed-use: opt-out and loss quarantine</div>
+    ${propRow('Income from income-earning use', fmt(m.income))}
+    ${propRow('Property value', valTxt)}
+    ${m.twoPct != null ? propRow('2% of value', fmt(m.twoPct)) : ''}
+    ${propRow('Profit or loss before quarantine', fmtSigned(pnl.net))}
+    ${m.optOutEligible ? `<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer">
+      <input type="checkbox" style="width:16px;height:16px;margin:2px 0 0;flex:none" ${m.optedOut ? 'checked' : ''} onchange="setPropMuaOptOut(this.checked)">
+      <span>Opt out for ${y}: leave this property out of the tax return (no income, no expenses)<span style="display:block;font-size:11px;color:var(--text3)">Available because ${reason}. Decide with your accountant.</span></span></label>` : ''}
+    ${propRow('Quarantined loss brought forward', fmt(m.open))}
+    ${m.quarantined ? propRow('Loss quarantined this year', fmt(m.quarantined)) : ''}
+    ${m.used ? propRow('Brought-forward loss used this year', fmt(m.used)) : ''}
+    ${propRow('<strong>Carried forward to next year</strong>', `<strong>${fmt(m.close)}</strong>`)}
+    ${propRow('<strong>Profit or loss for tax</strong>', `<strong class="${m.taxNet >= 0 ? 'pos' : 'neg'}">${fmtSigned(m.taxNet)}</strong>`)}
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">${m.valueMissing ? 'Without a property value the 2% loss test can\'t be done, so the loss is shown in full. ' : ''}A quarantined loss can't be claimed this year. It's carried forward and used in a later mixed-use year with a profit. You keep this record yourself, as it isn't entered in the return. These figures are an estimate until your accountant confirms them.</div>
+  </div>`;
+}
+function setPropMuaOptOut(on) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const o = { ...(p.muaOptOut || {}) }; if (on) o[propTaxYear] = true; else delete o[propTaxYear];
+  s.property = { ...p, muaOptOut: o };
+  scheduleSave(); renderProperty();
+}
 function propTaxHtml(s) {
   if (propTaxView === 'returns') return propYearNavHtml() + propTaxToggleHtml() + propForecastToggleHtml() + propReturnsHtml(s);
   const pnl = computePropPnL(s, propTaxYear, undefined, { forecast: propForecastOn() });
@@ -5606,9 +5711,11 @@ function propTaxHtml(s) {
       ${pnl.depRecovered ? propRow('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
       ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
-      ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.net * o.share / 100))).join('')}` : ''}
+      ${pnl.mua && Math.abs(pnl.taxNet - pnl.net) >= 0.005 ? propRow(`<strong>For tax, after ${pnl.mua.optedOut ? 'opting out' : pnl.mua.quarantined ? 'quarantine' : 'quarantined loss used'}</strong>`, `<strong>${fmtSigned(pnl.taxNet)}</strong>`) : ''}
+      ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners${pnl.taxNet !== pnl.net ? ' (for tax)' : ''}</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.taxNet * o.share / 100))).join('')}` : ''}
       ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
     </div>
+    ${pnl.mua ? propMuaCardHtml(s, pnl) : ''}
     ${propForecastCardHtml(pnl)}
     ${pnl.forecast ? '' : propPackCardHtml()}
     <div class="card">
@@ -5667,7 +5774,7 @@ function ownerShareOfProperties(person, ty, forecast = false) {
   const parts = [];
   propertyStreams().forEach(st => {
     const o = propSettings(st).owners.find(x => String(x.name).trim().toLowerCase() === key && x.share);
-    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty, undefined, { forecast }).net * o.share / 100) });
+    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty, undefined, { forecast }).taxNet * o.share / 100) });
   });
   return parts;
 }
@@ -5926,7 +6033,7 @@ function propAssetsHtml(s) {
       ${d.recovered ? propRow('Depreciation recovered', fmt(d.recovered)) : ''}
       ${deductible && deductible.apportioned ? propRow(`Personal share (${Math.round((1 - pnl.share) * 1000) / 10}%)`, '−' + fmt(deductible.full - deductible.amount)) + propRow('<strong>Claimed in the P&amp;L</strong>', `<strong>${fmt(deductible.amount)}</strong>`) : ''}
       ${propRow('Closing book value', fmt(d.close))}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${p.deductionBasis !== 'full' ? `On the ${propBasisLabel(p.deductionBasis).toLowerCase()} basis, depreciation is cut to the same share as other holding costs.` : ''}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${propBasisFor(s, propTaxYear) !== 'full' ? `On the ${propBasisLabel(propBasisFor(s, propTaxYear)).toLowerCase()} basis, depreciation is cut to the same share as other holding costs.` : ''}</div>
     </div>
     ${Object.entries(groups).map(([g, list]) => `<div class="card">
       <div class="card-title" style="margin-bottom:4px">${escH(g)}</div>
@@ -6576,6 +6683,8 @@ function movePropAccountStrays() {
 }
 function propSetupHtml(s) {
   const p = propSettings(s);
+  const yrBasis = propBasisFor(s, propTaxYear);
+  const rv = p.ratingValue || {}, mo = p.muaOpening || {};
   const owners = [...p.owners, {name:'',share:''}, {name:'',share:''}].slice(0, Math.max(4, p.owners.length));
   const accOpts = accounts.map(a => `<option value="${escH(a.id)}" ${p.accountId===a.id?'selected':''}>${escH(a.name)}</option>`).join('');
   const inp = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 10px;outline:none';
@@ -6589,27 +6698,35 @@ function propSetupHtml(s) {
       <div style="font-size:11px;color:var(--text3)">Used to split the property's profit or loss between owners. Leave unused rows blank.</div>
     </div>
     <div class="input-group"><label>Purchase date</label><input type="date" id="ps-purchase" value="${escH(p.purchaseDate)}"></div>
+    <div class="input-group"><label>Purchase price ($)</label><input type="number" id="ps-price" min="0" step="1" value="${p.purchasePrice ?? ''}" placeholder="e.g. 650000"></div>
+    <div class="input-group"><label>Latest council rating valuation (capital value)</label>
+      <div style="display:flex;gap:8px"><input type="number" id="ps-rv" min="0" step="1000" value="${rv.amount ?? ''}" placeholder="$" style="flex:1"><input type="date" id="ps-rv-date" value="${escH(rv.date || '')}" style="flex:1"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Used for the mixed-use 2% test (the more recent of this and the purchase price) and the equity figure. The date is when the valuation took effect.</div></div>
     <div class="input-group"><label>Property bank account</label><select id="ps-account"><option value="">— Not set —</option>${accOpts}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">The account rent is paid into and bills come out of. Used for the cash flow forecast.</div></div>
     <div class="input-group"><label>Personal category for this property</label><select id="ps-personalcat">${CATS.map(c => `<option value="${escH(c.name)}" ${propPersonalCat(s)===c.name?'selected':''}>${escH(c.name)}</option>`).join('')}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">When you pay for something for the property from a personal account, put it in this category. It then shows up in Review to move across. Rename it any time in Settings → Categories.</div></div>
     <div class="input-group"><label>Return trip distance, home → property (km)</label><input type="number" id="ps-km" value="${p.travelKm ?? ''}" min="0" step="1" placeholder="e.g. 200"></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:-4px 0 14px"><input type="checkbox" id="ps-cleantravel" ${p.cleanAddsTravel!==false?'checked':''}> Marking a clean on the calendar also logs a trip</label>
-    <div class="input-group"><label>Expense deduction basis</label>
+    <div class="input-group"><label>Expense deduction basis for ${taxYearLabel(propTaxYear)}</label>
       <select id="ps-basis">
-        <option value="full" ${p.deductionBasis==='full'?'selected':''}>100% deductible (no private use)</option>
-        <option value="actualcost" ${p.deductionBasis==='actualcost'?'selected':''}>Actual cost (days rented or available)</option>
-        <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (income vs private days)</option>
+        <option value="full" ${yrBasis==='full'?'selected':''}>100% deductible (no private use)</option>
+        <option value="actualcost" ${yrBasis==='actualcost'?'selected':''}>Actual cost (days rented or available)</option>
+        <option value="mixeduse" ${yrBasis==='mixeduse'?'selected':''}>Mixed-use (income vs private days)</option>
       </select>
-      ${(() => { const u = propUsageForYear(s, propTaxYear); const same = u.suggested === p.deductionBasis;
+      ${(() => { const u = propUsageForYear(s, propTaxYear); const same = u.suggested === yrBasis;
         return `<div style="font-size:12px;margin-top:6px;padding:8px 10px;border-radius:var(--radius-sm);background:${same ? 'rgba(29,184,138,0.10)' : 'rgba(224,160,48,0.14)'};color:var(--text2)">
           The calendar for ${taxYearLabel(propTaxYear)} suggests <strong style="color:var(--text)">${propBasisLabel(u.suggested)}</strong>: ${PROP_BASES[u.suggested].long}
           <span style="color:var(--text3)">(${u.personalDays} private day${u.personalDays === 1 ? '' : 's'}, ${u.unused} unused)</span>${same ? '' : ` <a href="#" onclick="document.getElementById('ps-basis').value='${u.suggested}';return false" style="color:var(--teal)">Use this</a>`}</div>`; })()}
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">The test is done each tax year, so the right basis can change from year to year. Confirm with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
-    ${p.deductionBasis === 'mixeduse' || p.deductionBasis === 'actualcost' ? `<div style="margin:-4px 0 16px">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">The test is done each tax year, so the basis is saved for ${taxYearLabel(propTaxYear)} only (change the year at the top of the Tax tab). Years without their own use ${propBasisLabel(p.deductionBasis || 'full')}. Confirm with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
+    ${yrBasis !== 'full' ? `<div style="margin:-4px 0 16px">
       <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Claim these in full (not cut to the income share)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">${PROP_APPORTIONABLE.map(id => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0;flex:none" ${(p.fullLines || []).includes(id) ? 'checked' : ''} onchange="togglePropFullLine('${id}', this.checked)"> <span>${escH(id === 'depreciation' ? 'Depreciation' : PROP_LINES.find(l => l.id === id).label)}</span></label>`).join('')}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">Only for costs that relate solely to earning income, such as repairing damage caused by guests. Check with your accountant.</div></div>` : ''}
+    ${yrBasis === 'mixeduse' || mo.amount ? `<div class="input-group"><label>Quarantined mixed-use loss brought forward</label>
+      <div style="display:flex;gap:8px"><input type="number" id="ps-mua-amt" min="0" step="0.01" value="${mo.amount ?? ''}" placeholder="$ from your accountant" style="flex:1">
+        <select id="ps-mua-ty" style="flex:1">${[0, 1, 2, 3, 4, 5].map(k => currentTaxYear() - k).map(y => `<option value="${y}" ${Number(mo.ty) === y ? 'selected' : ''}>into ${taxYearLabel(y)}</option>`).join('')}</select></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Only if the accountant has carried a quarantined loss forward from before you used the app. Later years are worked out from here.</div></div>` : ''}
     <button class="btn btn-primary btn-block" onclick="savePropSetup()">Save</button>
   </div>
   ${propRegularSetupHtml(s)}
@@ -6662,8 +6779,19 @@ function savePropSetup() {
     personalCat: document.getElementById('ps-personalcat').value || propSettings(s).personalCat,
     travelKm: isNaN(km) ? null : km,
     cleanAddsTravel: document.getElementById('ps-cleantravel').checked,
-    deductionBasis: document.getElementById('ps-basis').value,
   };
+  // Basis is saved for the year shown; the first choice also becomes the default.
+  const basis = document.getElementById('ps-basis').value;
+  s.property.basisByYear = { ...(s.property.basisByYear || {}), [propTaxYear]: basis };
+  if (!s.property.deductionBasis) s.property.deductionBasis = basis;
+  const price = parseFloat(document.getElementById('ps-price').value);
+  s.property.purchasePrice = isNaN(price) ? null : price;
+  const rvAmt = parseFloat(document.getElementById('ps-rv').value), rvDate = document.getElementById('ps-rv-date').value;
+  s.property.ratingValue = isNaN(rvAmt) ? null : { amount: rvAmt, date: rvDate || null };
+  if (document.getElementById('ps-mua-amt')) {
+    const amt = parseFloat(document.getElementById('ps-mua-amt').value);
+    s.property.muaOpening = isNaN(amt) || !amt ? null : { amount: amt, ty: Number(document.getElementById('ps-mua-ty').value) };
+  }
   scheduleSave();
   propTab = 'home'; renderProperty();
 }
