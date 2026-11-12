@@ -1715,11 +1715,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.5';
+const APP_VERSION = '2026.11.12.6';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 3; // 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 4; // 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -5712,7 +5712,8 @@ function propTaxHtml(s) {
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
       ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
       ${pnl.mua && Math.abs(pnl.taxNet - pnl.net) >= 0.005 ? propRow(`<strong>For tax, after ${pnl.mua.optedOut ? 'opting out' : pnl.mua.quarantined ? 'quarantine' : 'quarantined loss used'}</strong>`, `<strong>${fmtSigned(pnl.taxNet)}</strong>`) : ''}
-      ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners${pnl.taxNet !== pnl.net ? ' (for tax)' : ''}</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.taxNet * o.share / 100))).join('')}` : ''}
+      ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners${pnl.taxNet !== pnl.net ? ' (for tax)' : ''}</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.taxNet * o.share / 100))).join('')}
+        ${pnl.taxNet < 0 && pnl.basis !== 'mixeduse' ? `<div style="font-size:11px;color:var(--text3);padding-top:4px">A loss here is ring-fenced: each owner can only use it against residential rental profit, now or in later years, not against salary. See <a href="#" onclick="propTaxView='returns';renderProperty();return false" style="color:var(--teal)">Owners' returns</a>.</div>` : ''}` : ''}
       ${pnl.otherIncomeTxns.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">"Other bank deposits" are property income deposits that don't match an imported payout, e.g. other platforms or direct bookings: ${pnl.otherIncomeTxns.slice(0,6).map(t => `${fmtDay(dateToIso(t.date))} ${fmt(t.amount)}`).join(', ')}${pnl.otherIncomeTxns.length>6?'…':''}</div>` : ''}
     </div>
     ${pnl.mua ? propMuaCardHtml(s, pnl) : ''}
@@ -5774,9 +5775,44 @@ function ownerShareOfProperties(person, ty, forecast = false) {
   const parts = [];
   propertyStreams().forEach(st => {
     const o = propSettings(st).owners.find(x => String(x.name).trim().toLowerCase() === key && x.share);
-    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty, undefined, { forecast }).taxNet * o.share / 100) });
+    // Mixed-use years have their own quarantine (already in taxNet); every other
+    // year of a short-stay property that isn't the owner's main home is
+    // residential land, so it falls under ring-fencing.
+    if (o) parts.push({ name: st.name, amount: Math.round(computePropPnL(st, ty, undefined, { forecast }).taxNet * o.share / 100), ringfenced: propBasisFor(st, ty) !== 'mixeduse' });
   });
   return parts;
+}
+// Residential ring-fencing (IRD: residential rental property deductions).
+// Worked out per owner across all their ring-fenced properties for the year
+// (portfolio basis): a net loss can't be set against other income such as
+// salary. It's carried forward and used against later years' residential
+// profit. Kept separate from mixed-use quarantine, which is per property.
+function ownerRingfenceStep(parts, open) {
+  const resNet = parts.filter(x => x.ringfenced).reduce((a, x) => a + x.amount, 0);
+  const other = parts.filter(x => !x.ringfenced).reduce((a, x) => a + x.amount, 0);
+  const loss = resNet < 0 ? -resNet : 0;
+  const used = resNet > 0 ? Math.min(open, resNet) : 0;
+  const counted = resNet < 0 ? 0 : resNet - used;
+  return { resNet, loss, used, open, close: round2(open + loss - used), rental: round2(other + counted) };
+}
+// The owner's ring-fenced balance brought into tax year ty. Starts from the
+// latest year with a balance typed in (from the accountant) or the first year
+// any of their properties has records.
+function ownerRingfenceOpening(person, ty) {
+  const key = String(person).trim().toLowerCase();
+  let start = null, bal = 0;
+  taxReturns.forEach(r => {
+    if (String(r.person).trim().toLowerCase() === key && r.ringfenceOpening != null && r.ringfenceOpening !== '' && r.ty <= ty && (start == null || r.ty > start)) { start = r.ty; bal = Number(r.ringfenceOpening) || 0; }
+  });
+  if (start == null) {
+    propertyStreams().forEach(st => {
+      if (!propSettings(st).owners.some(x => String(x.name).trim().toLowerCase() === key && x.share)) return;
+      const f = propFirstYear(st); if (f != null && (start == null || f < start)) start = f;
+    });
+    if (start == null || ty <= start) return 0;
+  }
+  for (let y = start; y < ty; y++) bal = ownerRingfenceStep(ownerShareOfProperties(person, y), bal).close;
+  return bal;
 }
 // Take-home pay in the tax year from the personal "Pay" category, for
 // transactions mentioning the owner's employer (comma-separated words).
@@ -5837,17 +5873,28 @@ function computeTaxReturn(o, ty, forecast = false) {
   const interest = sum('int', 'gross'), intRwt = sum('int', 'tax');
   const other = sum('other', 'gross');
   const rentalParts = ownerShareOfProperties(o.name, ty, forecast);
-  const rental = rentalParts.reduce((a, p) => a + p.amount, 0);
+  const ringfence = ownerRingfenceStep(rentalParts, ownerRingfenceOpening(o.name, ty));
+  const rental = ringfence.rental;
   const taxable = round2(gross + div + interest + other + rental);
   const tax = nzIncomeTax(taxable, ty);
   const credit = Math.min(imputation, tax);
   const payable = round2(tax - credit);
   const refundable = round2(paye + divRwt + intRwt);
   const result = round2(payable - refundable); // negative = refund
-  return { rec, rows, source, bank, gross, payeIncl, levy, paye, div, imputation, divRwt, interest, intRwt, other, rental, rentalParts,
+  return { rec, rows, source, bank, gross, payeIncl, levy, paye, div, imputation, divRwt, interest, intRwt, other, rental, rentalParts, ringfence,
     taxable, tax, credit, payable, refundable, result, rit: result };
 }
 let propReturnOwner = 0;
+function setRingfenceOpening(i, val) {
+  const s = currentPropStream(); if (!s) return;
+  const o = propSettings(s).owners.filter(x => x.name && x.share)[i]; if (!o) return;
+  const id = taxReturnId(propTaxYear, o.name);
+  let r = taxReturns.find(x => x.id === id);
+  if (!r) { r = { id, ty: propTaxYear, person: o.name, rows: [] }; taxReturns.push(r); reviveTombstone('taxReturns', id); }
+  const n = parseFloat(val);
+  if (isNaN(n)) delete r.ringfenceOpening; else r.ringfenceOpening = n;
+  scheduleSave(); renderProperty();
+}
 function propReturnsHtml(s) {
   const owners = propSettings(s).owners.filter(o => o.name && o.share);
   if (!owners.length) return `<div class="card" style="font-size:13px;color:var(--text3)">Add the owners and their shares in Setup first.</div>`;
@@ -5875,6 +5922,15 @@ function propReturnsHtml(s) {
       ${r.interest ? propRow('Interest', fmt(r.interest)) : ''}
       ${r.other ? propRow('Other income', fmt(r.other)) : ''}
       ${r.rentalParts.map(p => propRow(`Rental income: ${escH(p.name)} (${escH(o.name)}'s share)`, money(p.amount))).join('')}
+      ${(() => { const f = r.ringfence; if (!f.open && !f.loss && !f.used) return '';
+        return `<div style="margin:4px 0;padding:8px 10px;background:var(--bg3);border-radius:var(--radius-sm)">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:2px">Ring-fenced residential loss</div>
+          ${propRow('Brought forward', fmt(f.open))}
+          ${f.loss ? propRow("This year's residential loss (can't reduce other income)", fmt(f.loss)) : ''}
+          ${f.used ? propRow('Used against this year\'s residential profit', fmt(f.used)) : ''}
+          ${propRow('Carried forward', fmt(f.close))}
+          ${propRow('<strong>Rental income counted</strong>', `<strong>${money(f.rental)}</strong>`)}
+        </div>`; })()}
       ${propRow('<strong>Taxable income</strong>', `<strong>${money(r.taxable)}</strong>`)}
       ${propRow('Tax on taxable income', fmt(r.tax))}
       ${r.credit ? propRow('Less imputation credits', '−' + fmt(r.credit)) : ''}
@@ -5883,7 +5939,10 @@ function propReturnsHtml(s) {
       ${r.divRwt + r.intRwt ? propRow('Less RWT', '−' + fmt(r.divRwt + r.intRwt)) : ''}
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 2px;font-size:15px;font-weight:700">
         <span>${r.result <= 0 ? 'Refund due' : 'Tax to pay'}${isFc ? ' (forecast)' : ''}</span><span class="${r.result <= 0 ? 'pos' : 'neg'}">${fmt(Math.abs(r.result))}</span></div>
-      <div style="font-size:11px;color:var(--text3);margin-top:6px">${r.taxable < 0 ? 'Taxable income is a loss. It carries forward to next year. ' : ''}${r.rit > 5000 ? 'Tax to pay is over $5,000, so provisional tax may apply next year. ' : ''}KiwiSaver and other PIE income are taxed at your PIR and aren't included. Student loan and Working for Families aren't included. An estimate only; your accountant's return is final.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0 2px;font-size:12px;color:var(--text2)">
+        <span>Ring-fenced loss brought forward into ${taxYearLabel(propTaxYear)}<span style="display:block;font-size:11px;color:var(--text3)">Only if your accountant carried one forward from before the app. Later years follow on.</span></span>
+        <input type="number" min="0" step="0.01" placeholder="$" value="${r.rec?.ringfenceOpening ?? ''}" style="${inp};width:110px;text-align:right" onchange="setRingfenceOpening(${propReturnOwner}, this.value)"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${r.ringfence.loss ? 'A loss on residential property (other than mixed-use years) is ring-fenced: it can\'t reduce salary or other income, and carries forward against future rental profit. ' : ''}${r.taxable < 0 ? 'Taxable income is a loss. It carries forward to next year. ' : ''}${r.rit > 5000 ? 'Tax to pay is over $5,000, so provisional tax may apply next year. ' : ''}KiwiSaver and other PIE income are taxed at your PIR and aren't included. Student loan and Working for Families aren't included. An estimate only; your accountant's return is final.</div>
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:4px">IRD income summary</div>
