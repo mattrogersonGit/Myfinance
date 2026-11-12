@@ -1660,7 +1660,19 @@ const FREE_HISTORY_MONTHS  = 6;
 // page was opened from an installed TWA, as opposed to a normal browser tab
 // or a PWA added to the home screen directly (neither of which is
 // distributed via Google Play, so neither is subject to this).
-const isAndroidTWA = document.referrer.startsWith('android-app://');
+// The android-app:// referrer is only there on the first page load: after a
+// reload or a redirect it's gone, and buy links would appear inside the app.
+// So remember it for the rest of the session. sessionStorage is per tab, and
+// the TWA is its own tab, so this doesn't leak into Chrome on the same phone
+// (localStorage would, since a TWA shares Chrome's storage). ?twa=1 is
+// accepted too, for a future app build that adds it to the start URL.
+const isAndroidTWA = (() => {
+  const seen = document.referrer.startsWith('android-app://') || /[?&]twa=1\b/.test(location.search);
+  try {
+    if (seen) sessionStorage.setItem('myfinance_twa', '1');
+    return seen || sessionStorage.getItem('myfinance_twa') === '1';
+  } catch (e) { return seen; }
+})();
 function webUpgradeNote() {
   return `<div style="font-size:12px;color:var(--text3);text-align:center">To upgrade to Pro, open <strong style="color:var(--text)">getmyfinance.app</strong> in your browser.</div>`;
 }
@@ -1703,7 +1715,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.2';
+const APP_VERSION = '2026.11.12.3';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
