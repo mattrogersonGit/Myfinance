@@ -413,6 +413,38 @@
     .pd-legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
     .pd-hbar { height:10px; border-radius:5px; background:var(--bg3); overflow:hidden; margin-top:4px; }
     .pd-hbar span { display:block; height:100%; border-radius:5px; }
+    /* Timeline calendar */
+    .tl-wrap { display:grid; grid-template-columns:minmax(0,1fr) 270px; gap:12px; align-items:start; }
+    .tl-card { padding:0 !important; overflow:hidden; }
+    .tl-scroll { overflow-x:auto; }
+    .tl-grid { display:grid; font-size:11px; }
+    .tl-grid > div { border-bottom:0.5px solid var(--border); min-height:24px; }
+    .tl-lab { position:sticky; left:0; z-index:3; background:var(--bg2); padding:5px 10px; font-size:12px; color:var(--text2); border-right:0.5px solid var(--border); display:flex; align-items:center; }
+    .tl-lab.prop { font-weight:650; color:var(--text); font-size:13px; cursor:pointer; }
+    .tl-day { text-align:center; color:var(--text3); padding:3px 0; border-left:0.5px solid var(--border); line-height:1.25; }
+    .tl-day b { display:block; color:var(--text); font-weight:600; font-size:11.5px; }
+    .tl-day.we { background:var(--chart-grid); }
+    .tl-day.today b { background:var(--teal); color:#fff; border-radius:4px; margin:0 3px; }
+    .tl-grid > .tl-lane { position:relative; min-height:46px; }
+    .tl-grid > .tl-lane.small { min-height:26px; }
+    .tl-cell { position:absolute; top:0; bottom:0; border:none; border-left:0.5px solid var(--border); background:transparent; cursor:pointer; padding:0; }
+    .tl-cell:hover { background:var(--bg3); }
+    .tl-cell.we { background:var(--chart-grid); }
+    .tl-bar { position:absolute; top:6px; bottom:6px; border-radius:7px; color:#fff; padding:2px 6px; font-size:10.5px; line-height:1.25; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; border:none; text-align:left; font-family:inherit; z-index:1; }
+    .tl-bar b { display:block; font-size:11px; overflow:hidden; text-overflow:ellipsis; }
+    .tl-bar.sel { outline:2px solid var(--text); outline-offset:1px; }
+    .tl-bar .tick { position:absolute; right:5px; top:3px; }
+    .tl-use { position:absolute; top:9px; height:8px; border-radius:3px; }
+    .tl-rate { position:absolute; top:6px; font-size:10.5px; color:var(--text2); font-variant-numeric:tabular-nums; text-align:center; }
+    .tl-ico { position:absolute; top:3px; font-size:12px; }
+    .cv-switch { display:inline-flex; background:var(--bg3); border-radius:9px; padding:3px; gap:2px; }
+    .cv-switch button { font:inherit; font-size:12.5px; border:0; background:none; color:var(--text2); padding:5px 12px; border-radius:7px; cursor:pointer; }
+    .cv-switch button.on { background:var(--bg2); color:var(--text); font-weight:600; }
+    .ag-day { font-size:11px; font-weight:700; color:var(--text3); text-transform:uppercase; letter-spacing:.06em; margin:10px 2px 4px; }
+    .ag-it { display:flex; gap:10px; align-items:center; background:var(--bg2); border:0.5px solid var(--border); border-radius:10px; padding:9px 10px; font-size:13px; margin-bottom:6px; cursor:pointer; width:100%; text-align:left; color:var(--text); font-family:inherit; }
+    .ag-it i { width:4px; align-self:stretch; border-radius:2px; flex:none; }
+    .ag-it p { margin:0; flex:1; min-width:0; }
+    .ag-it small { display:block; color:var(--text3); font-size:11.5px; }
     .s-body { display:none; padding-bottom:16px; border-top:0.5px solid var(--border); padding-top:12px; }
     .s-body.open { display:block; }
 
@@ -1774,7 +1806,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.7';
+const APP_VERSION = '2026.11.12.8';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -5729,7 +5761,189 @@ function shiftPropCalMonth(n) {
   renderProperty();
 }
 function setPropCalMode(m) { propCalMode = m; renderProperty(); }
+// Calendar views: a timeline across all properties on wide screens, a list of
+// what's coming on phones, and the month grid on both.
+let propCalView = null, propTlStart = null, propTlSel = null;
+const propCalViewNow = () => propCalView && (propCalView === 'month' || propCalView === (propIsWide() ? 'timeline' : 'agenda')) ? propCalView : (propIsWide() ? 'timeline' : 'agenda');
+function setPropCalView(v) { propCalView = v; renderProperty(); }
+function propCalSwitchHtml() {
+  const v = propCalViewNow(), first = propIsWide() ? ['timeline', 'Timeline'] : ['agenda', 'List'];
+  return `<div class="cv-switch">${[first, ['month', 'Month']].map(([k, l]) => `<button class="${v === k ? 'on' : ''}" onclick="setPropCalView('${k}')">${l}</button>`).join('')}</div>`;
+}
+function propCalModesHtml(s) {
+  const modes = [['view','👁 View'], ...Object.entries(PROP_DAY_TYPES).map(([k, t]) => [k, `${t.icon} ${t.label}`])];
+  const hint = propCalMode === 'view'
+    ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
+    : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong>, twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+      ${modes.map(([k, l]) => `<button onclick="setPropCalMode('${k}')" style="padding:5px 9px;font-size:12px;border-radius:16px;cursor:pointer;font-family:inherit;border:0.5px solid ${propCalMode===k?'var(--teal)':'var(--border2)'};background:${propCalMode===k?'var(--teal)':'var(--bg3)'};color:${propCalMode===k?'#fff':'var(--text)'}">${l}</button>`).join('')}
+    </div><div style="font-size:11px;color:var(--text3);margin-bottom:8px">${hint}</div>`;
+}
+// Stays (runs of nights) for a property in [from, to): imported bookings and
+// whole-night marks (personal, family, other booking, repairs).
+function propStaysBetween(st, from, to) {
+  const nightOf = {};
+  propDays.filter(d => d.streamId === st.id && d.date >= from && d.date < to && ['personal', 'family', 'booked', 'repair'].includes(d.type) && !d.dayOnly)
+    .forEach(d => nightOf[d.date] = { key: 'm:' + d.type, type: d.type, mark: d });
+  bookings.filter(b => b.streamId === st.id && !b.cancelled && b.nights && b.checkIn < to && b.checkOut > from).forEach(b => {
+    for (let d = isoToDate(b.checkIn), e = isoToDate(b.checkOut); d < e; d.setDate(d.getDate() + 1)) { const iso = dateToIso(d); if (iso >= from && iso < to) nightOf[iso] = { key: 'b:' + b.id, booking: b }; }
+  });
+  const stays = [];
+  for (let iso = from; iso < to; iso = addDaysIso(iso, 1)) {
+    const n = nightOf[iso]; if (!n) continue;
+    const last = stays[stays.length - 1];
+    if (last && last.key === n.key && last.end === iso) { last.end = addDaysIso(iso, 1); last.nights++; }
+    else stays.push({ ...n, start: iso, end: addDaysIso(iso, 1), nights: 1 });
+  }
+  return stays;
+}
+function shiftPropTl(days) {
+  if (days === 0) { const t = isoToDate(todayLocal()); t.setDate(t.getDate() - ((t.getDay() + 6) % 7) - 7); propTlStart = dateToIso(t); }
+  else propTlStart = addDaysIso(propTlStart, days);
+  renderProperty();
+}
+function propTlSelect(stId, bookingId) {
+  if (propStreamId !== stId) propStreamId = stId;
+  propTlSel = propTlSel === bookingId ? null : bookingId;
+  renderProperty();
+}
+function propTlDay(stId, iso) {
+  if (propStreamId !== stId) { propStreamId = stId; propTlSel = null; }
+  propCalTap(iso);
+}
+function propTimelineHtml(s) {
+  const W = 26, DAYS = 42;
+  if (!propTlStart) { const t = isoToDate(todayLocal()); t.setDate(t.getDate() - ((t.getDay() + 6) % 7) - 7); propTlStart = dateToIso(t); }
+  const from = propTlStart, to = addDaysIso(from, DAYS), today = todayLocal();
+  propTaxYear = taxYearOf(isoToDate(addDaysIso(from, 21)));
+  const idx = iso => daysBetween(from, iso);
+  const days = Array.from({ length: DAYS }, (_, i) => addDaysIso(from, i));
+  const isWe = iso => [0, 6].includes(isoToDate(iso).getDay());
+  const cols = `120px repeat(${DAYS}, ${W}px)`;
+  const monthTxt = (() => { const a = isoToDate(from), b = isoToDate(addDaysIso(to, -1)); const f = d => d.toLocaleDateString('en-NZ', { month: 'short', year: 'numeric' }); return a.getMonth() === b.getMonth() ? f(a) : `${a.toLocaleDateString('en-NZ', { month: 'short' })} – ${f(b)}`; })();
+  let h = `<div class="tl-lab" style="font-size:11px;color:var(--text3)">${monthTxt}</div>`;
+  days.forEach(iso => { const d = isoToDate(iso); h += `<div class="tl-day ${isWe(iso) ? 'we' : ''} ${iso === today ? 'today' : ''}">${'SMTWTFS'[d.getDay()]}<b>${d.getDate()}</b></div>`; });
+  propertyStreams().forEach(st => {
+    const matches = computePayoutMatches(st), stays = propStaysBetween(st, from, to);
+    const cur = st.id === s.id;
+    h += `<div class="tl-lab prop" onclick="setPropStream(${st.id})" style="${cur ? 'color:var(--teal)' : ''}">${escH(st.name)}</div><div class="tl-lane" style="grid-column:2 / -1">`;
+    days.forEach((iso, i) => { h += `<button class="tl-cell ${isWe(iso) ? 'we' : ''}" style="left:${i * W}px;width:${W}px" onclick="propTlDay(${st.id}, '${iso}')" aria-label="${escH(st.name)} ${fmtDay(iso)}"></button>`; });
+    stays.forEach(x => {
+      const a = Math.max(0, idx(x.start)), b = Math.min(DAYS, idx(x.end));
+      const left = a * W + 2, width = (b - a) * W - 4; if (width <= 0) return;
+      if (x.booking) {
+        const bk = x.booking, bank = bookingBankStatus(bk, matches);
+        h += `<button class="tl-bar ${propTlSel === bk.id ? 'sel' : ''}" style="left:${left}px;width:${width}px;background:${PLATFORM_BAR[bk.platform] || PROP_BOOKING_BAR}${bk.belowMarket ? ';background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.18) 0 4px,transparent 4px 8px)' : ''}" onclick="propTlSelect(${st.id}, '${escH(bk.id)}')" title="${escH(bk.guest || platformName(bk.platform))} · ${fmtDay(bk.checkIn)} – ${fmtDay(bk.checkOut)} · ${fmt(bk.payout || 0)}"><b>${escH(bk.guest || platformName(bk.platform))}</b>${fmt(bk.payout || 0).replace(/\.00$/, '')}${bank === 'found' ? '<span class="tick">✓</span>' : ''}</button>`;
+      } else {
+        const t = PROP_DAY_TYPES[x.type];
+        h += `<button class="tl-bar" style="left:${left}px;width:${width}px;background:${t.bar}" onclick="propTlDay(${st.id}, '${x.start}')"><b>${t.icon} ${escH(t.label)}</b>${x.nights} night${x.nights === 1 ? '' : 's'}${x.mark?.belowMarket ? ' · below market' : ''}</button>`;
+      }
+    });
+    h += `</div><div class="tl-lab">Night use</div><div class="tl-lane small" style="grid-column:2 / -1">`;
+    const blocked = new Set(propDays.filter(d => d.streamId === st.id && d.type === 'blocked').map(d => d.date));
+    const use = {};
+    stays.forEach(x => { for (let iso = x.start; iso < x.end; iso = addDaysIso(iso, 1)) use[iso] = x.booking ? (x.booking.belowMarket ? 'private' : 'income') : (x.type === 'personal' ? 'private' : x.type === 'family' ? 'family' : x.mark?.belowMarket ? 'private' : 'income'); });
+    const useCol = { income: 'var(--teal)', private: PROP_DAY_TYPES.personal.bar, family: PROP_DAY_TYPES.family.bar, blocked: 'var(--text3)' };
+    days.forEach((iso, i) => { const u = use[iso] || (blocked.has(iso) ? 'blocked' : null); h += `<span class="tl-use" style="left:${i * W + 5}px;width:${W - 10}px;background:${u ? useCol[u] : 'var(--bg3)'}"></span>`; });
+    h += `</div><div class="tl-lab">Earned / night</div><div class="tl-lane small" style="grid-column:2 / -1">`;
+    stays.filter(x => x.booking && x.booking.nights).forEach(x => {
+      const a = Math.max(0, idx(x.start)), b = Math.min(DAYS, idx(x.end));
+      if (b - a < 1) return;
+      h += `<span class="tl-rate" style="left:${a * W}px;width:${(b - a) * W}px">${fmt((x.booking.payout || 0) / x.booking.nights).replace(/\.\d\d$/, '')}</span>`;
+    });
+    h += `</div><div class="tl-lab">Cleans &amp; trips</div><div class="tl-lane small" style="grid-column:2 / -1">`;
+    const icons = {};
+    propDays.filter(d => d.streamId === st.id && d.date >= from && d.date < to && (d.type === 'cleaning' || d.type === 'travel' || d.dayOnly)).forEach(d => { (icons[d.date] = icons[d.date] || []).push(d.dayOnly ? '☀' : PROP_DAY_TYPES[d.type].icon); });
+    Object.entries(icons).forEach(([iso, ic]) => { h += `<span class="tl-ico" style="left:${idx(iso) * W + 2}px">${ic.join('')}</span>`; });
+    h += `</div>`;
+  });
+  // Side panel: the selected stay, or how to use the timeline.
+  const u = propUsageForYear(s, propTaxYear);
+  const sel = propTlSel && bookings.find(b => b.id === propTlSel);
+  let panel;
+  if (sel) {
+    const st = propertyStreams().find(x => x.id === sel.streamId) || s, matches = computePayoutMatches(st), bank = bookingBankStatus(sel, matches);
+    const pays = propPayouts.filter(p => p.streamId === sel.streamId && (sel.payments || []).some(pm => pm.date === p.date));
+    const deps = pays.map(p => matches.payoutTxn.get(p.id)).filter(Boolean);
+    const acct = id => accounts.find(a => a.id === id)?.name || id;
+    panel = `<div style="font-size:16px;font-weight:650">${escH(sel.guest || platformName(sel.platform))}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escH(platformName(sel.platform))} · ${fmtDay(sel.checkIn)} – ${fmtDay(sel.checkOut)} · ${sel.nights} night${sel.nights === 1 ? '' : 's'}${sel.belowMarket ? ' · below market (private)' : ''}</div>
+      ${propRow('Guest paid', fmt(sel.gross || 0))}
+      ${propRow(`${escH(platformName(sel.platform))} service fee`, '−' + fmt(sel.serviceFee || 0))}
+      ${propRow('GST flat-rate credit', fmt(sel.hostTax || 0))}
+      ${sel.adjustments ? propRow('Adjustments', fmtSigned(sel.adjustments)) : ''}
+      ${propRow('<strong>Payout</strong>', `<strong>${fmt(sel.payout || 0)}</strong>`)}
+      ${sel.nights ? propRow('Earned per night', fmt((sel.payout || 0) / sel.nights)) : ''}
+      <div style="margin-top:10px;border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.45;${bank === 'found' ? 'background:rgba(29,184,138,0.14);color:var(--teal)' : bank === 'missing' ? 'background:rgba(224,82,82,0.14);color:var(--red)' : 'background:var(--bg3);color:var(--text2)'}">
+        ${bank === 'found' ? `✓ In the bank${deps.length ? ': ' + deps.map(t => `${fmt(t.amount)} into ${escH(acct(t.account))} on ${fmtDay(dateToIso(t.date))}`).join('; ') : ''}.`
+          : bank === 'missing' ? 'Payout not found in the bank yet. Import the account it was paid into, or check Bookings.'
+          : `Upcoming. Payout due about ${fmtDay(addDaysIso(sel.checkIn, 1))}.`}</div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="openBookingDetail('${escH(sel.id)}')">Details</button><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="propTlSel=null;renderProperty()">Close</button></div>`;
+  } else {
+    panel = `<div style="font-size:14px;font-weight:650;margin-bottom:6px">${escH(s.name)}</div>
+      <div style="font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:10px">Click a stay to see its payout and whether it's reached the bank. Click a day to mark it, or pick a mode above to mark several.</div>
+      ${propRow('Income nights', u.income)}${propRow('Private', u.personalDays)}${propRow('Unused', u.unused)}
+      ${u.share != null && u.personalDays ? propRow('Income share', Math.round(u.share * 1000) / 10 + '%') : ''}
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Tax year ${taxYearLabel(propTaxYear)} so far.</div>`;
+  }
+  const legend = `<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text3);padding:10px 12px;border-top:0.5px solid var(--border)">
+      ${Object.entries(PLATFORM_BAR).map(([pl, c]) => `<span><span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:${c};margin-right:5px"></span>${platformName(pl)}</span>`).join('')}
+      ${['personal', 'family', 'booked', 'repair'].map(k => `<span><span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:${PROP_DAY_TYPES[k].bar};margin-right:5px"></span>${PROP_DAY_TYPES[k].label}</span>`).join('')}
+      <span>✓ payout in the bank</span><span>🧹 clean · 🚗 trip · ☀ day visit</span></div>`;
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${propCalSwitchHtml()}
+      <div style="display:flex;gap:6px;align-items:center"><button class="btn btn-secondary" style="padding:5px 10px" onclick="shiftPropTl(-14)" aria-label="Earlier">‹</button><button class="btn btn-secondary" style="padding:5px 12px;font-size:12.5px" onclick="shiftPropTl(0)">Today</button><button class="btn btn-secondary" style="padding:5px 10px" onclick="shiftPropTl(14)" aria-label="Later">›</button></div>
+      <div style="display:flex;gap:6px;font-size:12px;margin-left:auto">
+        <span style="background:var(--bg3);border-radius:8px;padding:5px 9px;color:var(--text2)">Income nights <b style="color:var(--text)">${u.income}</b></span>
+        <span style="background:var(--bg3);border-radius:8px;padding:5px 9px;color:var(--text2)">Private <b style="color:var(--text)">${u.personalDays}</b></span>
+        <span style="background:var(--bg3);border-radius:8px;padding:5px 9px;color:var(--text2)">Unused <b style="color:var(--text)">${u.unused}</b></span>
+        ${u.share != null && u.personalDays ? `<span style="background:var(--bg3);border-radius:8px;padding:5px 9px;color:var(--text2)">Income share <b style="color:var(--text)">${Math.round(u.share * 100)}%</b></span>` : ''}
+      </div></div>
+    ${propCalModesHtml(s)}
+    <div class="tl-wrap">
+      <div class="card tl-card" style="margin:0"><div class="tl-scroll"><div class="tl-grid" style="grid-template-columns:${cols}">${h}</div></div>${legend}</div>
+      <div class="card" style="margin:0">${panel}</div>
+    </div>
+    <div style="height:12px"></div>
+    ${propUsageCardHtml(s)}`;
+}
+// Phone: what's coming up, day by day.
+function propAgendaHtml(s) {
+  const today = todayLocal(), until = addDaysIso(today, 120);
+  const items = [];
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && b.checkOut > today && b.checkIn < until).forEach(b => items.push({ d: b.checkIn < today ? today : b.checkIn, col: PLATFORM_BAR[b.platform] || PROP_BOOKING_BAR,
+    title: b.checkIn < today ? `${escH(b.guest || platformName(b.platform))} staying` : `${escH(b.guest || platformName(b.platform))} arrives`,
+    sub: `${escH(platformName(b.platform))} · ${b.nights} night${b.nights === 1 ? '' : 's'} · leaves ${fmtDay(b.checkOut)}${b.belowMarket ? ' · below market' : ''}`, amt: b.payout, on: `openBookingDetail('${escH(b.id)}')` }));
+  const marks = propDays.filter(d => d.streamId === s.id && d.date >= today && d.date < until);
+  ['personal', 'family', 'booked', 'repair', 'blocked'].forEach(type => {
+    const ds = marks.filter(d => d.type === type && !d.dayOnly).map(d => d.date).sort();
+    const runs = []; ds.forEach(d => { const r = runs[runs.length - 1]; if (r && daysBetween(r.to, d) === 1) { r.to = d; r.n++; } else runs.push({ from: d, to: d, n: 1 }); });
+    const t = PROP_DAY_TYPES[type];
+    runs.forEach(r => items.push({ d: r.from, col: t.bar || 'var(--text3)', title: `${t.icon} ${type === 'personal' ? 'Owners staying' : type === 'family' ? 'Family staying' : t.label}`,
+      sub: type === 'blocked' ? `${r.n} day${r.n === 1 ? '' : 's'} not available` : `${r.n} night${r.n === 1 ? '' : 's'}${type === 'personal' || type === 'family' ? ' · private use' : ''}`, on: `openPropDay('${r.from}')` }));
+  });
+  const byDay = {};
+  marks.filter(d => d.type === 'cleaning' || d.type === 'travel' || d.dayOnly).forEach(d => (byDay[d.date] = byDay[d.date] || []).push(d));
+  Object.entries(byDay).forEach(([iso, ds]) => {
+    const parts = ds.map(d => d.dayOnly ? '☀ Day visit' : `${PROP_DAY_TYPES[d.type].icon} ${d.type === 'cleaning' ? 'Clean' : 'Trip'}`);
+    const sub = ds.map(d => d.type === 'cleaning' && d.cost ? `clean ${fmt(d.cost)}` : d.type === 'travel' && (d.km ?? propSettings(s).travelKm) != null ? `${d.km ?? propSettings(s).travelKm} km` : '').filter(Boolean).join(' · ');
+    items.push({ d: iso, col: 'var(--teal)', title: parts.join(' + '), sub, on: `openPropDay('${iso}')` });
+  });
+  items.sort((a, b) => a.d.localeCompare(b.d));
+  let last = '', out = '';
+  items.forEach(x => {
+    if (x.d !== last) { out += `<div class="ag-day">${x.d === today ? 'Today' : isoToDate(x.d).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}</div>`; last = x.d; }
+    out += `<button class="ag-it" onclick="${x.on}"><i style="background:${x.col}"></i><p>${x.title}${x.sub ? `<small>${x.sub}</small>` : ''}</p>${x.amt ? `<span style="font-weight:600;font-variant-numeric:tabular-nums">${fmt(x.amt)}</span>` : ''}</button>`;
+  });
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">${propCalSwitchHtml()}<span style="font-size:11px;color:var(--text3)">Next 4 months</span></div>
+    ${out || '<div class="card" style="font-size:13px;color:var(--text3);text-align:center;padding:20px">Nothing coming up. Switch to Month to mark days.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin:8px 2px 12px">Tap an item to open it. To mark several days, switch to Month.</div>
+    ${propUsageCardHtml(s)}`;
+}
 function propCalendarHtml(s) {
+  const view = propCalViewNow();
+  if (view === 'timeline') return propTimelineHtml(s);
+  if (view === 'agenda') return propAgendaHtml(s);
   if (!propCalMonth) propCalMonth = todayLocal().slice(0, 7);
   const [y, m] = propCalMonth.split('-').map(Number);
   propTaxYear = taxYearOf(new Date(y, m - 1, 1)); // the use summary follows the month shown
@@ -5807,7 +6021,7 @@ function propCalendarHtml(s) {
     ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
     : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong> (the bar runs to the next morning), twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
-  return `<div class="card" style="padding:12px">
+  return `<div style="margin-bottom:10px">${propCalSwitchHtml()}</div><div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <button onclick="shiftPropCalMonth(-1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px">&#8249;</button>
         <span style="font-size:15px;font-weight:600">${monthLabelTxt}</span>
