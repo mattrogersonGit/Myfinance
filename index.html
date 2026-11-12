@@ -1075,9 +1075,10 @@
     <!-- DEBT -->
     <div id="page-debt" class="page">
       <div class="section-header">
-        <div class="section-title">Debt</div>
+        <div class="section-title">Wealth</div>
         <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" onclick="openAddOtherDebt()">+ Add debt</button>
       </div>
+      <div class="tabs"><button class="tab active">Debt</button><button class="tab" onclick="navTo('assets')">Assets</button></div>
       <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
         <div class="metric"><div class="metric-label">Total Debt</div><div class="metric-value neg" style="font-size:17px" id="mort-grand-total">—</div></div>
         <div class="metric"><div class="metric-label">Mortgages</div><div class="metric-value" style="font-size:17px" id="mort-mortgage-total">—</div></div>
@@ -1095,7 +1096,8 @@
 
     <!-- ASSETS -->
     <div id="page-assets" class="page">
-      <div class="section-header"><div class="section-title">Assets</div></div>
+      <div class="section-header"><div class="section-title">Wealth</div></div>
+      <div class="tabs"><button class="tab" onclick="navTo('debt')">Debt</button><button class="tab active">Assets</button></div>
       <div class="metrics" style="grid-template-columns:1fr 1fr 1fr">
         <div class="metric"><div class="metric-label">Assets</div><div class="metric-value pos" style="font-size:17px" id="nw2-assets">—</div></div>
         <div class="metric"><div class="metric-label">Debt</div><div class="metric-value neg" style="font-size:17px" id="nw2-debt">—</div></div>
@@ -1314,10 +1316,8 @@
     <!-- Property module (beta). Opened from Settings only while it's being built;
          the Settings row is hidden unless the household has the 'property' add-on. -->
     <div id="page-property" class="page">
-      <div class="section-header" style="gap:8px">
-        <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="closePropertyModule()">← MyFinance</button>
-        <div class="section-title" style="flex:1;text-align:center">Property <span style="font-size:10px;font-weight:600;color:var(--teal);vertical-align:middle">BETA</span></div>
-        <span style="width:92px"></span>
+      <div class="section-header">
+        <div class="section-title">Property <span style="font-size:10px;font-weight:600;color:var(--teal);vertical-align:middle">BETA</span></div>
       </div>
       <div id="prop-picker"></div>
       <div class="tabs" id="prop-tabs" style="flex-wrap:wrap"></div>
@@ -1340,13 +1340,13 @@
       <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       P&L
     </button>
-    <button class="nav-item" onclick="navTo('debt',this)" aria-label="Debt">
-      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Debt
-    </button>
-    <button class="nav-item" onclick="navTo('assets',this)" aria-label="Assets">
+    <button class="nav-item" data-pages="debt assets" onclick="navTo(wealthTab,this)" aria-label="Wealth">
       <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-      Assets
+      Wealth
+    </button>
+    <button class="nav-item" id="nav-property" data-pages="property" onclick="openPropertyModule()" aria-label="Property" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Property
     </button>
     <button class="nav-item" onclick="navTo('import',this)" aria-label="Import">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -1703,7 +1703,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.1';
+const APP_VERSION = '2026.11.12.2';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -1852,11 +1852,20 @@ function rerenderPage() {
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
+let wealthTab = 'debt'; // Debt and Assets share the Wealth button; it reopens the last one
+function navBtnFor(page) {
+  return [...document.querySelectorAll('.nav-item')].find(b => (b.dataset.pages || '').split(' ').includes(page))
+    || document.querySelector(`.nav-item[onclick^="navTo('${page}'"]`);
+}
+function setNavActive(page) {
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  navBtnFor(page)?.classList.add('active');
+}
 function navTo(page, el) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
-  el.classList.add('active');
+  setNavActive(page);
+  if (page==='debt' || page==='assets') wealthTab = page;
   currentPage = page;
   if (page==='overview') renderOverview();
   if (page==='transactions') renderTransactions();
@@ -3903,7 +3912,11 @@ function hasAddon(name) {
   if (sbAddons.includes(name)) return true;
   try { return localStorage.getItem('myfinance_beta_' + name) === '1'; } catch(e) { return false; }
 }
-function renderPropertyEntry() { renderSettingsTiles(); }
+function renderPropertyEntry() {
+  const nav = document.getElementById('nav-property');
+  if (nav) nav.style.display = hasAddon('property') ? '' : 'none';
+  renderSettingsTiles();
+}
 
 const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const round2 = n => Math.round(n * 100) / 100;
@@ -3946,17 +3959,14 @@ function openPropertyModule() {
   if (!hasAddon('property')) return;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-property').classList.add('active');
-  document.getElementById('bottom-nav').style.display = 'none';
+  setNavActive('property');
   currentPage = 'property';
   if (!currentPropStream()) propStreamId = propertyStreams()[0]?.id ?? null;
   propertyStreams().forEach(ensurePropPersonalCat);
   renderProperty();
   document.getElementById('page-container').scrollTop = 0;
 }
-function closePropertyModule() {
-  const btn = document.querySelector(`.nav-item[onclick^="navTo('import'"]`);
-  navTo('import', btn);
-}
+function closePropertyModule() { navTo('import'); }
 function setPropTab(t) { propTab = t; renderProperty(); }
 function setPropStream(id) { propStreamId = Number(id); propReviewCat = null; propReviewOther = false; renderProperty(); }
 function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
@@ -6968,10 +6978,7 @@ function maybeStartTour() {
   // otherwise call startTour() again later and reset their progress mid-tour.
   setTimeout(() => { if (!tourActive && !localStorage.getItem('myfinance_tour_seen')) startTour(); }, 600);
 }
-function tourGoToPage(page) {
-  const btn = document.querySelector(`.nav-item[onclick^="navTo('${page}'"]`);
-  if (btn) navTo(page, btn);
-}
+function tourGoToPage(page) { navTo(page); }
 function tourEnsureSectionOpen(id) {
   const body = document.getElementById(id);
   if (body && !body.classList.contains('open')) toggleSettings(id);
@@ -7048,6 +7055,7 @@ function showApp() {
   document.getElementById('marketing-home').style.display='none';
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
+  renderPropertyEntry();
   armExitGuard();
 }
 // The Android back button in the packaged (TWA) app maps to browser back
