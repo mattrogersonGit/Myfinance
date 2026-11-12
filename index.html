@@ -7682,8 +7682,13 @@ function mergeWithCloud(data, cloud) {
   data.schema = Math.max(Number(data.schema) || 0, Number(cloud.schema) || 0);
   return data;
 }
+// ?nosync=1: load the household's real data but never write it back. For
+// trying a development copy against real data without the cloud copy being
+// saved by a newer version (which would make other copies stop saving).
+const SB_NOSYNC = /[?&]nosync=1/.test(location.search);
 async function sbSaveData(data) {
   if (!sbConn || !sbHousehold) return;
+  if (SB_NOSYNC) { setSyncStatus('error', 'Test mode: not saving'); return; }
   // A save already in flight (e.g. a slow network round-trip) must not just drop
   // this request -- during a big CSV commit, edits routinely land faster than a
   // save round-trip completes. Dropping silently here is how something like a
