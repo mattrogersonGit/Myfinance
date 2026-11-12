@@ -358,6 +358,61 @@
     .s-tile-meta { font-size:12px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .s-tile-dot { position:absolute; top:12px; right:12px; width:9px; height:9px; border-radius:50%; }
     #settings-detail .s-body { border-top:none; padding-top:0; padding-bottom:0; }
+
+    /* ─── Property workspace: sidebar on wide screens, tabs on phones ─── */
+    #prop-side { display:none; }
+    #prop-head-wide { display:none; }
+    body.prop-wide #page-container { max-width:none; padding-bottom:0; }
+    body.prop-wide #bottom-nav { display:none; }
+    body.prop-wide #page-property.active { display:grid; grid-template-columns:236px minmax(0,1fr); padding:0; min-height:calc(100vh - 56px); }
+    body.prop-wide #prop-side { display:flex; flex-direction:column; gap:12px; position:sticky; top:0; align-self:start; height:calc(100vh - 56px); overflow-y:auto; background:var(--bg2); border-right:0.5px solid var(--border); padding:16px 12px; }
+    body.prop-wide #prop-main { padding:4px 26px 40px; max-width:1360px; width:100%; }
+    body.prop-wide #prop-head-narrow, body.prop-wide #prop-picker, body.prop-wide #prop-tabs { display:none; }
+    body.prop-wide #prop-head-wide { display:flex; }
+    .ps-picker { background:var(--bg3); border:0.5px solid var(--border2); border-radius:var(--radius-sm); color:var(--text); font-size:13px; font-weight:600; padding:8px 10px; width:100%; }
+    .ps-add { font-size:12px; color:var(--teal); background:none; border:none; cursor:pointer; padding:0 4px; text-align:left; font-family:inherit; }
+    .ps-nav { display:flex; flex-direction:column; gap:1px; }
+    .ps-nav button { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:var(--radius-sm); color:var(--text2); background:none; border:none; font:inherit; font-size:13.5px; cursor:pointer; text-align:left; }
+    .ps-nav button:hover { background:var(--bg3); }
+    .ps-nav button.on { background:rgba(29,184,138,0.14); color:var(--teal); font-weight:600; }
+    .ps-nav svg { width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+    .ps-nav .badge { margin-left:auto; font-size:11px; font-weight:700; border-radius:10px; padding:0 6px; color:#fff; }
+    .ps-sep { height:0.5px; background:var(--border); margin:6px 4px; }
+    .ps-back { margin-top:auto; font-size:12.5px; color:var(--text3); background:none; border:none; cursor:pointer; text-align:left; padding:4px 8px; font-family:inherit; }
+    #prop-head-wide { align-items:center; gap:12px; padding:14px 0 12px; }
+    #prop-head-wide h2 { font-size:20px; font-weight:650; margin:0; flex:1; }
+    .ph-year { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+    .ph-year button { width:26px; height:26px; border-radius:50%; border:0.5px solid var(--border2); background:var(--bg3); color:var(--text2); cursor:pointer; }
+    .ph-chip { font-size:12px; font-weight:600; padding:5px 10px; border-radius:20px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; border:none; font-family:inherit; }
+    .ph-chip i { width:7px; height:7px; border-radius:50%; background:currentColor; }
+    /* Dashboard grid: 12 columns wide, stacked on phones (KPIs two across). */
+    .pd-grid { display:grid; grid-template-columns:repeat(12, minmax(0,1fr)); gap:12px; margin-bottom:12px; }
+    .pd-grid > .card { margin:0; min-width:0; grid-column:span 12; display:flex; flex-direction:column; }
+    .pd-grid > .pd-k { grid-column:span 6; }
+    body.prop-wide .pd-grid > .pd-k, body.prop-wide .pd-grid > .pd-3 { grid-column:span 3; }
+    body.prop-wide .pd-grid > .pd-4 { grid-column:span 4; }
+    body.prop-wide .pd-grid > .pd-5 { grid-column:span 5; }
+    body.prop-wide .pd-grid > .pd-6 { grid-column:span 6; }
+    body.prop-wide .pd-grid > .pd-8 { grid-column:span 8; }
+    .pd-ct { font-size:11px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.06em; display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+    .pd-ct small { text-transform:none; letter-spacing:0; font-weight:400; color:var(--text3); }
+    .pd-v { font-size:22px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-0.3px; }
+    body:not(.prop-wide) .pd-v { font-size:18px; }
+    .pd-s { font-size:12px; color:var(--text3); margin-top:4px; }
+    .pd-bar { height:6px; background:var(--bg3); border-radius:3px; position:relative; margin-top:10px; }
+    .pd-bar span { position:absolute; inset:0 auto 0 0; border-radius:3px; background:var(--teal); max-width:100%; }
+    .pd-bar em { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text3); }
+    .pd-pill { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; letter-spacing:.03em; white-space:nowrap; }
+    .pd-list > div { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--border); font-size:13px; }
+    .pd-list > div:last-child { border-bottom:none; }
+    .pd-list p { margin:0; flex:1; min-width:0; }
+    .pd-list p small { display:block; color:var(--text3); font-size:11.5px; }
+    .pd-chart { position:relative; height:200px; flex:1 1 auto; min-height:200px; }
+    .pd-chart.sm { height:150px; min-height:150px; }
+    .pd-legend { display:flex; gap:12px; font-size:11px; color:var(--text3); text-transform:none; letter-spacing:0; font-weight:400; }
+    .pd-legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+    .pd-hbar { height:10px; border-radius:5px; background:var(--bg3); overflow:hidden; margin-top:4px; }
+    .pd-hbar span { display:block; height:100%; border-radius:5px; }
     .s-body { display:none; padding-bottom:16px; border-top:0.5px solid var(--border); padding-top:12px; }
     .s-body.open { display:block; }
 
@@ -1316,12 +1371,16 @@
     <!-- Property module (beta). Opened from Settings only while it's being built;
          the Settings row is hidden unless the household has the 'property' add-on. -->
     <div id="page-property" class="page">
-      <div class="section-header">
-        <div class="section-title">Property <span style="font-size:10px;font-weight:600;color:var(--teal);vertical-align:middle">BETA</span></div>
+      <aside id="prop-side"></aside>
+      <div id="prop-main">
+        <div class="section-header" id="prop-head-narrow">
+          <div class="section-title">Property <span style="font-size:10px;font-weight:600;color:var(--teal);vertical-align:middle">BETA</span></div>
+        </div>
+        <div id="prop-head-wide"></div>
+        <div id="prop-picker"></div>
+        <div class="tabs" id="prop-tabs" style="flex-wrap:wrap"></div>
+        <div id="prop-body"></div>
       </div>
-      <div id="prop-picker"></div>
-      <div class="tabs" id="prop-tabs" style="flex-wrap:wrap"></div>
-      <div id="prop-body"></div>
       <input type="file" id="prop-csv-input" accept=".csv" style="display:none" onchange="handlePropCSV(this)">
     </div>
   </div>
@@ -1715,7 +1774,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.6';
+const APP_VERSION = '2026.11.12.7';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -1877,6 +1936,7 @@ function navTo(page, el) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   setNavActive(page);
+  document.body.classList.remove('prop-wide');
   if (page==='debt' || page==='assets') wealthTab = page;
   currentPage = page;
   if (page==='overview') renderOverview();
@@ -3972,6 +4032,7 @@ function openPropertyModule() {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-property').classList.add('active');
   setNavActive('property');
+  propApplyLayout();
   currentPage = 'property';
   if (!currentPropStream()) propStreamId = propertyStreams()[0]?.id ?? null;
   propertyStreams().forEach(ensurePropPersonalCat);
@@ -3979,7 +4040,12 @@ function openPropertyModule() {
   document.getElementById('page-container').scrollTop = 0;
 }
 function closePropertyModule() { navTo('import'); }
-function setPropTab(t) { propTab = t; renderProperty(); }
+function setPropTab(t) {
+  if (t === 'returns') { propTab = 'tax'; propTaxView = 'returns'; }
+  else { if (t === 'tax') propTaxView = 'pnl'; propTab = t; }
+  renderProperty();
+  document.getElementById('page-container').scrollTop = 0;
+}
 function setPropStream(id) { propStreamId = Number(id); propReviewCat = null; propReviewOther = false; renderProperty(); }
 function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
 
@@ -3988,15 +4054,105 @@ const PROP_TABS = [
   {id:'calendar', label:'Calendar'}, {id:'cashflow', label:'Cash flow'},
   {id:'tax', label:'Tax'}, {id:'assets', label:'Assets'}, {id:'setup', label:'Setup'},
 ];
+// Workspace sections. Wide screens list them all in a sidebar; phones get five
+// tabs, with the rest under More.
+const PROP_ICONS = {
+  home: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  bookings: '<path d="M3 7h18M3 12h18M3 17h12"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  cashflow: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  review: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  tax: '<path d="M9 14l6-6M9.5 8.5h.01M14.5 13.5h.01"/><rect x="3" y="3" width="18" height="18" rx="2"/>',
+  returns: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+  assets: '<path d="M4 7l8-4 8 4-8 4z"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4"/>',
+  setup: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+  more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+};
+const PROP_SECTIONS = [
+  { id: 'home', label: 'Overview' }, { id: 'bookings', label: 'Bookings' }, { id: 'calendar', label: 'Calendar' },
+  { id: 'cashflow', label: 'Cash flow' }, { id: 'review', label: 'Review' }, null,
+  { id: 'tax', label: 'Tax & pack' }, { id: 'returns', label: "Owners' returns" }, { id: 'assets', label: 'Assets' }, { id: 'setup', label: 'Setup' },
+];
+const PROP_PHONE_TABS = [{ id: 'home', label: 'Home' }, { id: 'calendar', label: 'Calendar' }, { id: 'cashflow', label: 'Money' }, { id: 'tax', label: 'Tax' }, { id: 'more', label: 'More' }];
+// Which section is showing: Owners' returns lives inside the Tax view.
+const propSection = () => propTab === 'tax' && propTaxView === 'returns' ? 'returns' : propTab;
+function propIsWide() { return currentPage === 'property' && window.innerWidth >= 1024; }
+function propApplyLayout() { document.body.classList.toggle('prop-wide', propIsWide()); }
+let propWideWas = null;
+window.addEventListener('resize', () => {
+  if (currentPage !== 'property') return;
+  const w = propIsWide();
+  if (w !== propWideWas) renderProperty();
+});
+function propReviewCount(s) {
+  const linkedCat = propPersonalCat(s);
+  return linkedCat ? transactions.filter(t => (t.stream || 'personal') === 'personal' && t.cat === linkedCat && t.propReviewed !== s.id).length : 0;
+}
+function propCheckCounts(s) {
+  try {
+    const rows = propChecklist(s, propTaxYear).flatMap(g => g.rows).filter(r => r.st && r.st !== 'na');
+    return { bad: rows.filter(r => r.st === 'bad').length, warn: rows.filter(r => r.st === 'warn').length };
+  } catch (e) { return { bad: 0, warn: 0 }; }
+}
+function propPickerHtml(props, s, cls) {
+  return `${props.length > 1
+      ? `<select class="${cls}" onchange="setPropStream(this.value)">${props.map(p => `<option value="${p.id}" ${p.id === s.id ? 'selected' : ''}>${escH(p.name)}</option>`).join('')}</select>`
+      : `<div class="${cls}" style="cursor:default">${escH(s.name)}</div>`}
+    <button class="ps-add" onclick="openAddProperty()">+ Add property</button>`;
+}
+function propSideHtml(props, s) {
+  const sec = propSection(), cc = propCheckCounts(s), rv = propReviewCount(s);
+  const badge = id => id === 'tax' && (cc.bad || cc.warn) ? `<span class="badge" style="background:${cc.bad ? 'var(--red)' : 'var(--amber)'}">${cc.bad + cc.warn}</span>`
+    : id === 'review' && rv ? `<span class="badge" style="background:var(--teal)">${rv}</span>` : '';
+  return `<div style="font-size:15px;font-weight:650;padding:0 6px">Property <span style="font-size:10px;font-weight:600;color:var(--teal)">BETA</span></div>
+    <div style="display:flex;flex-direction:column;gap:6px">${propPickerHtml(props, s, 'ps-picker')}</div>
+    <nav class="ps-nav">${PROP_SECTIONS.map(x => x ? `<button class="${sec === x.id ? 'on' : ''}" onclick="setPropTab('${x.id}')"><svg viewBox="0 0 24 24">${PROP_ICONS[x.id]}</svg>${escH(x.label)}${badge(x.id)}</button>` : '<div class="ps-sep"></div>').join('')}</nav>
+    <button class="ps-back" onclick="navTo('overview')">← Back to MyFinance</button>`;
+}
+function propHeadHtml(s) {
+  const sec = PROP_SECTIONS.find(x => x && x.id === propSection());
+  const cc = propCheckCounts(s), yearly = ['home', 'tax', 'returns', 'calendar', 'assets'].includes(propSection());
+  const chip = cc.bad ? `<button class="ph-chip" style="background:rgba(224,82,82,0.15);color:var(--red)" onclick="setPropTab('tax')"><i></i>${cc.bad} off track</button>`
+    : cc.warn ? `<button class="ph-chip" style="background:rgba(224,160,48,0.15);color:var(--amber)" onclick="setPropTab('tax')"><i></i>${cc.warn} to check</button>`
+    : `<button class="ph-chip" style="background:rgba(29,184,138,0.14);color:var(--teal)" onclick="setPropTab('tax')"><i></i>On track</button>`;
+  return `<h2>${escH(sec ? sec.label : 'Property')}</h2>
+    ${yearly ? `<div class="ph-year"><button onclick="shiftPropTaxYear(-1)" aria-label="Previous tax year">‹</button>Tax year ${taxYearLabel(propTaxYear)}<button onclick="shiftPropTaxYear(1)" aria-label="Next tax year">›</button></div>` : ''}
+    ${chip}
+    <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="openPropAddMenu()">+ Add</button>`;
+}
+function openPropAddMenu() {
+  const item = (icon, label, sub, fn) => `<button onclick="closeModal();${fn}" style="display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;color:var(--text);font:inherit;cursor:pointer"><span style="font-size:20px">${icon}</span><span><strong style="font-size:14px">${label}</strong><span style="display:block;font-size:12px;color:var(--text3)">${sub}</span></span></button>`;
+  document.getElementById('modal-title').textContent = 'Add';
+  document.getElementById('modal-body').innerHTML = item('🧾', 'Expense or cost', 'Paid in cash or from an account the app doesn\'t have', 'openPropCost()')
+    + item('📥', 'Bookings', 'Import an Airbnb or Bookabach CSV', "setPropTab('bookings')")
+    + item('📅', 'Days on the calendar', 'Personal use, cleans, trips, blocked days', "setPropTab('calendar')")
+    + item('🛋️', 'Asset', 'Something to depreciate', 'openPropAsset()')
+    + item('🏡', 'Another property', 'Add a second property', 'openAddProperty()');
+  const btn = document.getElementById('modal-confirm'); btn.textContent = 'Close'; btn.onclick = closeModal;
+  document.getElementById('modal').classList.add('open');
+}
+function propMoreHtml(s) {
+  const rv = propReviewCount(s);
+  const item = (id, label, sub) => `<button onclick="setPropTab('${id}')" style="display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:none;border-bottom:0.5px solid var(--border);padding:12px 2px;color:var(--text);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:var(--teal);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none">${PROP_ICONS[id]}</svg><span style="flex:1"><strong style="font-size:14px">${label}</strong><span style="display:block;font-size:12px;color:var(--text3)">${sub}</span></span><span style="color:var(--text3)">›</span></button>`;
+  return `<div class="card" style="padding:4px 14px">
+    ${item('bookings', 'Bookings', 'Import CSVs, stays and payouts')}
+    ${item('review', 'Review' + (rv ? ` (${rv})` : ''), 'Personal transactions that may belong to the property')}
+    ${item('returns', "Owners' returns", 'Each owner\'s tax estimate')}
+    ${item('assets', 'Assets', 'Depreciation register')}
+    ${item('setup', 'Setup', 'Owners, accounts, categories, basis')}
+  </div>`;
+}
 function renderProperty() {
   const picker = document.getElementById('prop-picker');
   const tabsEl = document.getElementById('prop-tabs');
   const body   = document.getElementById('prop-body');
   if (!picker) return;
+  propApplyLayout(); propWideWas = propIsWide();
   const props = propertyStreams();
   const s = currentPropStream();
+  const side = document.getElementById('prop-side'), headW = document.getElementById('prop-head-wide');
   if (!s) {
-    picker.innerHTML = ''; tabsEl.innerHTML = '';
+    picker.innerHTML = ''; tabsEl.innerHTML = ''; side.innerHTML = ''; headW.innerHTML = '';
     body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px">
       <div style="font-size:28px;margin-bottom:10px">🏖️</div>
       <div style="font-weight:700;font-size:15px;margin-bottom:6px">Add your first property</div>
@@ -4005,12 +4161,19 @@ function renderProperty() {
     </div>`;
     return;
   }
-  picker.innerHTML = props.length > 1
-    ? `<select onchange="setPropStream(this.value)" style="width:100%;margin-bottom:10px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:9px 12px">
-        ${props.map(p => `<option value="${p.id}" ${p.id===s.id?'selected':''}>${escH(p.name)}</option>`).join('')}</select>`
-    : `<div style="font-size:15px;font-weight:600;margin-bottom:10px;text-align:center">${escH(s.name)}</div>`;
-  tabsEl.innerHTML = PROP_TABS.map(t => `<button class="tab ${propTab===t.id?'active':''}" onclick="setPropTab('${t.id}')" ${t.soon?'style="opacity:0.55"':''}>${t.label}</button>`).join('');
-  if (propTab === 'home')          body.innerHTML = propHomeHtml(s);
+  picker.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">${props.length > 1
+      ? `<select onchange="setPropStream(this.value)" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-weight:600;padding:9px 12px">
+          ${props.map(p => `<option value="${p.id}" ${p.id===s.id?'selected':''}>${escH(p.name)}</option>`).join('')}</select>`
+      : `<div style="flex:1;font-size:16px;font-weight:650">${escH(s.name)}</div>`}
+    <button class="ps-add" style="white-space:nowrap" onclick="openAddProperty()">+ Add property</button></div>`;
+  const sec = propSection();
+  const phoneActive = t => t === sec || (t === 'more' && ['bookings', 'review', 'returns', 'assets', 'setup', 'more'].includes(sec)) || (t === 'tax' && sec === 'tax');
+  tabsEl.innerHTML = PROP_PHONE_TABS.map(t => `<button class="tab ${phoneActive(t.id) ? 'active' : ''}" onclick="setPropTab('${t.id}')">${t.label}</button>`).join('');
+  side.innerHTML = propSideHtml(props, s);
+  headW.innerHTML = propHeadHtml(s);
+  propChartData = null;
+  if (propTab === 'home')          body.innerHTML = propDashHtml(s);
+  else if (propTab === 'more')     body.innerHTML = propMoreHtml(s);
   else if (propTab === 'bookings') body.innerHTML = propBookingsHtml(s);
   else if (propTab === 'setup')    body.innerHTML = propSetupHtml(s);
   else if (propTab === 'tax')      body.innerHTML = propTaxHtml(s);
@@ -4018,7 +4181,8 @@ function renderProperty() {
   else if (propTab === 'review')   body.innerHTML = propReviewHtml(s);
   else if (propTab === 'assets')   body.innerHTML = propAssetsHtml(s);
   else if (propTab === 'cashflow') body.innerHTML = propCashflowHtml(s);
-  else body.innerHTML = `<div class="card" style="text-align:center;padding:28px 20px;color:var(--text3);font-size:13px">${PROP_TABS.find(t=>t.id===propTab).label} is coming soon.</div>`;
+  else body.innerHTML = '';
+  propDrawCharts();
 }
 
 function openAddProperty() {
@@ -4069,6 +4233,7 @@ function propYearSummary(streamId, taxYear) {
 }
 
 function propYearNavHtml() {
+  if (propIsWide()) return '';
   return `<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:4px 0 12px">
     <button onclick="shiftPropTaxYear(-1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px">&#8249;</button>
     <span style="font-size:14px;font-weight:600;min-width:110px;text-align:center">Tax year ${taxYearLabel(propTaxYear)}</span>
@@ -4076,6 +4241,182 @@ function propYearNavHtml() {
   </div>`;
 }
 
+// ── Overview dashboard (layout approved 12 Nov 2026) ──
+let propChartData = null;
+const propCharts = {};
+// Booking income (gross + flat-rate credit + adjustments) for nights in [from, to).
+function propBookingIncomeBetween(s, from, to) {
+  return bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.belowMarket).reduce((a, b) => {
+    const r = bookingShareInRange(b, from, to);
+    return a + ((b.gross || 0) + (b.hostTax || 0) + (b.adjustments || 0)) * r.share;
+  }, 0);
+}
+function propDashHtml(s) {
+  const has = bookings.some(b => b.streamId === s.id);
+  const rv = propReviewCount(s), linkedCat = propPersonalCat(s);
+  const reviewCard = rv ? `<div class="card" style="display:flex;align-items:center;gap:10px;border-color:var(--teal)">
+      <div style="flex:1;font-size:13px">${rv} personal "${escH(linkedCat)}" transaction${rv === 1 ? '' : 's'} may belong to this property.</div>
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>` : '';
+  if (!has) return `${propYearNavHtml()}${reviewCard}<div class="card" style="text-align:center;padding:24px 20px">
+    <div style="font-size:13px;color:var(--text3);margin-bottom:14px">No bookings yet. Import your Airbnb or Bookabach CSVs to get started.</div>
+    <button class="btn btn-primary" onclick="setPropTab('bookings')">Go to Bookings</button></div>`;
+  const ty = propTaxYear, { start, end } = taxYearRange(ty), today = todayLocal();
+  const isCur = today >= start && today < end, isPast = today >= end;
+  const upTo = isCur ? addDaysIso(today, 1) : end; // exclusive
+  const asOfTxt = isCur ? `to ${isoToDate(today).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}` : isPast ? 'full year' : 'booked so far';
+  const matches = computePayoutMatches(s);
+  const pnl = computePropPnL(s, ty, matches);
+  const fc = isCur ? computePropPnL(s, ty, matches, { forecast: true }) : null;
+  // Income against the same point last year.
+  const lyStart = taxYearRange(ty - 1).start, shift = d => isoYearsAgo(d, 1);
+  const thisToDate = propBookingIncomeBetween(s, start, upTo);
+  const lastToDate = propBookingIncomeBetween(s, lyStart, shift(upTo));
+  const lastFull = propBookingIncomeBetween(s, lyStart, start);
+  const vsLast = lastToDate > 0 ? Math.round((thisToDate / lastToDate - 1) * 100) : null;
+  // Biggest expense line.
+  const lines = [{ label: 'Commissions', amount: pnl.commissions }, ...pnl.expenseLines.map(l => ({ label: l.label.replace(/ \(.*\)$/, ''), amount: l.amount }))].filter(l => l.amount > 0.5).sort((a, b) => b.amount - a.amount);
+  // Next payout and unmatched payouts.
+  const nextBk = bookings.filter(b => b.streamId === s.id && !b.cancelled && b.status !== 'completed' && b.checkIn && addDaysIso(b.checkIn, 1) >= today).sort((a, b) => a.checkIn.localeCompare(b.checkIn))[0];
+  const unmatched = propPayouts.filter(p => p.streamId === s.id && p.amount > 0 && p.date >= start && p.date < end && p.date <= addDaysIso(today, -7) && !matches.payoutTxn.has(p.id)).length;
+  // Occupancy so far.
+  const elapsedEnd = isCur ? addDaysIso(today, 1) : end;
+  const elapsed = Math.max(1, daysBetween(start, elapsedEnd));
+  const nightsSoFar = bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.belowMarket && b.nights).reduce((a, b) => a + bookingShareInRange(b, start, elapsedEnd).nights, 0)
+    + propDaysInYear(s, ty).filter(d => (d.type === 'booked' && !d.belowMarket) && d.date < elapsedEnd).length;
+  const occ = Math.min(100, Math.round(nightsSoFar / elapsed * 100));
+  const u = pnl.usage;
+  // Equity.
+  const val = propValueAt(s, 9999), debt = resolveLinkedDebt(s.linkedDebtId);
+  // To do from the checklist.
+  let todo = [];
+  try { todo = propChecklist(s, ty).flatMap(g => g.rows.map(r => ({ ...r, group: g.group }))).filter(r => r.st && r.st !== 'na'); } catch (e) {}
+  const order = { bad: 0, warn: 1, good: 2 };
+  const todoRows = todo.slice().sort((a, b) => order[a.st] - order[b.st]).slice(0, 5);
+  const pill = st => st === 'bad' ? `<span class="pd-pill" style="background:rgba(224,82,82,0.15);color:var(--red)">OFF TRACK</span>`
+    : st === 'warn' ? `<span class="pd-pill" style="background:rgba(224,160,48,0.15);color:var(--amber)">CHECK</span>`
+    : `<span class="pd-pill" style="background:rgba(29,184,138,0.14);color:var(--teal)">ON TRACK</span>`;
+  const strip = h => String(h || '').replace(/<[^>]*>/g, '');
+  // Cash in and out by month of the tax year, from the property's own transactions,
+  // with months still to come taken from the cash flow forecast.
+  const months = [];
+  for (let i = 0; i < 12; i++) { const d = new Date(ty - 1, 3 + i, 1); months.push({ key: dateToIso(d).slice(0, 7), label: d.toLocaleDateString('en-NZ', { month: 'short' }), inn: 0, out: 0, fc: false }); }
+  transactions.filter(t => t.stream === s.id).forEach(t => {
+    const d = dateToIso(t.date); if (d < start || d >= end) return;
+    if (propLineKind(propLineForTxn(s, t)) === 'none') return;
+    const m = months.find(x => x.key === d.slice(0, 7)); if (!m) return;
+    if (t.amount > 0) m.inn += t.amount; else m.out += -t.amount;
+  });
+  const cf = propCashflow(s), thisMonth = today.slice(0, 7);
+  if (cf.months) months.forEach(m => {
+    if (m.key < thisMonth) return;
+    const f = cf.months.find(x => x.key === m.key); if (!f) return;
+    if (m.key === thisMonth) { m.inn += f.inn; m.out += -f.out; m.fc = 'part'; }
+    else { m.inn = f.inn; m.out = -f.out; m.fc = true; }
+  });
+  // Property account balance: month ends so far, then the forecast.
+  let bal = null;
+  if (cf.months) {
+    const acc = propSettings(s).accountId;
+    const accTx = transactions.filter(t => t.account === acc);
+    const endBal = key => { const me = dateToIso(new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)), 1)); return cf.startBal - accTx.filter(t => { const d = dateToIso(t.date); return d >= me && d <= today; }).reduce((a, t) => a + t.amount, 0); };
+    bal = months.map(m => m.key < thisMonth ? { label: m.label, v: round2(endBal(m.key)), fc: false } : ((f => f ? { label: m.label, v: f.end, fc: true } : null)(cf.months.find(x => x.key === m.key)))).filter(Boolean);
+  }
+  // Upcoming stays and the owners' own stays.
+  const ups = bookings.filter(b => b.streamId === s.id && !b.cancelled && b.checkOut > today).map(b => ({ d: b.checkIn, b }));
+  const priv = propDays.filter(d => d.streamId === s.id && (d.type === 'personal' || d.type === 'family') && d.date >= today).map(d => d.date).sort();
+  const runs = []; priv.forEach(d => { const r = runs[runs.length - 1]; if (r && daysBetween(r.to, d) === 1) { r.to = d; r.n++; } else runs.push({ from: d, to: d, n: 1 }); });
+  runs.forEach(r => ups.push({ d: r.from, run: r }));
+  const upcoming = ups.sort((a, b) => a.d.localeCompare(b.d)).slice(0, 5);
+  const shortDay = d => isoToDate(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
+  const platCol = p => PLATFORM_BAR[p] || PROP_BOOKING_BAR;
+  propChartData = { months, bal, occ, lines: lines.slice(0, 7) };
+  const y = propYearSummary(s.id, ty), c = y.completed, uu = y.upcoming;
+  return `${reviewCard}
+  <div class="pd-grid">
+    <div class="card pd-k"><div class="pd-ct">Income <small>${asOfTxt}</small></div><div class="pd-v">${fmt(pnl.rent)}</div>
+      ${lastFull > 0 ? `<div class="pd-bar"><span style="width:${Math.min(100, thisToDate / lastFull * 100)}%"></span><em style="left:${Math.min(100, lastToDate / lastFull * 100)}%"></em></div>` : ''}
+      <div class="pd-s">${vsLast != null ? `<b style="color:${vsLast >= 0 ? 'var(--teal)' : 'var(--red)'}">${vsLast >= 0 ? '+' : ''}${vsLast}%</b> on this date last year` : 'No bookings last year to compare'}</div></div>
+    <div class="card pd-k"><div class="pd-ct">Expenses <small>${asOfTxt}</small></div><div class="pd-v">${fmt(pnl.totalExpenses)}</div>
+      <div class="pd-s">${lines[0] ? `${escH(lines[0].label)} is the biggest: ${fmt(lines[0].amount)}` : 'None yet'}</div></div>
+    <div class="card pd-k"><div class="pd-ct">Net profit <small>${asOfTxt}</small></div><div class="pd-v" style="color:${pnl.net >= 0 ? 'var(--text)' : 'var(--red)'}">${fmtSigned(pnl.net)}</div>
+      <div class="pd-s">${fc ? `Forecast for the year: <b style="color:var(--teal)">${fmtSigned(fc.net)}</b>` : pnl.taxNet !== pnl.net ? `For tax: ${fmtSigned(pnl.taxNet)}` : ''}</div></div>
+    <div class="card pd-k"><div class="pd-ct">Next payout</div><div class="pd-v">${nextBk ? fmt(nextBk.payout || 0) : '—'}</div>
+      <div class="pd-s">${nextBk ? `${escH(platformName(nextBk.platform))} · due ${shortDay(addDaysIso(nextBk.checkIn, 1))}` : 'Nothing booked'}${unmatched ? ` · <b style="color:var(--red)">${unmatched} unmatched</b>` : ''}</div></div>
+  </div>
+  <div class="pd-grid">
+    <div class="card pd-8"><div class="pd-ct">Cash in and out <span class="pd-legend"><span><i style="background:var(--teal)"></i>In</span><span><i style="background:var(--red)"></i>Out</span>${cf.months ? '<span><i style="background:var(--text3);opacity:.5"></i>Forecast</span>' : ''}</span></div>
+      <div class="pd-chart"><canvas id="pd-flow" aria-label="Money in and out of the property each month of the tax year"></canvas></div>
+      ${cf.months ? '' : `<div class="pd-s">Set the property account and its balance in <a href="#" onclick="setPropTab('cashflow');return false" style="color:var(--teal)">Cash flow</a> to see the months ahead.</div>`}</div>
+    <div class="card pd-4"><div class="pd-ct">To do <small>from the year-end checklist</small></div>
+      <div class="pd-list">${todoRows.length ? todoRows.map(r => `<div onclick="setPropTab('tax')" style="cursor:pointer"><p>${escH(strip(r.label))}<small>${r.group && r.group !== 'Confirm' ? escH(r.group) + ' · ' : ''}${escH(strip(r.detail))}</small></p>${pill(r.st)}</div>`).join('') : '<div><p>Nothing to show yet.</p></div>'}</div></div>
+  </div>
+  <div class="pd-grid">
+    <div class="card pd-3"><div class="pd-ct">Occupancy <small>${asOfTxt}</small></div>
+      <div style="display:flex;gap:14px;align-items:center"><div style="width:92px;height:92px;flex:none;position:relative"><canvas id="pd-occ" aria-label="Occupancy ${occ} percent"></canvas></div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.7"><b style="color:var(--text)">${occ}%</b> of nights rented<br><b style="color:var(--text)">${u.income}</b> rented · <b style="color:var(--text)">${u.personalDays}</b> private${u.share != null && u.personalDays ? `<br>Income share <b style="color:var(--text)">${Math.round(u.share * 100)}%</b>` : ''}<br><b style="color:var(--text)">${u.unused}</b> nights unused</div></div></div>
+    <div class="card pd-4"><div class="pd-ct">Expenses by line <small>${asOfTxt}</small></div>
+      ${lines.length ? `<div style="display:flex;gap:12px;align-items:center"><div style="width:106px;height:106px;flex:none"><canvas id="pd-exp" aria-label="Expenses by line"></canvas></div><div id="pd-exp-leg" style="font-size:11.5px;color:var(--text2);line-height:1.65;flex:1;min-width:0"></div></div>` : '<div class="pd-s">No expenses yet.</div>'}</div>
+    <div class="card pd-5"><div class="pd-ct">Equity ${val ? `<small>${escH(val.source.toLowerCase())} ${shortDay(val.date)} ${isoToDate(val.date).getFullYear()}</small>` : ''}</div>
+      ${val || debt ? `
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)"><span>Property value</span><b style="color:var(--text)">${val ? fmt(val.amount) : '—'}</b></div>
+      <div class="pd-hbar"><span style="width:${val ? 100 : 0}%;background:var(--blue)"></span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-top:8px"><span>${debt ? `Mortgage (${escH(debt.name)})` : 'Mortgage'}</span><b style="color:var(--text)">${debt ? fmt(debt.balance) : 'not linked'}</b></div>
+      <div class="pd-hbar"><span style="width:${val && debt ? Math.min(100, debt.balance / val.amount * 100) : 0}%;background:var(--red)"></span></div>
+      ${val && debt ? `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;font-size:12px;color:var(--text2)"><span>Equity</span><b style="color:var(--teal);font-size:17px">${fmt(val.amount - debt.balance)}</b></div>` : ''}
+      <div class="pd-s">${!val ? 'Add the rating valuation or purchase price in <a href="#" onclick="setPropTab(\'setup\');return false" style="color:var(--teal)">Setup</a>.' : !debt ? 'Link the property\'s mortgage in Settings → Other income.' : ''}</div>`
+      : `<div class="pd-s">Add the rating valuation or purchase price in <a href="#" onclick="setPropTab('setup');return false" style="color:var(--teal)">Setup</a>, and link the property's mortgage in Settings → Other income.</div>`}</div>
+  </div>
+  <div class="pd-grid">
+    <div class="card pd-6"><div class="pd-ct">Property account balance <small>${bal ? 'month ends, then forecast' : ''}</small></div>
+      ${bal ? '<div class="pd-chart sm"><canvas id="pd-bal" aria-label="Property account balance by month, forecast dashed"></canvas></div>' : `<div class="pd-s">Set the property account and its current balance in <a href="#" onclick="setPropTab('cashflow');return false" style="color:var(--teal)">Cash flow</a>.</div>`}</div>
+    <div class="card pd-6"><div class="pd-ct">Upcoming stays</div>
+      <div class="pd-list">${upcoming.length ? upcoming.map(x => x.b
+        ? `<div><span style="width:8px;height:8px;border-radius:50%;background:${platCol(x.b.platform)};flex:none"></span><p>${escH(x.b.guest || platformName(x.b.platform))} <small>${shortDay(x.b.checkIn)}–${shortDay(x.b.checkOut)} · ${x.b.nights} night${x.b.nights === 1 ? '' : 's'}${x.b.belowMarket ? ' · below market' : ''}</small></p>${x.b.checkIn <= today ? '<span class="pd-pill" style="background:rgba(74,143,232,0.15);color:var(--blue)">STAYING</span>' : '<span class="pd-pill" style="background:rgba(29,184,138,0.14);color:var(--teal)">BOOKED</span>'}<span style="font-variant-numeric:tabular-nums;min-width:64px;text-align:right">${fmt(x.b.payout || 0)}</span></div>`
+        : `<div><span style="width:8px;height:8px;border-radius:50%;background:${PROP_DAY_TYPES.personal.bar};flex:none"></span><p>Owners <small>${shortDay(x.run.from)}–${shortDay(addDaysIso(x.run.to, 1))} · private use</small></p><span style="min-width:64px;text-align:right;color:var(--text3)">—</span></div>`).join('') : '<div><p>Nothing booked.</p></div>'}</div></div>
+  </div>
+  <div class="pd-grid">
+    <div class="card pd-6"><div class="pd-ct">Bookings this tax year</div>
+      ${propRow('Completed', `${c.count} · ${c.nights} nights`)}
+      ${propRow('Upcoming', `${uu.count} · ${uu.nights} nights`)}
+      ${propRow('Gross earnings', fmt(c.gross + uu.gross))}
+      ${propRow('GST flat-rate credit', fmt(c.hostTax + uu.hostTax))}
+      ${(c.adjustments + uu.adjustments) ? propRow('Adjustments', fmtSigned(c.adjustments + uu.adjustments)) : ''}
+      ${propRow('Platform service fees', '−' + fmt(c.fees + uu.fees))}
+      ${propRow('<strong>Paid / to be paid to you</strong>', `<strong>${fmt(c.payout + uu.payout)}</strong>`)}</div>
+    ${rv ? '' : `<div class="card pd-6" style="display:flex;align-items:center;gap:10px">
+      <div style="flex:1;font-size:13px;color:var(--text2)">Paid for something for the property from a personal account? Put it in your personal "${escH(linkedCat || s.name)}" category and it will show up in Review.</div>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="setPropTab('review')">Review</button></div>`}
+  </div>`;
+}
+function propDrawCharts() {
+  Object.keys(propCharts).forEach(k => { try { propCharts[k].destroy(); } catch (e) {} delete propCharts[k]; });
+  const d = propChartData; if (!d || !window.Chart) return;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
+  const teal = css('--teal'), red = css('--red'), blue = css('--blue'), text3 = css('--text3'), grid = css('--chart-grid');
+  const alpha = (hex, a) => { const n = parseInt(hex.replace('#', ''), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+  const k = v => (v < 0 ? '−' : '') + '$' + (Math.abs(v) >= 1000 ? Math.round(Math.abs(v) / 100) / 10 + 'k' : Math.round(Math.abs(v)));
+  const mk = (id, cfg) => { const el = document.getElementById(id); if (el) propCharts[id] = new Chart(el, cfg); };
+  const fade = (c, m) => m.fc === true ? alpha(c, 0.35) : c;
+  mk('pd-flow', { type: 'bar', data: { labels: d.months.map(m => m.label), datasets: [
+      { label: 'In', data: d.months.map(m => round2(m.inn)), backgroundColor: d.months.map(m => fade(teal, m)), borderRadius: 4, stack: 's' },
+      { label: 'Out', data: d.months.map(m => -round2(m.out)), backgroundColor: d.months.map(m => fade(red, m)), borderRadius: 4, stack: 's' }] },
+    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmt(Math.abs(c.raw))}${d.months[c.dataIndex].fc === true ? ' (forecast)' : ''}` } } },
+      scales: { x: { stacked: true, grid: { display: false }, ticks: { color: text3, maxRotation: 0, autoSkip: false, font: { size: 10 } } },
+        y: { stacked: true, grid: { color: grid }, ticks: { color: text3, callback: k } } } } });
+  mk('pd-occ', { type: 'doughnut', data: { datasets: [{ data: [d.occ, 100 - d.occ], backgroundColor: [teal, css('--bg3')], borderWidth: 0 }] },
+    options: { cutout: '74%', animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } } } });
+  const pal = [teal, blue, css('--amber'), '#9b59b6', '#e8484e', '#e0951b', '#5bc0be'];
+  if (d.lines.length) {
+    mk('pd-exp', { type: 'doughnut', data: { labels: d.lines.map(l => l.label), datasets: [{ data: d.lines.map(l => round2(l.amount)), backgroundColor: pal, borderWidth: 0 }] },
+      options: { cutout: '62%', animation: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.label}: ${fmt(c.raw)}` } } } } });
+    const leg = document.getElementById('pd-exp-leg');
+    if (leg) leg.innerHTML = d.lines.slice(0, 6).map((l, i) => `<div style="display:flex;justify-content:space-between;gap:8px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${pal[i]};margin-right:6px"></i>${escH(l.label)}</span><b style="color:var(--text);font-variant-numeric:tabular-nums">${fmt(l.amount)}</b></div>`).join('');
+  }
+  if (d.bal) mk('pd-bal', { type: 'line', data: { labels: d.bal.map(b => b.label), datasets: [{ data: d.bal.map(b => b.v), borderColor: blue, backgroundColor: alpha(blue, 0.12), fill: true, tension: 0.3, pointRadius: 0,
+      segment: { borderDash: c => d.bal[c.p1DataIndex]?.fc ? [5, 4] : undefined } }] },
+    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmt(c.raw) + (d.bal[c.dataIndex].fc ? ' (forecast)' : '') } } },
+      scales: { x: { grid: { display: false }, ticks: { color: text3, font: { size: 10 } } }, y: { grid: { color: grid }, ticks: { color: text3, callback: k } } } } });
+}
 function propHomeHtml(s) {
   const y = propYearSummary(s.id, propTaxYear);
   const c = y.completed, u = y.upcoming;
