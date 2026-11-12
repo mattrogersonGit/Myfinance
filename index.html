@@ -445,6 +445,17 @@
     .po-row small, .po-m small { display:block; color:var(--text3); font-size:11.5px; }
     .po-m .btn { white-space:nowrap; }
     body:not(.prop-wide) #prop-body { padding-bottom:64px; }
+    .pcal-cell { position:relative; aspect-ratio:1/1; min-width:0; border-radius:8px; color:var(--text); padding:3px 2px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:space-between; font-size:12px; font-family:inherit; }
+    body.prop-wide .pcal-cell { aspect-ratio:auto; height:78px; align-items:flex-start; padding:6px 8px; }
+    body.prop-wide .pcal-cell .dn { font-size:13px; font-weight:600; }
+    body.prop-wide .pcal-cell.we { box-shadow:inset 0 0 0 999px var(--chart-grid); }
+    .pcal-bar { position:absolute; top:calc(50% - 9px); height:18px; color:#fff; font-size:10px; font-weight:600; line-height:18px; padding:0 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box; pointer-events:none; border:none; font-family:inherit; text-align:left; }
+    body.prop-wide .pcal-bar { top:calc(50% - 8px); height:22px; line-height:22px; font-size:11px; }
+    .pcal-bar.click { pointer-events:auto; cursor:pointer; }
+    .pcal-bar.sel { outline:2px solid var(--text); outline-offset:1px; }
+    .pcal-stats { display:flex; gap:6px; flex-wrap:wrap; }
+    .pcal-stats span { background:var(--bg3); border-radius:8px; padding:5px 9px; font-size:12px; color:var(--text2); }
+    .pcal-stats b { color:var(--text); font-variant-numeric:tabular-nums; }
     .cv-switch { display:inline-flex; background:var(--bg3); border-radius:9px; padding:3px; gap:2px; }
     .cv-switch button { font:inherit; font-size:12.5px; border:0; background:none; color:var(--text2); padding:5px 12px; border-radius:7px; cursor:pointer; }
     .cv-switch button.on { background:var(--bg2); color:var(--text); font-weight:600; }
@@ -1815,7 +1826,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.9';
+const APP_VERSION = '2026.11.12.10';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -5921,6 +5932,40 @@ function propTlDay(stId, iso) {
   if (propStreamId !== stId) { propStreamId = stId; propTlSel = null; }
   propCalTap(iso);
 }
+// Side panel for the timeline and the desktop month view: the selected stay,
+// or the year's use and how to work the calendar.
+function propStayPanelHtml(s, where) {
+  const extra = where === 'month' ? '' : '';
+  const u = propUsageForYear(s, propTaxYear);
+  const sel = propTlSel && bookings.find(b => b.id === propTlSel);
+  let panel;
+  if (sel) {
+    const st = propertyStreams().find(x => x.id === sel.streamId) || s, matches = computePayoutMatches(st), bank = bookingBankStatus(sel, matches);
+    const pays = propPayouts.filter(p => p.streamId === sel.streamId && (sel.payments || []).some(pm => pm.date === p.date));
+    const deps = pays.map(p => matches.payoutTxn.get(p.id)).filter(Boolean);
+    const acct = id => accounts.find(a => a.id === id)?.name || id;
+    panel = `<div style="font-size:16px;font-weight:650">${escH(sel.guest || platformName(sel.platform))}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escH(platformName(sel.platform))} · ${fmtDay(sel.checkIn)} – ${fmtDay(sel.checkOut)} · ${sel.nights} night${sel.nights === 1 ? '' : 's'}${sel.belowMarket ? ' · below market (private)' : ''}</div>
+      ${propRow('Guest paid', fmt(sel.gross || 0))}
+      ${propRow(`${escH(platformName(sel.platform))} service fee`, '−' + fmt(sel.serviceFee || 0))}
+      ${propRow('GST flat-rate credit', fmt(sel.hostTax || 0))}
+      ${sel.adjustments ? propRow('Adjustments', fmtSigned(sel.adjustments)) : ''}
+      ${propRow('<strong>Payout</strong>', `<strong>${fmt(sel.payout || 0)}</strong>`)}
+      ${sel.nights ? propRow('Earned per night', fmt((sel.payout || 0) / sel.nights)) : ''}
+      <div style="margin-top:10px;border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.45;${bank === 'found' ? 'background:rgba(29,184,138,0.14);color:var(--teal)' : bank === 'missing' ? 'background:rgba(224,82,82,0.14);color:var(--red)' : 'background:var(--bg3);color:var(--text2)'}">
+        ${bank === 'found' ? `✓ In the bank${deps.length ? ': ' + deps.map(t => `${fmt(t.amount)} into ${escH(acct(t.account))} on ${fmtDay(dateToIso(t.date))}`).join('; ') : ''}.`
+          : bank === 'missing' ? 'Payout not found in the bank yet. Import the account it was paid into, or check Bookings.'
+          : `Upcoming. Payout due about ${fmtDay(addDaysIso(sel.checkIn, 1))}.`}</div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="openBookingDetail('${escH(sel.id)}')">Details</button><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="propTlSel=null;renderProperty()">Close</button></div>`;
+  } else {
+    panel = `<div style="font-size:14px;font-weight:650;margin-bottom:6px">${escH(s.name)}</div>
+      <div style="font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:10px">Click a stay to see its payout and whether it's reached the bank. Click a day to mark it, or pick a mode above to mark several.${extra}</div>
+      ${propRow('Income nights', u.income)}${propRow('Private', u.personalDays)}${propRow('Unused', u.unused)}
+      ${u.share != null && u.personalDays ? propRow('Income share', Math.round(u.share * 1000) / 10 + '%') : ''}
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Tax year ${taxYearLabel(propTaxYear)} so far.</div>`;
+  }
+  return panel;
+}
 function propTimelineHtml(s) {
   const W = 26, DAYS = 42;
   if (!propTlStart) { const t = isoToDate(todayLocal()); t.setDate(t.getDate() - ((t.getDay() + 6) % 7) - 7); propTlStart = dateToIso(t); }
@@ -5967,35 +6012,8 @@ function propTimelineHtml(s) {
     Object.entries(icons).forEach(([iso, ic]) => { h += `<span class="tl-ico" style="left:${idx(iso) * W + 2}px">${ic.join('')}</span>`; });
     h += `</div>`;
   });
-  // Side panel: the selected stay, or how to use the timeline.
   const u = propUsageForYear(s, propTaxYear);
-  const sel = propTlSel && bookings.find(b => b.id === propTlSel);
-  let panel;
-  if (sel) {
-    const st = propertyStreams().find(x => x.id === sel.streamId) || s, matches = computePayoutMatches(st), bank = bookingBankStatus(sel, matches);
-    const pays = propPayouts.filter(p => p.streamId === sel.streamId && (sel.payments || []).some(pm => pm.date === p.date));
-    const deps = pays.map(p => matches.payoutTxn.get(p.id)).filter(Boolean);
-    const acct = id => accounts.find(a => a.id === id)?.name || id;
-    panel = `<div style="font-size:16px;font-weight:650">${escH(sel.guest || platformName(sel.platform))}</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escH(platformName(sel.platform))} · ${fmtDay(sel.checkIn)} – ${fmtDay(sel.checkOut)} · ${sel.nights} night${sel.nights === 1 ? '' : 's'}${sel.belowMarket ? ' · below market (private)' : ''}</div>
-      ${propRow('Guest paid', fmt(sel.gross || 0))}
-      ${propRow(`${escH(platformName(sel.platform))} service fee`, '−' + fmt(sel.serviceFee || 0))}
-      ${propRow('GST flat-rate credit', fmt(sel.hostTax || 0))}
-      ${sel.adjustments ? propRow('Adjustments', fmtSigned(sel.adjustments)) : ''}
-      ${propRow('<strong>Payout</strong>', `<strong>${fmt(sel.payout || 0)}</strong>`)}
-      ${sel.nights ? propRow('Earned per night', fmt((sel.payout || 0) / sel.nights)) : ''}
-      <div style="margin-top:10px;border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.45;${bank === 'found' ? 'background:rgba(29,184,138,0.14);color:var(--teal)' : bank === 'missing' ? 'background:rgba(224,82,82,0.14);color:var(--red)' : 'background:var(--bg3);color:var(--text2)'}">
-        ${bank === 'found' ? `✓ In the bank${deps.length ? ': ' + deps.map(t => `${fmt(t.amount)} into ${escH(acct(t.account))} on ${fmtDay(dateToIso(t.date))}`).join('; ') : ''}.`
-          : bank === 'missing' ? 'Payout not found in the bank yet. Import the account it was paid into, or check Bookings.'
-          : `Upcoming. Payout due about ${fmtDay(addDaysIso(sel.checkIn, 1))}.`}</div>
-      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="openBookingDetail('${escH(sel.id)}')">Details</button><button class="btn btn-secondary" style="flex:1;font-size:12.5px" onclick="propTlSel=null;renderProperty()">Close</button></div>`;
-  } else {
-    panel = `<div style="font-size:14px;font-weight:650;margin-bottom:6px">${escH(s.name)}</div>
-      <div style="font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:10px">Click a stay to see its payout and whether it's reached the bank. Click a day to mark it, or pick a mode above to mark several.</div>
-      ${propRow('Income nights', u.income)}${propRow('Private', u.personalDays)}${propRow('Unused', u.unused)}
-      ${u.share != null && u.personalDays ? propRow('Income share', Math.round(u.share * 1000) / 10 + '%') : ''}
-      <div style="font-size:11px;color:var(--text3);margin-top:6px">Tax year ${taxYearLabel(propTaxYear)} so far.</div>`;
-  }
+  const panel = propStayPanelHtml(s, 'timeline');
   const legend = `<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text3);padding:10px 12px;border-top:0.5px solid var(--border)">
       ${Object.entries(PLATFORM_BAR).map(([pl, c]) => `<span><span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:${c};margin-right:5px"></span>${platformName(pl)}</span>`).join('')}
       ${['personal', 'family', 'booked', 'repair'].map(k => `<span><span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:${PROP_DAY_TYPES[k].bar};margin-right:5px"></span>${PROP_DAY_TYPES[k].label}</span>`).join('')}
@@ -6091,6 +6109,7 @@ function propCalendarHtml(s) {
   const colW = '((100% - 24px) / 7)';
   const xPos = x => { const c = Math.min(Math.floor(x), 6), f = x - c; return `(${c} * (${colW} + 4px) + ${f} * ${colW})`; };
   const bars = Array.from({ length: rows }, () => []);
+  const wide = propIsWide(), monthMatches = computePayoutMatches(s);
   stays.filter(st => st.end > monthStart && st.start < monthEnd).forEach(st => {
     const clipL = st.start < monthStart, clipR = st.end >= monthEnd;
     const a0 = clipL ? lead : slot(st.start) + 0.5, b0 = clipR ? total : slot(st.end) + 0.5;
@@ -6101,10 +6120,14 @@ function propCalendarHtml(s) {
       if (b <= a) continue;
       const roundL = a === a0 && !clipL, roundR = b === b0 && !clipR;
       const w = b - a;
-      const name = st.booking ? platformName(st.booking.platform) + (st.booking.belowMarket ? ' (below market)' : '') : PROP_DAY_TYPES[st.type].label;
-      const label = w >= 2.5 ? `${st.booking ? '' : PROP_DAY_TYPES[st.type].icon + ' '}${escH(name)} · ${nightsTxt}`
-        : w >= 1 ? `${st.booking ? escH(name[0]) : PROP_DAY_TYPES[st.type].icon} ${st.nights}n` : '';
-      bars[r].push(`<div style="position:absolute;top:calc(50% - 9px);height:18px;left:calc(${xPos(a - r * 7)} + ${roundL ? 2 : 0}px);right:calc(100% - ${xPos(b - r * 7)} + ${roundR ? 2 : 0}px);background:${colour};border-radius:${roundL ? 9 : 0}px ${roundR ? 9 : 0}px ${roundR ? 9 : 0}px ${roundL ? 9 : 0}px;color:#fff;font-size:10px;font-weight:600;line-height:18px;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box">${label}</div>`);
+      const bk = st.booking;
+      const who = bk ? (bk.guest || platformName(bk.platform)) + (bk.belowMarket ? ' (below market)' : '') : PROP_DAY_TYPES[st.type].label;
+      const showFull = wide ? w >= 0.9 : w >= 2.5;
+      const label = !(roundL || clipL && a === a0) ? '' // label only on the first piece of a stay
+        : showFull ? `${bk ? '' : PROP_DAY_TYPES[st.type].icon + ' '}${escH(who)}${bk ? ' · ' + fmt(bk.payout || 0).replace(/\.00$/, '') : ' · ' + nightsTxt}`
+        : w >= 1 ? `${bk ? escH(who[0]) : PROP_DAY_TYPES[st.type].icon} ${st.nights}n` : '';
+      const rad = wide ? 11 : 9;
+      bars[r].push(`<${bk ? 'button' : 'div'} class="pcal-bar${bk ? ' click' : ''}${bk && propTlSel === bk.id ? ' sel' : ''}" ${bk ? `onclick="event.stopPropagation();propTlSelect(${s.id}, '${escH(bk.id)}')" title="${escH(who)} · ${fmtDay(bk.checkIn)} – ${fmtDay(bk.checkOut)} · ${fmt(bk.payout || 0)}"` : ''} style="left:calc(${xPos(a - r * 7)} + ${roundL ? 2 : 0}px);right:calc(100% - ${xPos(b - r * 7)} + ${roundR ? 2 : 0}px);background:${colour}${bk && bk.belowMarket ? ';background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.18) 0 4px,transparent 4px 8px)' : ''};border-radius:${roundL ? rad : 0}px ${roundR ? rad : 0}px ${roundR ? rad : 0}px ${roundL ? rad : 0}px">${label}${bk && roundR && bookingBankStatus(bk, monthMatches) === 'found' && w >= 0.9 ? ' ✓' : ''}</${bk ? 'button' : 'div'}>`);
     }
   });
   const today = todayLocal();
@@ -6118,8 +6141,9 @@ function propCalendarHtml(s) {
     const bg = excl && (excl.dayOnly || excl.type === 'blocked') ? PROP_DAY_TYPES[excl.type].bg : 'var(--bg3)';
     const icons = ms.filter(d => !(PROP_DAY_TYPES[d.type]?.exclusive && !d.dayOnly && d.type !== 'blocked'))
       .map(d => d.dayOnly ? '☀' : (PROP_DAY_TYPES[d.type]?.icon || '')).join('');
-    cellHtml.push(`<button onclick="propCalTap('${iso}')" style="position:relative;aspect-ratio:1/1;min-width:0;border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};border-radius:8px;background:${bg};color:var(--text);padding:3px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-size:12px;font-family:inherit">
-      <span style="font-weight:500">${day}</span>
+    const we = [0, 6].includes(new Date(y, m - 1, day).getDay());
+    cellHtml.push(`<button class="pcal-cell${we ? ' we' : ''}" onclick="propCalTap('${iso}')" style="border:${iso===today?'1.5px solid var(--teal)':'0.5px solid var(--border)'};background:${bg}">
+      <span class="dn" style="font-weight:500${iso === today ? ';color:var(--teal)' : ''}">${day}</span>
       <span style="font-size:10px;line-height:1;white-space:nowrap;overflow:hidden;max-width:100%">${icons}</span>
     </button>`);
   }
@@ -6131,7 +6155,14 @@ function propCalendarHtml(s) {
     ? 'Tap a day to see or edit it. Pick a mode to mark several days quickly.'
     : `Tap days to add or remove <strong>${PROP_DAY_TYPES[propCalMode].label}</strong>.${propCalMode==='cleaning' && propSettings(s).cleanAddsTravel!==false ? ' A trip is logged with each clean (change in Setup).' : ''}${['personal','family'].includes(propCalMode) ? ' Tap once for a <strong>night</strong> (the bar runs to the next morning), twice for a day visit ☀, three times to clear. Mark each night stayed, not the day you leave.' : ''}${propCalMode==='booked' ? ' Tap each night booked, not the day the guests leave.' : ''}`;
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
-  return `<div style="margin-bottom:10px">${propCalSwitchHtml()}</div><div class="card" style="padding:12px">
+  // The month at a glance.
+  let mNights = 0, mEarned = 0;
+  bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.belowMarket && b.nights).forEach(b => { const r = bookingShareInRange(b, monthStart, monthEnd); mNights += r.nights; mEarned += (b.payout || 0) * r.share; });
+  const mPrivate = propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd && (d.type === 'personal' || d.type === 'family') && !d.dayOnly).length;
+  const mOther = propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd && d.type === 'booked' && !d.belowMarket).length;
+  const stats = `<div class="pcal-stats"><span>Booked <b>${mNights + mOther}</b> night${mNights + mOther === 1 ? '' : 's'}</span><span>Earned <b>${fmt(mEarned).replace(/\.\d\d$/, '')}</b></span><span>Private <b>${mPrivate}</b></span><span>Occupancy <b>${Math.round((mNights + mOther) / daysIn * 100)}%</b></span></div>`;
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">${propCalSwitchHtml()}${wide ? stats : ''}</div>
+    ${wide ? '<div class="tl-wrap"><div>' : ''}<div class="card" style="padding:12px${wide ? ';margin:0' : ''}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <button onclick="shiftPropCalMonth(-1)" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px">&#8249;</button>
         <span style="font-size:15px;font-weight:600">${monthLabelTxt}</span>
@@ -6149,7 +6180,9 @@ function propCalendarHtml(s) {
         <span>☀ Day visit</span>
         <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_DAY_TYPES.blocked.bg};vertical-align:middle"></span> Blocked</span>
       </div>
+      ${wide ? '' : `<div style="margin-top:10px">${stats}</div>`}
     </div>
+    ${wide ? `</div><div class="card" style="margin:0">${propStayPanelHtml(s, 'month')}</div></div><div style="height:12px"></div>` : ''}
     ${propUsageCardHtml(s)}`;
 }
 function propUsageCardHtml(s) {
