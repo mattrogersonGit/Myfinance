@@ -1826,7 +1826,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.10';
+const APP_VERSION = '2026.11.13.1';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -1989,6 +1989,8 @@ function navTo(page, el) {
   document.getElementById('page-'+page).classList.add('active');
   setNavActive(page);
   document.body.classList.remove('prop-wide');
+  if (document.title !== MF_TITLE) document.title = MF_TITLE;
+  if (location.hash && PROP_HASHES.includes(location.hash.slice(1))) history.replaceState(history.state, '', location.pathname + location.search.replace(/[?&]open=accounting\b/, '').replace(/^&/, '?'));
   if (page==='debt' || page==='assets') wealthTab = page;
   currentPage = page;
   if (page==='overview') renderOverview();
@@ -4040,6 +4042,7 @@ function renderPropertyEntry() {
   const nav = document.getElementById('nav-property');
   if (nav) nav.style.display = hasAddon('property') ? '' : 'none';
   renderSettingsTiles();
+  propTryDeepLink();
 }
 
 const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -4086,17 +4089,43 @@ function openPropertyModule() {
   setNavActive('property');
   propApplyLayout();
   currentPage = 'property';
+  setTimeout(propSetHash, 0);
   if (!currentPropStream()) propStreamId = propertyStreams()[0]?.id ?? null;
   propertyStreams().forEach(ensurePropPersonalCat);
   renderProperty();
   document.getElementById('page-container').scrollTop = 0;
 }
 function closePropertyModule() { navTo('import'); }
-function setPropTab(t) {
+function setPropTab(t, fromHash) {
   if (t === 'returns') { propTab = 'tax'; propTaxView = 'returns'; }
   else { if (t === 'tax') propTaxView = 'pnl'; propTab = t; }
   renderProperty();
   document.getElementById('page-container').scrollTop = 0;
+  if (!fromHash) propSetHash();
+}
+// Each workspace section has its own address (#calendar, #tax, ...), so a
+// section can be bookmarked and Back moves between sections.
+const PROP_HASHES = ['home', 'bookings', 'calendar', 'payouts', 'cashflow', 'review', 'tax', 'returns', 'assets', 'setup', 'more'];
+const MF_TITLE = document.title;
+function propSetHash() {
+  if (currentPage !== 'property') return;
+  const h = '#' + propSection();
+  if (location.hash !== h) history.pushState(history.state, '', location.pathname + location.search + h);
+  document.title = 'MyFinance Accounting';
+}
+window.addEventListener('hashchange', () => {
+  const h = location.hash.slice(1);
+  if (currentPage === 'property' && PROP_HASHES.includes(h) && h !== propSection()) setPropTab(h, true);
+});
+// getmyfinance.app/accounting lands here as ?open=accounting: open the
+// workspace once the add-on is known (cloud add-ons load after sign-in).
+let propDeepLink = /[?&]open=accounting\b/.test(location.search);
+function propTryDeepLink() {
+  if (!propDeepLink || !hasAddon('property') || document.getElementById('app').style.display === 'none') return;
+  propDeepLink = false;
+  const h = location.hash.slice(1);
+  openPropertyModule();
+  if (PROP_HASHES.includes(h)) setPropTab(h, true); else propSetHash();
 }
 function setPropStream(id) { propStreamId = Number(id); propReviewCat = null; propReviewOther = false; renderProperty(); }
 function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
@@ -4204,6 +4233,11 @@ function renderProperty() {
   const body   = document.getElementById('prop-body');
   if (!picker) return;
   propApplyLayout(); propWideWas = propIsWide();
+  propCache = new Map();
+  try { renderPropertyInner(picker, tabsEl, body); } finally { propCache = null; }
+  propDrawCharts();
+}
+function renderPropertyInner(picker, tabsEl, body) {
   const props = propertyStreams();
   const s = currentPropStream();
   const side = document.getElementById('prop-side'), headW = document.getElementById('prop-head-wide');
@@ -4239,7 +4273,6 @@ function renderProperty() {
   else if (propTab === 'assets')   body.innerHTML = propAssetsHtml(s);
   else if (propTab === 'cashflow') body.innerHTML = propCashflowHtml(s);
   else body.innerHTML = '';
-  propDrawCharts();
 }
 
 function openAddProperty() {
@@ -4926,7 +4959,18 @@ const propLineKind = id => (PROP_LINES.find(l => l.id === id) || {kind:'expense'
 // around its arrival date), and then to a forwarded deposit of the same
 // amount on the property's stream within the following month, so neither is
 // mistaken for extra rent. Computed on the fly, never stored.
-function computePayoutMatches(s) {
+// Work-out-once cache for one draw of the Property screens: the same payout
+// matches, P&L and checklist are asked for many times per screen (sidebar
+// counts, header chip, dashboard, tax view). Only active inside renderProperty,
+// so any change made afterwards is always worked out fresh.
+let propCache = null;
+function propCached(key, fn) {
+  if (!propCache) return fn();
+  if (!propCache.has(key)) propCache.set(key, fn());
+  return propCache.get(key);
+}
+function computePayoutMatches(s) { return propCached('pm:' + s.id, () => computePayoutMatchesRaw(s)); }
+function computePayoutMatchesRaw(s) {
   const payoutTxn = new Map();     // payout id -> original deposit txn
   const matchedTxnIds = new Set(); // every txn explained by a payout
   const cents = n => Math.round(n * 100);
@@ -5075,7 +5119,12 @@ function propForecastAdds(s, ty, matches, cur) {
   const rent = { income: 0, fees: 0 };
   return { asAt: today, lines, items, rent, total: round2(items.reduce((a, i) => a + i.amount, 0)) };
 }
-function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
+function computePropPnL(s, ty, matches, opts = {}) {
+  const pm = computePayoutMatches(s);
+  if (matches && matches !== pm) return computePropPnLRaw(s, ty, matches, opts);
+  return propCached(`pnl:${s.id}:${ty}:${opts.forecast ? 1 : 0}:${opts.noChain ? 1 : 0}`, () => computePropPnLRaw(s, ty, pm, opts));
+}
+function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) {
   const y = propYearSummary(s.id, ty);
   const c = y.completed, u = y.upcoming;
   const lines = {}; PROP_LINES.forEach(l => lines[l.id] = 0);
@@ -5507,7 +5556,8 @@ function propBehind(last, target, okDays = 14, warnDays = 45) {
   const d = daysBetween(last, target);
   return d <= okDays ? 'good' : d <= warnDays ? 'warn' : 'bad';
 }
-function propChecklist(s, ty) {
+function propChecklist(s, ty) { return propCached(`cl:${s.id}:${ty}`, () => propChecklistRaw(s, ty)); }
+function propChecklistRaw(s, ty) {
   const p = propSettings(s), ho = p.homeOffice || {};
   const { start, end } = taxYearRange(ty), today = todayLocal();
   const target = propYearTarget(ty), started = start <= today, past = end <= today;
@@ -5838,7 +5888,8 @@ function propTravelForYear(s, ty) {
 // Private use is personal and family stays (family count even if they pay),
 // day visits, and any stay below 80% of market rent (flagged belowMarket on
 // the booking or the mark).
-function propUsageForYear(s, ty) {
+function propUsageForYear(s, ty) { return propCached(`use:${s.id}:${ty}`, () => propUsageForYearRaw(s, ty)); }
+function propUsageForYearRaw(s, ty) {
   const { start, end } = taxYearRange(ty);
   const days = daysBetween(start, end);
   const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set(), dayVisits = new Set(), discounted = new Set(), repair = new Set();
@@ -8030,6 +8081,15 @@ function armExitGuard() {
       history.pushState({exitGuard:true}, '');
       return;
     }
+    // Back inside the Property workspace moves between its sections; Back
+    // from the first one leaves the workspace rather than the app.
+    if (currentPage === 'property') {
+      const h = location.hash.slice(1);
+      if (PROP_HASHES.includes(h)) { if (h !== propSection()) setPropTab(h, true); return; }
+      navTo('overview');
+      history.pushState({exitGuard:true}, '');
+      return;
+    }
     if (confirm('Exit MyFinance?')) {
       history.back();
     } else {
@@ -8383,7 +8443,7 @@ function mergeWithCloud(data, cloud) {
 // ?nosync=1: load the household's real data but never write it back. For
 // trying a development copy against real data without the cloud copy being
 // saved by a newer version (which would make other copies stop saving).
-const SB_NOSYNC = /[?&]nosync=1/.test(location.search);
+const SB_NOSYNC = /[?&]nosync=1\b/.test(location.search);
 async function sbSaveData(data) {
   if (!sbConn || !sbHousehold) return;
   if (SB_NOSYNC) { setSyncStatus('error', 'Test mode: not saving'); return; }
