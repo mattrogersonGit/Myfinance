@@ -1715,11 +1715,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.12.3';
+const APP_VERSION = '2026.11.12.4';
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 1;
+const DATA_SCHEMA = 2; // 2: repair days, below-market flags, actual-cost basis
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -4620,7 +4620,18 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   // guests, management, accountancy) stay at 100%.
   const usage = propUsageForYear(s, ty);
   const basis = propSettings(s).deductionBasis;
-  const share = basis === 'mixeduse' && usage.share != null ? usage.share : 1;
+  const share = basis === 'mixeduse' ? (usage.share ?? 1) : basis === 'actualcost' ? usage.availShare : 1;
+  // Under the mixed-use rules, rent from private use (a stay below 80% of
+  // market rent) is exempt, so it and its platform fee come out.
+  let privateRent = 0, privateFees = 0;
+  if (basis === 'mixeduse') {
+    const { start, end } = taxYearRange(ty);
+    bookings.filter(b => b.streamId === s.id && !b.cancelled && b.belowMarket).forEach(b => {
+      const r = bookingShareInRange(b, start, end); if (!r.share) return;
+      privateRent += ((b.gross || 0) + (b.hostTax || 0) + (b.adjustments || 0)) * r.share;
+      privateFees += (b.serviceFee || 0) * r.share;
+    });
+  }
   const apportioned = new Set(PROP_APPORTIONABLE);
   // Lines the owners claim in full anyway (e.g. repairs from guest use).
   (propSettings(s).fullLines || []).forEach(id => apportioned.delete(id));
@@ -4628,9 +4639,9 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   // asset is deductible, a gain (depreciation recovered) is income.
   const dep = propDepreciationForYear(s, ty);
   lines.depreciation = dep.depreciation + dep.loss;
-  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments + (fc ? fc.rent.income : 0);
+  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments + (fc ? fc.rent.income : 0) - privateRent;
   const rent = bookingIncome + otherIncome;
-  const commissions = c.fees + u.fees + lines.commissions + (fc ? fc.rent.fees : 0);
+  const commissions = c.fees + u.fees + lines.commissions + (fc ? fc.rent.fees : 0) - privateFees;
   const expenseLines = [...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions'), { id: 'depreciation', label: 'Depreciation' }]
     .map(l => {
       const full = lines[l.id] || 0, cut = apportioned.has(l.id) && share < 1;
@@ -4644,7 +4655,7 @@ function computePropPnL(s, ty, matches = computePayoutMatches(s), opts = {}) {
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
   return {
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc,
+    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc, privateRent,
   };
 }
 
@@ -4838,7 +4849,7 @@ function propPackHtml(s, ty) {
 <div class="bar"><button onclick="window.print()">Print / save as PDF</button></div>
 <h1>${e(s.name)}: year-end pack</h1>
 <div class="muted">Tax year ${taxYearLabel(ty)} (1 April ${ty - 1} – 31 March ${ty}) · prepared ${fmtDay(todayLocal())} with MyFinance</div>
-<div class="muted">Owners: ${owners.map(o => `${e(o.name)} ${o.share}%`).join(', ') || '—'} · Deduction basis: ${p.deductionBasis === 'mixeduse' ? `mixed-use, income share ${shareTxt}` : '100% deductible'}</div>
+<div class="muted">Owners: ${owners.map(o => `${e(o.name)} ${o.share}%`).join(', ') || '—'} · Deduction basis: ${p.deductionBasis === 'mixeduse' ? `mixed-use, income share ${shareTxt} (${pnl.usage.income} income days, ${pnl.usage.personalDays} private)` : p.deductionBasis === 'actualcost' ? `actual cost, ${pnl.usage.availDays} of ${pnl.usage.days} days rented or available (${shareTxt})` : '100% deductible'}${pnl.privateRent ? ` · ${fmt(pnl.privateRent)} rent from below-market stays left out (exempt under mixed-use)` : ''}</div>
 
 <h2>Profit or loss</h2>
 <table class="summary"><tbody>
@@ -5085,9 +5096,10 @@ function propChecklist(s, ty) {
   const tick = (key, label, detail, st) => ({ st: st || (yc[key] ? 'good' : 'warn'), label, detail,
     action: `<label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0" ${yc[key] ? 'checked' : ''} onchange="togglePropYearCheck('${key}', this.checked)">Done</label>` });
   const manual = [];
-  if (p.deductionBasis === 'mixeduse') {
+  {
     const u = propUsageForYear(s, ty);
-    manual.push(tick('calendar', 'Personal and family days marked', `${u.personalDays} personal day${u.personalDays === 1 ? '' : 's'} on the ${link('calendar', "setPropTab('calendar')")}`));
+    if (p.deductionBasis !== 'full' || u.personalDays) manual.push(tick('calendar', 'Personal and family days marked', `${u.personalDays} private day${u.personalDays === 1 ? '' : 's'} on the ${link('calendar', "setPropTab('calendar')")}`));
+    if (u.suggested !== p.deductionBasis) manual.push({ st: 'warn', label: 'Deduction basis', detail: `${propBasisLabel(p.deductionBasis)} chosen, but the calendar suggests ${propBasisLabel(u.suggested)} for ${taxYearLabel(ty)}. Check with your accountant.`, action: `<button class="btn-update" onclick="setPropTab('setup')">Setup</button>` });
   }
   const trav = propTravelForYear(s, ty);
   manual.push(trav.rateMissing ? { st: 'bad', label: 'Trips logged', detail: `${trav.trips} trips, ${trav.km} km, but no IRD km rate for ${taxYearLabel(ty)}. Enter it from the Travel line on the P&L.` }
@@ -5162,7 +5174,9 @@ function propSetupCheck(s) {
     { st: !guessed.length || ok.catLines ? 'good' : 'warn', label: 'Categories → report lines',
       detail: guessed.length ? `${guessed.length} guessed from the name: ${escH(guessed.slice(0, 5).join(', '))}${guessed.length > 5 ? '…' : ''}. Check them below.` : 'all set',
       body: guessed.length ? confirmBox('catLines', 'The guesses are right') : '' },
-    { st: raw.deductionBasis ? 'good' : 'warn', label: 'Deduction basis', detail: raw.deductionBasis ? (p.deductionBasis === 'mixeduse' ? 'Mixed-use' : '100% deductible') : 'not chosen yet (100% assumed)' },
+    (() => { const sug = propUsageForYear(s, currentTaxYear()).suggested;
+      return { st: !raw.deductionBasis ? 'warn' : sug === p.deductionBasis ? 'good' : 'warn', label: 'Deduction basis',
+        detail: !raw.deductionBasis ? 'not chosen yet (100% assumed)' : sug === p.deductionBasis ? propBasisLabel(p.deductionBasis) : `${propBasisLabel(p.deductionBasis)} chosen; this year's calendar suggests ${propBasisLabel(sug)}` }; })(),
     { st: p.travelKm ? 'good' : 'warn', label: 'Return trip distance', detail: p.travelKm ? `${p.travelKm} km` : 'not set' },
     { st: ((p.kmRates || {})[propTaxYear] || {}).t1 ? 'good' : 'warn', label: `IRD km rate ${taxYearLabel(propTaxYear)}`, detail: ((p.kmRates || {})[propTaxYear] || {}).t1 ? `$${p.kmRates[propTaxYear].t1} / $${p.kmRates[propTaxYear].t2 ?? p.kmRates[propTaxYear].t1} per km` : 'not entered (from the Travel line on the P&L). IRD publishes it after the year ends' },
     { st: (p.regular || []).length ? 'good' : 'warn', label: 'Regular payments', detail: (p.regular || []).length ? `${p.regular.length} set up` : 'none set up (below)' },
@@ -5207,11 +5221,25 @@ const PROP_DAY_TYPES = {
   personal: { label:'Personal',      icon:'🏠', bg:'rgba(245,166,35,0.28)',  bar:'#e0951b', exclusive:true },
   family:   { label:'Family',        icon:'👪', bg:'rgba(155,89,182,0.25)',  bar:'#9b59b6', exclusive:true },
   booked:   { label:'Other booking', icon:'🛏', bg:'rgba(46,160,67,0.25)',   bar:'#2ea043', exclusive:true },
+  // IRD: days the owner stays to repair damage caused by paying guests count as income-earning use.
+  repair:   { label:'Repairs for guests', icon:'🔧', bg:'rgba(14,165,183,0.25)', bar:'#0ea5b7', exclusive:true },
   blocked:  { label:'Blocked',       icon:'⛔', bg:'rgba(128,128,128,0.25)', exclusive:true },
 };
 // Solid bar colours for stays drawn on the calendar.
 const PROP_BOOKING_BAR = '#e8484e';
 const PLATFORM_BAR = { airbnb: '#e8484e', bookabach: '#1a7ee6' };
+// How shared costs are claimed. IRD (IR1021, holiday homes):
+//  full       - no private use in the year: everything is deductible.
+//  actualcost - some private use but unused for fewer than 62 days: claim for
+//               the days rented or available (private and blocked days out).
+//  mixeduse   - private and income use and unused 62+ days: the mixed-use asset
+//               rules, income days / (income days + private days).
+const PROP_BASES = {
+  full:       { label: '100% deductible', long: 'No private use: all costs are deductible.' },
+  actualcost: { label: 'Actual cost', long: 'Private use but unused for fewer than 62 days: shared costs are claimed for the days rented or available.' },
+  mixeduse:   { label: 'Mixed-use', long: 'Private and income use and unused for 62 days or more: the mixed-use rules apply (income days ÷ income and private days).' },
+};
+const propBasisLabel = b => (PROP_BASES[b] || PROP_BASES.full).label;
 function propDaysInYear(s, ty, type) {
   const { start, end } = taxYearRange(ty);
   return propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && (!type || d.type === type));
@@ -5235,30 +5263,42 @@ function propTravelForYear(s, ty) {
   return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2, odoStart: r.odoStart, odoEnd: r.odoEnd, carKm: carKm || null, tier1Km: Math.round(tier1Km) };
 }
 // Days in the tax year by use. Income days are nights booked through an
-// imported platform plus "Other booking" marks; personal includes family.
+// imported platform, "Other booking" marks and repair-for-guests days.
+// Private use is personal and family stays (family count even if they pay),
+// day visits, and any stay below 80% of market rent (flagged belowMarket on
+// the booking or the mark).
 function propUsageForYear(s, ty) {
   const { start, end } = taxYearRange(ty);
   const days = daysBetween(start, end);
-  const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set(), dayVisits = new Set();
+  const income = new Set(), personal = new Set(), family = new Set(), blocked = new Set(), dayVisits = new Set(), discounted = new Set(), repair = new Set();
   bookings.filter(b => b.streamId === s.id && !b.cancelled && b.nights).forEach(b => {
-    for (let d = isoToDate(b.checkIn > start ? b.checkIn : start), e = isoToDate(b.checkOut < end ? b.checkOut : end); d < e; d.setDate(d.getDate() + 1)) income.add(dateToIso(d));
+    const into = b.belowMarket ? discounted : income;
+    for (let d = isoToDate(b.checkIn > start ? b.checkIn : start), e = isoToDate(b.checkOut < end ? b.checkOut : end); d < e; d.setDate(d.getDate() + 1)) into.add(dateToIso(d));
   });
   // A personal or family mark is a night stayed unless it is flagged dayOnly
   // (a visit with no overnight stay), which counts as a day of personal use.
   propDaysInYear(s, ty).forEach(d => {
-    if (d.type === 'booked') income.add(d.date);
+    if (d.type === 'booked') (d.belowMarket ? discounted : income).add(d.date);
+    else if (d.type === 'repair') repair.add(d.date);
     else if ((d.type === 'personal' || d.type === 'family') && d.dayOnly) dayVisits.add(d.date);
     else if (d.type === 'personal') personal.add(d.date);
     else if (d.type === 'family') family.add(d.date);
     else if (d.type === 'blocked') blocked.add(d.date);
   });
   const today = todayLocal();
-  const plannedPersonal = [...personal, ...family, ...dayVisits].filter(d => d > today).length;
-  const personalDays = personal.size + family.size + dayVisits.size;
-  const used = new Set([...income, ...personal, ...family, ...dayVisits, ...blocked]);
+  const privateSet = new Set([...personal, ...family, ...dayVisits, ...discounted]);
+  const plannedPersonal = [...privateSet].filter(d => d > today).length;
+  const personalDays = personal.size + family.size + dayVisits.size + discounted.size;
+  const incomeDays = new Set([...income, ...repair]).size;
+  const used = new Set([...income, ...repair, ...privateSet, ...blocked]);
   const unused = days - used.size;
-  const share = (income.size + personalDays) ? income.size / (income.size + personalDays) : null;
-  return { days, income: income.size, personal: personal.size, family: family.size, dayVisits: dayVisits.size, personalDays, plannedPersonal, blocked: blocked.size, unused, share };
+  const share = (incomeDays + personalDays) ? incomeDays / (incomeDays + personalDays) : null;
+  // Actual cost: the days rented or available, i.e. not private and not blocked.
+  const availDays = days - new Set([...privateSet, ...blocked]).size;
+  const availShare = days ? availDays / days : 1;
+  const suggested = !personalDays ? 'full' : (unused >= 62 && incomeDays ? 'mixeduse' : 'actualcost');
+  return { days, income: incomeDays, repair: repair.size, personal: personal.size, family: family.size, dayVisits: dayVisits.size, discounted: discounted.size,
+    personalDays, plannedPersonal, blocked: blocked.size, unused, share, availDays, availShare, suggested };
 }
 
 let propCalMonth = null; // 'YYYY-MM'
@@ -5319,7 +5359,7 @@ function propCalendarHtml(s) {
       if (b <= a) continue;
       const roundL = a === a0 && !clipL, roundR = b === b0 && !clipR;
       const w = b - a;
-      const name = st.booking ? platformName(st.booking.platform) : PROP_DAY_TYPES[st.type].label;
+      const name = st.booking ? platformName(st.booking.platform) + (st.booking.belowMarket ? ' (below market)' : '') : PROP_DAY_TYPES[st.type].label;
       const label = w >= 2.5 ? `${st.booking ? '' : PROP_DAY_TYPES[st.type].icon + ' '}${escH(name)} · ${nightsTxt}`
         : w >= 1 ? `${st.booking ? escH(name[0]) : PROP_DAY_TYPES[st.type].icon} ${st.nights}n` : '';
       bars[r].push(`<div style="position:absolute;top:calc(50% - 9px);height:18px;left:calc(${xPos(a - r * 7)} + ${roundL ? 2 : 0}px);right:calc(100% - ${xPos(b - r * 7)} + ${roundR ? 2 : 0}px);background:${colour};border-radius:${roundL ? 9 : 0}px ${roundR ? 9 : 0}px ${roundR ? 9 : 0}px ${roundL ? 9 : 0}px;color:#fff;font-size:10px;font-weight:600;line-height:18px;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box">${label}</div>`);
@@ -5363,7 +5403,7 @@ function propCalendarHtml(s) {
       <div style="display:flex;flex-direction:column;gap:4px">${cells}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-top:10px">
         ${Object.entries(PLATFORM_BAR).map(([p, c]) => `<span><span style="display:inline-block;width:14px;height:8px;border-radius:4px;background:${c};vertical-align:middle"></span> ${platformName(p)}</span>`).join('')}
-        ${['booked','personal','family'].map(k => `<span><span style="display:inline-block;width:14px;height:8px;border-radius:4px;background:${PROP_DAY_TYPES[k].bar};vertical-align:middle"></span> ${PROP_DAY_TYPES[k].label}</span>`).join('')}
+        ${['booked','personal','family','repair'].map(k => `<span><span style="display:inline-block;width:14px;height:8px;border-radius:4px;background:${PROP_DAY_TYPES[k].bar};vertical-align:middle"></span> ${PROP_DAY_TYPES[k].label}</span>`).join('')}
         <span>☀ Day visit</span>
         <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${PROP_DAY_TYPES.blocked.bg};vertical-align:middle"></span> Blocked</span>
       </div>
@@ -5375,18 +5415,19 @@ function propUsageCardHtml(s) {
   const t = propTravelForYear(s, propTaxYear);
   const cleans = propDaysInYear(s, propTaxYear, 'cleaning');
   const inp = 'width:70px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:5px 6px;text-align:right';
-  const mixedNote = u.personalDays && u.income
-    ? `Used both personally and for income${u.unused >= 62 ? `, and unused for ${u.unused} days` : ''}. ${u.unused >= 62 ? 'The mixed-use asset rules may apply' : 'With fewer than 62 unused days the mixed-use rules usually don\'t apply'}. Check with your accountant.`
-    : 'No personal use recorded this tax year.';
+  const chosen = propSettings(s).deductionBasis;
+  const mixedNote = `Suggested basis: <strong style="color:var(--text2)">${propBasisLabel(u.suggested)}</strong>. ${PROP_BASES[u.suggested].long}${chosen !== u.suggested ? ` Setup has ${propBasisLabel(chosen)}: check with your accountant.` : ''}`;
   return `<div class="card">
       <div class="card-title" style="margin-bottom:8px">Tax year ${taxYearLabel(propTaxYear)} use</div>
-      ${propRow('Income nights', u.income)}
+      ${propRow('Income nights', `${u.income}${u.repair ? ` <span style="color:var(--text3)">(incl. ${u.repair} repair day${u.repair === 1 ? '' : 's'})</span>` : ''}`)}
       ${propRow('Personal nights', `${u.personal}${u.family ? ` + ${u.family} family` : ''}${u.plannedPersonal ? ` <span style="color:var(--text3)">(${u.plannedPersonal} planned)</span>` : ''}`)}
       ${u.dayVisits ? propRow('Personal day visits', u.dayVisits) : ''}
+      ${u.discounted ? propRow('Below-market stays (private)', u.discounted) : ''}
       ${propRow('Blocked', u.blocked)}
       ${propRow('Unused', u.unused)}
+      ${u.personalDays ? propRow('Rented or available', `${u.availDays} of ${u.days} days`) : ''}
       ${u.share != null && u.personalDays ? propRow('Income share of use', `${Math.round(u.share * 1000) / 10}%`) : ''}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">${mixedNote} Family stays at a discount can count as personal use.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">${mixedNote} Family stays count as private use even if they pay. A stay by anyone else below 80% of market rent counts as private too: tick it on the day. Days spent fixing damage caused by guests count as income days.</div>
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:8px">Trips and cleans</div>
@@ -5460,8 +5501,9 @@ function openPropDay(iso) {
     ${b ? `<div style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius-sm)">${escH(platformName(b.platform))} booking ·${fmtDay(b.checkIn)} → ${fmtDay(b.checkOut)} · ${fmt(b.payout)}</div>` : ''}
     <div class="input-group"><label>Day use</label><select id="pd-use">
       <option value="" ${!excl?'selected':''}>${b ? `Booked (${escH(platformName(b.platform))})` : 'Not set'}</option>
-      ${['personal','family','booked','blocked'].map(k => `<option value="${k}" ${excl===k?'selected':''}>${PROP_DAY_TYPES[k].icon} ${PROP_DAY_TYPES[k].label}</option>`).join('')}
+      ${['personal','family','booked','repair','blocked'].map(k => `<option value="${k}" ${excl===k?'selected':''}>${PROP_DAY_TYPES[k].icon} ${PROP_DAY_TYPES[k].label}</option>`).join('')}
     </select></div>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="pd-below" style="margin-top:3px" ${(b && !excl ? b.belowMarket : ms.find(d => d.type === 'booked')?.belowMarket) ? 'checked' : ''}> <span>Rent below 80% of market rate <span style="display:block;font-size:12px;color:var(--text3)">For ${b ? 'this booking or ' : ''}an "Other booking". IRD counts it as private use.${b ? ' Applies to the whole booking.' : ''}</span></span></label>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="pd-dayonly" ${ms.find(d => PROP_DAY_TYPES[d.type]?.exclusive)?.dayOnly ? 'checked' : ''}> ☀ Day visit only (no overnight stay, personal or family)</label>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="pd-clean" ${has('cleaning')?'checked':''}> 🧹 Clean</label>
     <div class="input-group"><label>Amount paid for this clean ($, leave blank if you did it yourself)</label><input type="number" id="pd-cost" min="0" step="0.01" value="${has('cleaning')?.cost ?? ''}"></div>
@@ -5471,11 +5513,15 @@ function openPropDay(iso) {
   btn.textContent = 'Save';
   btn.onclick = () => {
     const use = document.getElementById('pd-use').value;
-    ['personal','family','booked','blocked'].forEach(k => { if (k !== use) removePropDay(propDayId(s, iso, k)); });
+    ['personal','family','booked','repair','blocked'].forEach(k => { if (k !== use) removePropDay(propDayId(s, iso, k)); });
+    const below = document.getElementById('pd-below').checked;
     if (use) {
       addPropDay(s, iso, use);
       const u = propDays.find(x => x.id === propDayId(s, iso, use));
       if (document.getElementById('pd-dayonly').checked && (use === 'personal' || use === 'family')) u.dayOnly = true; else delete u.dayOnly;
+      if (use === 'booked' && below) u.belowMarket = true; else delete u.belowMarket;
+    } else if (b) {
+      if (below) b.belowMarket = true; else delete b.belowMarket;
     }
     const cost = parseFloat(document.getElementById('pd-cost').value);
     const km = parseFloat(document.getElementById('pd-km').value);
@@ -5540,7 +5586,9 @@ function propTaxHtml(s) {
       ${pnl.forecast?.rent.income ? propRow('&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--text3)">incl. not yet booked (forecast)</span>', `<span style="color:var(--text3)">${fmt(pnl.forecast.rent.income)}</span>`) : ''}
       ${pnl.otherIncome ? `<div onclick="openPropLineTxns('income')" style="cursor:pointer">${propRow(`&nbsp;&nbsp;Other bank deposits (${pnl.otherIncomeTxns.length}) <span style="font-size:10px;color:var(--teal)">›</span>`, fmt(pnl.otherIncome))}</div>` : ''}
       ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
-      ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} personal).</div>` : ''}
+      ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">${pnl.basis === 'actualcost'
+        ? `Actual cost basis: lines marked * are shared costs, claimed for the ${pnl.usage.availDays} of ${pnl.usage.days} days the property was rented or available (${Math.round(pnl.share*1000)/10}%).`
+        : `Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} private).`}</div>` : ''}
       ${shown.map(l => {
         if (l.id === 'homeoffice') {
           const label = escH(l.label) + ' <span style="font-size:10px;color:var(--teal)">›</span>';
@@ -5878,7 +5926,7 @@ function propAssetsHtml(s) {
       ${d.recovered ? propRow('Depreciation recovered', fmt(d.recovered)) : ''}
       ${deductible && deductible.apportioned ? propRow(`Personal share (${Math.round((1 - pnl.share) * 1000) / 10}%)`, '−' + fmt(deductible.full - deductible.amount)) + propRow('<strong>Claimed in the P&amp;L</strong>', `<strong>${fmt(deductible.amount)}</strong>`) : ''}
       ${propRow('Closing book value', fmt(d.close))}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${p.deductionBasis === 'mixeduse' ? 'On the mixed-use basis, depreciation is cut to the income-use share like other holding costs.' : ''}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${p.deductionBasis !== 'full' ? `On the ${propBasisLabel(p.deductionBasis).toLowerCase()} basis, depreciation is cut to the same share as other holding costs.` : ''}</div>
     </div>
     ${Object.entries(groups).map(([g, list]) => `<div class="card">
       <div class="card-title" style="margin-bottom:4px">${escH(g)}</div>
@@ -6549,11 +6597,16 @@ function propSetupHtml(s) {
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:-4px 0 14px"><input type="checkbox" id="ps-cleantravel" ${p.cleanAddsTravel!==false?'checked':''}> Marking a clean on the calendar also logs a trip</label>
     <div class="input-group"><label>Expense deduction basis</label>
       <select id="ps-basis">
-        <option value="full" ${p.deductionBasis==='full'?'selected':''}>100% deductible</option>
-        <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (apportion by income vs personal days)</option>
+        <option value="full" ${p.deductionBasis==='full'?'selected':''}>100% deductible (no private use)</option>
+        <option value="actualcost" ${p.deductionBasis==='actualcost'?'selected':''}>Actual cost (days rented or available)</option>
+        <option value="mixeduse" ${p.deductionBasis==='mixeduse'?'selected':''}>Mixed-use (income vs private days)</option>
       </select>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Confirm which applies with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
-    ${p.deductionBasis === 'mixeduse' ? `<div style="margin:-4px 0 16px">
+      ${(() => { const u = propUsageForYear(s, propTaxYear); const same = u.suggested === p.deductionBasis;
+        return `<div style="font-size:12px;margin-top:6px;padding:8px 10px;border-radius:var(--radius-sm);background:${same ? 'rgba(29,184,138,0.10)' : 'rgba(224,160,48,0.14)'};color:var(--text2)">
+          The calendar for ${taxYearLabel(propTaxYear)} suggests <strong style="color:var(--text)">${propBasisLabel(u.suggested)}</strong>: ${PROP_BASES[u.suggested].long}
+          <span style="color:var(--text3)">(${u.personalDays} private day${u.personalDays === 1 ? '' : 's'}, ${u.unused} unused)</span>${same ? '' : ` <a href="#" onclick="document.getElementById('ps-basis').value='${u.suggested}';return false" style="color:var(--teal)">Use this</a>`}</div>`; })()}
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">The test is done each tax year, so the right basis can change from year to year. Confirm with your accountant. This only affects the tax report, not your recorded transactions.</div></div>
+    ${p.deductionBasis === 'mixeduse' || p.deductionBasis === 'actualcost' ? `<div style="margin:-4px 0 16px">
       <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Claim these in full (not cut to the income share)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">${PROP_APPORTIONABLE.map(id => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" style="width:16px;height:16px;margin:0;flex:none" ${(p.fullLines || []).includes(id) ? 'checked' : ''} onchange="togglePropFullLine('${id}', this.checked)"> <span>${escH(id === 'depreciation' ? 'Depreciation' : PROP_LINES.find(l => l.id === id).label)}</span></label>`).join('')}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">Only for costs that relate solely to earning income, such as repairing damage caused by guests. Check with your accountant.</div></div>` : ''}
