@@ -1151,6 +1151,11 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
   lines.homeoffice += homeOffice.value;
   const fc = opts.forecast ? propForecastAdds(s, ty, matches, { lines, homeOffice }) : null;
   if (fc) Object.entries(fc.lines).forEach(([k, v]) => lines[k] += v);
+  // Interest limitation (residential property, 2021-22 to 2024-25): only part
+  // of the interest is deductible. Applied before any private-use share.
+  const interestRule = propInterestRule(s, ty);
+  const interestPaid = lines.interest;
+  lines.interest = interestPaid * interestRule.pct;
   // Mixed-use basis: shared holding costs are cut to the income-use share;
   // costs incurred only to earn income (fees, cleaning, travel to service
   // guests, management, accountancy) stay at 100%.
@@ -1185,6 +1190,7 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
       if (l.id === 'travel' && trav.trips) label += ` (${trav.trips} trip${trav.trips===1?'':'s'}, ${trav.km.toLocaleString('en-NZ')} km${trav.rateMissing?', no km rate set':''})`;
       if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
       if (l.id === 'homeoffice' && homeOffice.value) label += ` (${homeOffice.pct}% of household costs)`;
+      if (l.id === 'interest' && interestRule.pct < 1 && interestPaid) label += ` (${Math.round(interestRule.pct * 100)}% of ${fmt(interestPaid)} paid, under the interest limitation rules)`;
       return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [], forecast: fc ? fc.lines[l.id] || 0 : 0 };
     });
   const depRecovered = dep.recovered * share;
@@ -1194,7 +1200,7 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
   return {
     taxNet: mua ? mua.taxNet : net, mua,
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
-    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc, privateRent,
+    net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc, privateRent, interestRule, interestPaid,
   };
 }
 
@@ -1435,7 +1441,7 @@ ${tr.trips ? `<h2>Travel</h2>
 <table class="summary"><tbody>
 ${row('Trips', tr.trips)}${row('Business km', tr.km.toLocaleString('en-NZ'))}
 ${tr.carKm ? row(`Car's total km${rates.odoStart && rates.odoEnd ? ` (odometer ${Number(rates.odoStart).toLocaleString('en-NZ')} → ${Number(rates.odoEnd).toLocaleString('en-NZ')})` : ''}`, tr.carKm.toLocaleString('en-NZ')) : ''}
-${row(`IRD kilometre rate`, `$${rates.t1 ?? '—'} tier 1 · $${rates.t2 ?? rates.t1 ?? '—'} tier 2`)}
+${row(`Kilometre rate (${tr.rateSource === 'own' ? 'entered by the owner' : tr.rateSource === 'ird' ? `IRD, ${KM_VEHICLES[tr.vehicle].toLowerCase()}` : tr.rateSource === 'estimate' ? `estimate: IRD ${taxYearLabel(tr.ird.ty)} ${KM_VEHICLES[tr.vehicle].toLowerCase()} rate` : 'not set'})`, tr.rate1 ? `$${tr.rate1.toFixed(2)} tier 1 · $${tr.rate2.toFixed(2)} tier 2` : '—')}
 ${row('Tier 1 km (business share of the first 14,000 km)', Math.round(Math.min(tr.km, tr.tier1Km)).toLocaleString('en-NZ'))}
 ${row('Travel claimed', fmt(tr.value), 'tot')}
 </tbody></table>
@@ -1731,7 +1737,12 @@ function propSetupCheck(s) {
       return { st: !chosen ? 'warn' : sug === basis ? 'good' : 'warn', label: 'Deduction basis',
         detail: !chosen ? 'not chosen yet (100% assumed)' : sug === basis ? `${propBasisLabel(basis)} for ${taxYearLabel(ty)}` : `${propBasisLabel(basis)} chosen for ${taxYearLabel(ty)}; the calendar suggests ${propBasisLabel(sug)}` }; })(),
     { st: p.travelKm ? 'good' : 'warn', label: 'Return trip distance', detail: p.travelKm ? `${p.travelKm} km` : 'not set' },
-    { st: ((p.kmRates || {})[propTaxYear] || {}).t1 ? 'good' : 'warn', label: `IRD km rate ${taxYearLabel(propTaxYear)}`, detail: ((p.kmRates || {})[propTaxYear] || {}).t1 ? `$${p.kmRates[propTaxYear].t1} / $${p.kmRates[propTaxYear].t2 ?? p.kmRates[propTaxYear].t1} per km` : 'not entered (from the Travel line on the P&L). IRD publishes it after the year ends' },
+    (t => ({ st: t.rateSource === 'own' || t.rateSource === 'ird' ? 'good' : 'warn', label: `Km rate ${taxYearLabel(propTaxYear)}`,
+      detail: t.rateSource === 'own' ? `your rate, $${t.rate1} / $${t.rate2} per km` : t.rateSource === 'ird' ? `IRD ${KM_VEHICLES[t.vehicle].toLowerCase()} rate, $${t.rate1.toFixed(2)} / $${t.rate2.toFixed(2)} per km`
+        : t.rateSource === 'estimate' ? `estimate: ${taxYearLabel(t.ird.ty)} rate until IRD publishes ${taxYearLabel(propTaxYear)}'s each June` : 'no IRD rate for this year: enter it from the Travel line on the P&L' }))(propTravelForYear(s, propTaxYear)),
+    (r => ({ st: r.noDate || r.notCovered ? 'warn' : 'good', label: `Interest ${taxYearLabel(propTaxYear)}`,
+      detail: r.notCovered ? 'interest rules before 2022–23 aren\'t built in: claimed in full, check with your accountant'
+        : `${Math.round(r.pct * 100)}% claimable (${PROP_INTEREST_RULES[r.kind].toLowerCase()}${r.guessed ? ', from the purchase date' : ''})${r.noDate ? '. Set the purchase date or the loan rule in Setup' : ''}` }))(propInterestRule(s, propTaxYear)),
     { st: (p.regular || []).length ? 'good' : 'warn', label: 'Regular payments', detail: (p.regular || []).length ? `${p.regular.length} set up` : 'none set up (below)' },
     { st: ho.pct || ok.noHomeOffice ? 'good' : 'warn', label: 'Home office', detail: ho.pct ? `${ho.pct}% of ${(ho.cats || []).length} household categories` : ok.noHomeOffice ? 'not used' : `not set up (from the Home office line on the P&L)`,
       body: ho.pct ? '' : confirmBox('noHomeOffice', 'Not used') },
@@ -1818,6 +1829,89 @@ function propFirstYear(s) {
   propDays.forEach(d => { if (d.streamId === s.id) see(d.date); });
   return first ? taxYearOf(isoToDate(first)) : null;
 }
+// ─── NZ tax rules by income year ─────────────────────────────────────────────
+// Every IRD rate and threshold the module uses, in one place, keyed by income
+// year (2026 = 1 April 2025 to 31 March 2026). IRD has no feed for these, so
+// they're updated by hand: km rates each June, the rest when the law changes.
+// Never edit a confirmed entry in place: add the new year (or a corrected
+// entry with its own source) and bump NZ_TAX_RULES_VERSION.
+//  ongoing: the latest entry keeps applying until the law changes, so later
+//           years count as confirmed. Otherwise a year that isn't in the table
+//           uses the latest one and is flagged as an estimate.
+const NZ_TAX_RULES_VERSION = '2026-11-13';
+const IRD_KM_SRC = y => `https://www.taxtechnical.ird.govt.nz/operational-statements/${y}/os-19-04-km-${y}`;
+const IRD_INTEREST_SRC = 'https://www.ird.govt.nz/property/renting-out-residential-property/residential-rental-income-and-paying-tax-on-it/rental-expense-deductions/property-interest-rules';
+const IRD_MUA_SRC = 'https://www.ird.govt.nz/property/renting-out-residential-property/tax-by-rental-property-type/renting-out-a-holiday-home';
+const NZ_TAX_RULES = {
+  // [tier 1, tier 2] dollars per km, OS 19/04 for each income year.
+  kmRates: { label: 'IRD kilometre rates', years: {
+    2023: { value: { petrol: [0.95, 0.34], diesel: [0.95, 0.34], hybrid: [0.95, 0.20], electric: [0.95, 0.11] }, source: 'https://www.taxtechnical.ird.govt.nz/en/operational-statements/2023/os-19-04-km-2023', published: '2023-05-11' },
+    2024: { value: { petrol: [1.04, 0.35], diesel: [1.04, 0.35], hybrid: [1.04, 0.21], electric: [1.04, 0.12] }, source: IRD_KM_SRC(2024), published: '2024-05-30' },
+    2025: { value: { petrol: [1.17, 0.37], diesel: [1.26, 0.35], hybrid: [0.86, 0.21], electric: [1.08, 0.19] }, source: IRD_KM_SRC(2025), published: '2025-05-30' },
+    2026: { value: { petrol: [1.20, 0.37], diesel: [1.30, 0.38], hybrid: [0.90, 0.24], electric: [1.22, 0.23] }, source: IRD_KM_SRC(2026), published: '2026-06-03' },
+  } },
+  // Tier 1 covers the business share of the first 14,000 km the vehicle travels.
+  kmTier1Limit: { label: 'Tier 1 kilometre limit', ongoing: true, years: { 2018: { value: 14000, source: IRD_KM_SRC(2026) } } },
+  // Share of interest on residential property loans that can be claimed
+  // (interest limitation, 1 October 2021 to 31 March 2025). 2021-22 changed
+  // part-way through the year, so it isn't in the table.
+  interestPct: { label: 'Interest you can claim', ongoing: true, years: {
+    2023: { value: { before2021: 0.75, after2021: 0, newBuild: 1 }, source: IRD_INTEREST_SRC },
+    2024: { value: { before2021: 0.5,  after2021: 0, newBuild: 1 }, source: IRD_INTEREST_SRC },
+    2025: { value: { before2021: 0.8,  after2021: 0.8, newBuild: 1 }, source: IRD_INTEREST_SRC },
+    2026: { value: { before2021: 1,    after2021: 1, newBuild: 1 }, source: IRD_INTEREST_SRC },
+  } },
+  // Mixed-use assets (subpart DG, IR1021).
+  muaOptOutIncome: { label: 'Mixed-use opt-out income limit', ongoing: true, years: { 2014: { value: 4000, source: IRD_MUA_SRC } } },
+  muaValuePct:     { label: 'Mixed-use quarantine (% of value)', ongoing: true, years: { 2014: { value: 0.02, source: IRD_MUA_SRC } } },
+  muaUnusedDays:   { label: 'Mixed-use unused days', ongoing: true, years: { 2014: { value: 62, source: IRD_MUA_SRC } } },
+  belowMarketPct:  { label: 'Below-market rent (% of market)', ongoing: true, years: { 2014: { value: 0.8, source: IRD_MUA_SRC } } },
+  // Income tax: [top of band, rate]. 2024-25 is the blended year (new
+  // thresholds from 31 July 2024).
+  incomeBands: { label: 'Income tax rates', ongoing: true, years: {
+    2011: { value: [[14000,.105],[48000,.175],[70000,.30],[180000,.33],[Infinity,.39]], source: 'https://www.ird.govt.nz/income-tax/income-tax-for-individuals/tax-codes-and-tax-rates-for-individuals/tax-rates-for-individuals' },
+    2025: { value: [[14000,.105],[15600,.1282],[48000,.175],[53500,.2164],[70000,.30],[78100,.3071],[180000,.33],[Infinity,.39]], source: 'https://www.ird.govt.nz/income-tax/income-tax-for-individuals/tax-codes-and-tax-rates-for-individuals/tax-rates-for-individuals' },
+    2026: { value: [[15600,.105],[53500,.175],[78100,.30],[180000,.33],[Infinity,.39]], source: 'https://www.ird.govt.nz/income-tax/income-tax-for-individuals/tax-codes-and-tax-rates-for-individuals/tax-rates-for-individuals' },
+  } },
+  // ACC earner levy: [rate, maximum liable earnings].
+  accLevy: { label: 'ACC earner levy', years: {
+    2023: { value: [0.0146, 136544] }, 2024: { value: [0.0153, 139384] }, 2025: { value: [0.016, 142283] },
+    2026: { value: [0.0167, 152790] }, 2027: { value: [0.0175, 156641] },
+  } },
+};
+// The rule for an income year: { value, ty (the year it came from), status,
+// source }. Years before the table's first entry return null.
+function taxRule(id, ty) {
+  const r = NZ_TAX_RULES[id]; if (!r) return null;
+  const own = r.years[ty];
+  if (own) return { ...own, id, label: r.label, ty: Number(ty), status: own.status || 'confirmed' };
+  const before = Object.keys(r.years).map(Number).filter(y => y < ty).sort((a, b) => a - b).pop();
+  if (before == null) return null;
+  return { ...r.years[before], id, label: r.label, ty: before, status: r.ongoing ? 'confirmed' : 'estimate' };
+}
+const taxRuleValue = (id, ty) => taxRule(id, ty)?.value;
+const KM_VEHICLES = { petrol: 'Petrol', diesel: 'Diesel', hybrid: 'Petrol hybrid', electric: 'Electric' };
+
+// Interest limitation: which rule the property's loan falls under. 'auto'
+// goes by the purchase date (before 27 March 2021 or not).
+const PROP_INTEREST_RULES = {
+  auto:       'Work it out from the purchase date',
+  before2021: 'Bought before 27 March 2021',
+  after2021:  'Bought on or after 27 March 2021',
+  newBuild:   'New build (exempt)',
+  exempt:     'Not residential or excluded (claim in full)',
+};
+function propInterestRule(s, ty) {
+  const p = propSettings(s);
+  let kind = p.interestRule || 'auto', guessed = false;
+  if (kind === 'auto') { guessed = true; kind = p.purchaseDate && p.purchaseDate >= '2021-03-27' ? 'after2021' : 'before2021'; }
+  if (kind === 'exempt') return { kind, pct: 1, guessed: false, rule: null };
+  const rule = taxRule('interestPct', ty);
+  // Before 2022-23 isn't in the table: claimed in full, flagged to check.
+  if (!rule) return { kind, pct: 1, guessed, rule: null, notCovered: ty <= 2022 };
+  return { kind, pct: rule.value[kind] ?? 1, guessed, rule, noDate: guessed && !p.purchaseDate };
+}
+
 // Mixed-use opt-out and loss quarantine for one year (IRD IR1021; subpart DG).
 //  Opt-out: gross income from income-earning use under $4,000, or a loss with
 //   that income under 2% of the property's value. Opting out leaves the year
@@ -1826,12 +1920,11 @@ function propFirstYear(s) {
 //   the income; the rest is carried forward and used in a later mixed-use year
 //   with a profit, up to that profit.
 // Kept separate from residential ring-fencing (per owner, non-mixed-use years).
-const MUA_OPTOUT_INCOME = 4000, MUA_VALUE_PCT = 0.02;
 function propMuaStep(s, ty, cur, open) {
   const val = propValueAt(s, ty);
   const income = cur.rent;
-  const twoPct = val ? val.amount * MUA_VALUE_PCT : null;
-  const lowIncome = income < MUA_OPTOUT_INCOME;
+  const twoPct = val ? val.amount * taxRuleValue('muaValuePct', ty) : null;
+  const lowIncome = income < taxRuleValue('muaOptOutIncome', ty);
   const lossTest = cur.net < 0 && twoPct != null && income < twoPct;
   const optOutEligible = lowIncome || lossTest;
   const optedOut = optOutEligible && !!(propSettings(s).muaOptOut || {})[ty];
@@ -1860,13 +1953,19 @@ function propDaysInYear(s, ty, type) {
 }
 // IRD kilometre rates are entered per tax year (they change most years):
 // tier 1 covers the first 14,000 km of business travel, tier 2 the rest.
-const KM_TIER1_LIMIT = 14000;
 function propTravelForYear(s, ty) {
   const p = propSettings(s);
   const trips = propDaysInYear(s, ty, 'travel');
   const km = trips.reduce((a, d) => a + (Number(d.km ?? p.travelKm) || 0), 0);
   const r = (p.kmRates || {})[ty] || {};
-  const t1 = Number(r.t1) || 0, t2 = Number(r.t2 ?? r.t1) || 0;
+  const vehicle = KM_VEHICLES[p.vehicle] ? p.vehicle : 'petrol';
+  const ird = taxRule('kmRates', ty);
+  const irdRate = ird ? ird.value[vehicle] : null;
+  const own = Number(r.t1) > 0;
+  const t1 = own ? Number(r.t1) : irdRate ? irdRate[0] : 0;
+  const t2 = own ? Number(r.t2 ?? r.t1) || 0 : irdRate ? irdRate[1] : 0;
+  const rateSource = own ? 'own' : irdRate ? (ird.status === 'estimate' ? 'estimate' : 'ird') : null;
+  const KM_TIER1_LIMIT = taxRuleValue('kmTier1Limit', ty) || 14000;
   // IRD: tier 1 applies to the business share of the first 14,000 km the
   // vehicle travels in the year. Without the car's total km, assume all of its
   // travel was for the property.
@@ -1874,7 +1973,8 @@ function propTravelForYear(s, ty) {
   const carKm = odoEnd > odoStart && odoStart > 0 ? odoEnd - odoStart : (Number(r.carKm) || 0);
   const tier1Km = carKm > 0 ? KM_TIER1_LIMIT * Math.min(1, km / carKm) : KM_TIER1_LIMIT;
   const value = Math.min(km, tier1Km) * t1 + Math.max(0, km - tier1Km) * t2;
-  return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2, odoStart: r.odoStart, odoEnd: r.odoEnd, carKm: carKm || null, tier1Km: Math.round(tier1Km) };
+  return { trips: trips.length, km, value: round2(value), rateMissing: km > 0 && !t1, t1: r.t1, t2: r.t2, rate1: t1, rate2: t2, rateSource, vehicle, ird, irdRate,
+    odoStart: r.odoStart, odoEnd: r.odoEnd, carKm: carKm || null, tier1Km: Math.round(tier1Km) };
 }
 // Days in the tax year by use. Income days are nights booked through an
 // imported platform, "Other booking" marks and repair-for-guests days.
@@ -1911,7 +2011,7 @@ function propUsageForYearRaw(s, ty) {
   // Actual cost: the days rented or available, i.e. not private and not blocked.
   const availDays = days - new Set([...privateSet, ...blocked]).size;
   const availShare = days ? availDays / days : 1;
-  const suggested = !personalDays ? 'full' : (unused >= 62 && incomeDays ? 'mixeduse' : 'actualcost');
+  const suggested = !personalDays ? 'full' : (unused >= taxRuleValue('muaUnusedDays', ty) && incomeDays ? 'mixeduse' : 'actualcost');
   return { days, income: incomeDays, repair: repair.size, personal: personal.size, family: family.size, dayVisits: dayVisits.size, discounted: discounted.size,
     personalDays, plannedPersonal, blocked: blocked.size, unused, share, availDays, availShare, suggested };
 }
@@ -2253,8 +2353,12 @@ function propUsageCardHtml(s) {
       ${propRow('Cleans logged', `${cleans.length}${cleans.some(d => d.cost) ? ` · ${fmt(cleans.reduce((a, d) => a + (Number(d.cost) || 0), 0))} paid` : ''}`)}
       ${propRow('Trips logged', `${t.trips} · ${t.km.toLocaleString('en-NZ')} km`)}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
-        <span style="color:var(--text2)">IRD km rate ${taxYearLabel(propTaxYear)}</span>
-        <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="tier 1" value="${t.t1 ?? ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="tier 2" value="${t.t2 ?? ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
+        <span style="color:var(--text2)">Vehicle</span>
+        <select onchange="setPropVehicle(this.value)" style="${inp};width:auto">${Object.entries(KM_VEHICLES).map(([k, l]) => `<option value="${k}" ${t.vehicle === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+        <span style="color:var(--text2)">Km rate ${taxYearLabel(propTaxYear)}<br><span style="font-size:11px;color:var(--text3)">${t.rateSource === 'own' ? 'Your rate' : t.rateSource === 'ird' ? 'IRD rate' : t.rateSource === 'estimate' ? `Estimate: ${taxYearLabel(t.ird.ty)} IRD rate` : 'No IRD rate for this year'}</span></span>
+        <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[0].toFixed(2) : 'tier 1'}" value="${t.t1 ?? ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[1].toFixed(2) : 'tier 2'}" value="${t.t2 ?? ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
         <span style="color:var(--text2)">Odometer on 1 April</span>
@@ -2266,8 +2370,13 @@ function propUsageCardHtml(s) {
       </div>
       ${t.carKm ? propRow("Car's total km this year", t.carKm.toLocaleString('en-NZ')) : ''}
       ${propRow('<strong>Travel claim</strong>', t.rateMissing ? '<span style="color:var(--red,#e5484d)">enter the km rate</span>' : `<strong>${fmt(t.value)}</strong>`)}
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tier 1 applies to the property's share of the first 14,000 km the car travels in the year${t.carKm ? ` (${t.tier1Km.toLocaleString('en-NZ')} km here)` : ''}, tier 2 to the rest. ${t.carKm ? '' : 'Without both odometer readings, all trips up to 14,000 km get tier 1. '}IRD publishes new rates each year.${propSettings(s).travelKm ? '' : ' Set the default trip distance in Setup.'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Tier 1 applies to the property's share of the first 14,000 km the car travels in the year${t.carKm ? ` (${t.tier1Km.toLocaleString('en-NZ')} km here)` : ''}, tier 2 to the rest. ${t.carKm ? '' : 'Without both odometer readings, all trips up to 14,000 km get tier 1. '}${t.rateSource === 'estimate' ? `IRD hasn't published ${taxYearLabel(propTaxYear)} rates yet (they come out each June), so ${taxYearLabel(t.ird.ty)}'s are used for now. ` : t.rateSource === 'own' ? 'Clear your rate to use IRD\'s. ' : 'The IRD rate is filled in for you; type your own to override it. '}${propSettings(s).travelKm ? '' : ' Set the default trip distance in Setup.'}</div>
     </div>`;
+}
+function setPropVehicle(v) {
+  const s = currentPropStream(); if (!s || !KM_VEHICLES[v]) return;
+  s.property = { ...propSettings(s), vehicle: v };
+  scheduleSave(); renderProperty();
 }
 function setPropKmRate(tier, val) {
   const s = currentPropStream(); if (!s) return;
@@ -2488,20 +2597,15 @@ function propTaxHtml(s) {
 // share of every property's profit or loss is added automatically.
 // Rates: income tax bands (2024-25 used composite rates for the mid-year
 // change) and the ACC earner levy. Check new years against IRD.
-const NZ_TAX_BANDS_OLD  = [[14000,.105],[48000,.175],[70000,.30],[180000,.33],[Infinity,.39]];
-const NZ_TAX_BANDS_2025 = [[14000,.105],[15600,.1282],[48000,.175],[53500,.2164],[70000,.30],[78100,.3071],[180000,.33],[Infinity,.39]];
-const NZ_TAX_BANDS_NEW  = [[15600,.105],[53500,.175],[78100,.30],[180000,.33],[Infinity,.39]];
 function nzIncomeTax(income, ty) {
-  const bands = ty >= 2026 ? NZ_TAX_BANDS_NEW : ty === 2025 ? NZ_TAX_BANDS_2025 : NZ_TAX_BANDS_OLD;
+  const bands = taxRuleValue('incomeBands', ty) || NZ_TAX_RULES.incomeBands.years[2011].value;
   const inc = Math.max(0, Math.floor(income)); // IRD taxes whole dollars
   let tax = 0, prev = 0;
   for (const [top, r] of bands) { if (inc <= prev) break; tax += (Math.min(inc, top) - prev) * r; prev = top; }
   return round2(tax);
 }
-const ACC_EARNER_LEVY = { 2023:[0.0146,136544], 2024:[0.0153,139384], 2025:[0.016,142283], 2026:[0.0167,152790], 2027:[0.0175,156641] };
 function accEarnerLevy(gross, ty) {
-  const latest = Math.max(...Object.keys(ACC_EARNER_LEVY).map(Number));
-  const [r, max] = ACC_EARNER_LEVY[ty] || ACC_EARNER_LEVY[ty < 2023 ? 2023 : latest];
+  const [r, max] = taxRuleValue('accLevy', ty) || NZ_TAX_RULES.accLevy.years[2023].value;
   return Math.floor(Math.min(Math.max(0, gross), max) * r * 100) / 100;
 }
 const TAX_ROW_KINDS = {
@@ -3499,6 +3603,8 @@ function propSetupHtml(s) {
       <div style="font-size:11px;color:var(--text3)">Used to split the property's profit or loss between owners. Leave unused rows blank.</div>
     </div>
     <div class="input-group"><label>Purchase date</label><input type="date" id="ps-purchase" value="${escH(p.purchaseDate)}"></div>
+    <div class="input-group"><label>Interest limitation</label><select id="ps-interest">${Object.entries(PROP_INTEREST_RULES).map(([k, l]) => `<option value="${k}" ${(p.interestRule || 'auto') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">From 1 October 2021 to 31 March 2025 only part of the interest on a residential property loan could be claimed: 75% in 2022–23, 50% in 2023–24 and 80% in 2024–25 if bought before 27 March 2021; nothing until 2024–25 if bought later. New builds are exempt. 100% again from 2025–26.</div></div>
     <div class="input-group"><label>Purchase price ($)</label><input type="number" id="ps-price" min="0" step="1" value="${p.purchasePrice ?? ''}" placeholder="e.g. 650000"></div>
     <div class="input-group"><label>Latest council rating valuation (capital value)</label>
       <div style="display:flex;gap:8px"><input type="number" id="ps-rv" min="0" step="1000" value="${rv.amount ?? ''}" placeholder="$" style="flex:1"><input type="date" id="ps-rv-date" value="${escH(rv.date || '')}" style="flex:1"></div>
@@ -3576,6 +3682,7 @@ function savePropSetup() {
     ...propSettings(s),
     owners,
     purchaseDate: document.getElementById('ps-purchase').value,
+    interestRule: document.getElementById('ps-interest').value,
     accountId: document.getElementById('ps-account').value,
     personalCat: document.getElementById('ps-personalcat').value || propSettings(s).personalCat,
     travelKm: isNaN(km) ? null : km,
