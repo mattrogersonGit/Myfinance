@@ -121,7 +121,16 @@ function propTryDeepLink() {
   if (PROP_HASHES.includes(h)) setPropTab(h, true); else propSetHash();
 }
 function setPropStream(id) { propStreamId = Number(id); propReviewCat = null; propReviewOther = false; renderProperty(); }
-function shiftPropTaxYear(d) { propTaxYear += d; renderProperty(); }
+function shiftPropTaxYear(d) {
+  propTaxYear += d;
+  const today = todayLocal();
+  const [y, m] = (propCalMonth || today.slice(0, 7)).split('-').map(Number);
+  propCalMonth = (y + d) + '-' + String(m).padStart(2, '0');
+  const t = isoToDate(isoYearsAgo(propTlStart || today, -d));
+  t.setDate(t.getDate() - ((t.getDay() + 6) % 7) - (propTlStart ? 0 : 7)); // back to a Monday
+  propTlStart = dateToIso(t);
+  renderProperty();
+}
 
 const PROP_TABS = [
   {id:'home', label:'Home'}, {id:'bookings', label:'Bookings'},
@@ -1961,7 +1970,8 @@ function propTravelForYear(s, ty) {
   const vehicle = KM_VEHICLES[p.vehicle] ? p.vehicle : 'petrol';
   const ird = taxRule('kmRates', ty);
   const irdRate = ird ? ird.value[vehicle] : null;
-  const own = Number(r.t1) > 0;
+  // A typed rate identical to the IRD rate is treated as the IRD rate.
+  const own = Number(r.t1) > 0 && !(irdRate && Number(r.t1) === irdRate[0] && Number(r.t2 ?? r.t1) === irdRate[1]);
   const t1 = own ? Number(r.t1) : irdRate ? irdRate[0] : 0;
   const t2 = own ? Number(r.t2 ?? r.t1) || 0 : irdRate ? irdRate[1] : 0;
   const rateSource = own ? 'own' : irdRate ? (ird.status === 'estimate' ? 'estimate' : 'ird') : null;
@@ -2357,8 +2367,8 @@ function propUsageCardHtml(s) {
         <select onchange="setPropVehicle(this.value)" style="${inp};width:auto">${Object.entries(KM_VEHICLES).map(([k, l]) => `<option value="${k}" ${t.vehicle === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
-        <span style="color:var(--text2)">Km rate ${taxYearLabel(propTaxYear)}<br><span style="font-size:11px;color:var(--text3)">${t.rateSource === 'own' ? 'Your rate' : t.rateSource === 'ird' ? 'IRD rate' : t.rateSource === 'estimate' ? `Estimate: ${taxYearLabel(t.ird.ty)} IRD rate` : 'No IRD rate for this year'}</span></span>
-        <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[0].toFixed(2) : 'tier 1'}" value="${t.t1 ?? ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[1].toFixed(2) : 'tier 2'}" value="${t.t2 ?? ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
+        <span style="color:var(--text2)">Km rate ${taxYearLabel(propTaxYear)}<br><span style="font-size:11px;color:var(--text3)">${t.rateSource === 'own' ? `Your rate${t.irdRate ? ` · <a href="#" onclick="event.preventDefault();clearPropKmRate()" style="color:var(--teal)">use IRD's</a>` : ''}` : t.rateSource === 'ird' ? 'IRD rate' : t.rateSource === 'estimate' ? `Estimate: ${taxYearLabel(t.ird.ty)} IRD rate` : 'No IRD rate for this year'}</span></span>
+        <span style="display:flex;gap:6px;align-items:center"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[0].toFixed(2) : 'tier 1'}" value="${t.rateSource === 'own' ? t.t1 ?? '' : ''}" style="${inp}" onchange="setPropKmRate('t1', this.value)"><input type="number" step="0.01" min="0" placeholder="${t.irdRate ? t.irdRate[1].toFixed(2) : 'tier 2'}" value="${t.rateSource === 'own' ? t.t2 ?? '' : ''}" style="${inp}" onchange="setPropKmRate('t2', this.value)"></span>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:13px">
         <span style="color:var(--text2)">Odometer on 1 April</span>
@@ -2375,7 +2385,25 @@ function propUsageCardHtml(s) {
 }
 function setPropVehicle(v) {
   const s = currentPropStream(); if (!s || !KM_VEHICLES[v]) return;
-  s.property = { ...propSettings(s), vehicle: v };
+  const p = propSettings(s);
+  // Typed rates that were only copies of an IRD rate would otherwise stop the
+  // new vehicle's rates applying, so clear them.
+  const rates = {};
+  Object.entries(p.kmRates || {}).forEach(([ty, r]) => {
+    const ird = taxRule('kmRates', Number(ty));
+    const copy = ird && ird.status !== 'estimate' && Object.values(ird.value).some(([a, b]) => Number(r.t1) === a && Number(r.t2 ?? r.t1) === b);
+    rates[ty] = copy ? (({ t1, t2, ...rest }) => rest)(r) : r;
+  });
+  s.property = { ...p, vehicle: v, kmRates: rates };
+  scheduleSave(); renderProperty();
+}
+function clearPropKmRate() {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  const rates = { ...(p.kmRates || {}) };
+  const { t1, t2, ...rest } = rates[propTaxYear] || {};
+  rates[propTaxYear] = rest;
+  s.property = { ...p, kmRates: rates };
   scheduleSave(); renderProperty();
 }
 function setPropKmRate(tier, val) {
