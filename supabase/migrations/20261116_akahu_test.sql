@@ -1,0 +1,14 @@
+-- Akahu test connection (beta). No schema change: it reuses households.addons.
+-- Turn it on for ONE household by hand in the SQL editor. Find the household
+-- id in Table Editor -> households, then run:
+--
+--   UPDATE households
+--   SET addons = array_append(addons, 'akahu')
+--   WHERE id = '<household-id>' AND NOT ('akahu' = ANY(addons));
+--
+-- To turn it off again:
+--
+--   UPDATE households SET addons = array_remove(addons, 'akahu') WHERE id = '<household-id>';
+--
+-- The akahu Edge Function checks this flag on every call, and the app only
+-- shows the Settings tile when the server says the household has it.
