@@ -5114,7 +5114,115 @@ function renderAkahu() {
     ${akahu.loading ? `<div style="font-size:13px;color:var(--text3);margin-bottom:10px">${escH(akahu.loading)}</div>` : ''}
     ${akahu.error ? `<div style="font-size:12px;color:var(--text2);background:var(--bg3);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px">${escH(akahu.error)}</div>` : ''}
     ${accts && !accts.length ? `<div style="font-size:13px;color:var(--text3)">No accounts shared. Connect one at my.akahu.nz.</div>` : ''}
-    ${(accts || []).map(akahuAccountHtml).join('')}`;
+    ${accts && accts.length ? `<div class="tabs" style="margin-bottom:12px">
+      <div class="tab${akahu.view !== 'wealth' ? ' active' : ''}" onclick="akahu.view='accounts';renderAkahu()">Accounts</div>
+      <div class="tab${akahu.view === 'wealth' ? ' active' : ''}" onclick="akahu.view='wealth';renderAkahu()">Wealth preview</div>
+    </div>` : ''}
+    ${akahu.view === 'wealth' && accts && accts.length ? akahuWealthHtml(accts) : (accts || []).map(akahuAccountHtml).join('')}`;
+  if (akahu.view === 'wealth' && accts && accts.length) akahuDrawWealthChart(accts);
+}
+
+// ─── Wealth preview (dummy Wealth tab built only from Akahu, not saved) ──────
+// Values use the account's own NZD figures: value = balance.current and cost =
+// value - meta.breakdown.returns. Holdings are shown for detail only and never
+// added up, because they're in each listing's own currency (e.g. USD for
+// crypto) and Akahu doesn't say which.
+const AKAHU_INV_TYPES = ['INVESTMENT', 'KIWISAVER', 'TERMDEPOSIT'];
+const AKAHU_CASH_TYPES = ['WALLET', 'CHECKING', 'SAVINGS', 'FOREIGN'];
+const AKAHU_DEBT_TYPES = ['CREDITCARD', 'LOAN'];
+let akahuInvChart = null;
+function akahuReturns(a) { const r = a.meta?.breakdown?.returns; return typeof r === 'number' ? r : null; }
+function akahuCurrencyGuess(ex) {
+  const e = String(ex || '').toUpperCase();
+  if (/NZX/.test(e)) return 'NZD';
+  if (/ASX/.test(e)) return 'AUD';
+  if (/NASDAQ|NYSE|CBOE|BATS|ARCA|KRAKEN|COINBASE|US/.test(e)) return 'USD';
+  return '';
+}
+function akahuWealthHtml(accts) {
+  const live = accts.filter(a => a.status !== 'INACTIVE');
+  const inv = live.filter(a => AKAHU_INV_TYPES.includes(a.type));
+  const cash = live.filter(a => AKAHU_CASH_TYPES.includes(a.type));
+  const debt = live.filter(a => AKAHU_DEBT_TYPES.includes(a.type));
+  const val = a => Number(a.balance?.current) || 0;
+  const totalVal = inv.reduce((s, a) => s + val(a), 0);
+  const withRet = inv.filter(a => akahuReturns(a) != null);
+  const totalRet = withRet.reduce((s, a) => s + akahuReturns(a), 0);
+  const costBase = withRet.reduce((s, a) => s + val(a) - akahuReturns(a), 0);
+  const cashTotal = cash.reduce((s, a) => s + val(a), 0);
+  const debtTotal = debt.reduce((s, a) => s + Math.abs(val(a)), 0);
+  const manualInv = (investments || []).reduce((s, i) => s + (Number(i.current) || 0), 0);
+  const pct = (r, c) => c > 0 ? ((r / c) * 100).toFixed(1) + '%' : '—';
+  const sign = n => (n >= 0 ? '+' : '−') + fmt(n);
+  const f0 = n => '$' + Math.round(Math.abs(n)).toLocaleString('en-NZ');
+  const updated = inv.map(a => a.refreshed?.balance).filter(Boolean).sort().pop();
+  const card = (title, inner, extra = '') => `<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:0 14px 14px;margin-bottom:12px${extra}"><div class="card-title-row" style="padding-top:14px"><div class="card-title">${title}</div></div>${inner}</div>`;
+  const row = (a, i) => {
+    const r = akahuReturns(a), cost = r != null ? val(a) - r : null;
+    const port = Array.isArray(a.meta?.portfolio) ? a.meta.portfolio : [];
+    const open = akahu.open['w' + a._id];
+    return `<div class="inv-row" style="cursor:${port.length ? 'pointer' : 'default'}" ${port.length ? `onclick="akahuToggle('open','w${escH(a._id)}')"` : ''}>
+      ${a.connection?.logo ? `<img src="${escH(a.connection.logo)}" referrerpolicy="no-referrer" alt="" class="inv-icon" style="object-fit:contain;background:#fff;padding:4px">` : `<div class="inv-icon" style="background:${INV_COLORS[i % INV_COLORS.length]}22">📈</div>`}
+      <div class="inv-info">
+        <div class="inv-name"><span class="nw-dot" style="display:inline-block;background:${INV_COLORS[i % INV_COLORS.length]};margin-right:5px"></span>${escH(a.name)}</div>
+        <div class="inv-meta"><span>${escH(a.connection?.name || '')}</span><span class="inv-updated">· ${port.length} holding${port.length === 1 ? '' : 's'}${port.length ? (open ? ' ▴' : ' ▾') : ''}</span></div>
+      </div>
+      <div class="inv-right">
+        <div class="inv-val">${fmt(val(a))}</div>
+        ${r != null ? `<div class="inv-gain ${r >= 0 ? 'pos' : 'neg'}">${sign(r)} (${pct(r, cost)})</div>` : `<div style="font-size:11px;color:var(--text3)">no return figure</div>`}
+      </div>
+    </div>
+    ${open ? `<div style="margin:-4px 0 10px 46px;font-size:12px">
+      ${port.slice().sort((x, y) => (Number(y.value) || 0) - (Number(x.value) || 0)).map(h => {
+        const cur = akahuCurrencyGuess(h.exchange);
+        const hr = Number(h.returns);
+        return `<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:0.5px solid var(--border)">
+          ${h.logo ? `<img src="${escH(h.logo)}" referrerpolicy="no-referrer" alt="" style="width:20px;height:20px;border-radius:4px;object-fit:contain;background:#fff">` : ''}
+          <div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(h.name || h.symbol || '')}</div>
+            <div style="font-size:11px;color:var(--text3)">${escH([h.symbol, h.exchange].filter(Boolean).join(' · '))}${h.shares != null ? ` · ${escH(h.shares)} units` : ''}</div></div>
+          <div style="text-align:right;white-space:nowrap"><div>${cur ? cur + ' ' : ''}${Number(h.value || 0).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            ${Number.isFinite(hr) ? `<div style="font-size:11px;color:${hr >= 0 ? 'var(--teal)' : 'var(--red)'}">${hr >= 0 ? '+' : '−'}${Math.abs(hr).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` : ''}</div>
+        </div>`;
+      }).join('')}
+      <div style="font-size:10.5px;color:var(--text3);margin-top:4px">Holdings are in the currency they're listed in (guessed from the exchange). The account total above is in NZD.</div>
+    </div>` : ''}`;
+  };
+  return `
+    <div style="font-size:12px;color:var(--text3);background:var(--bg3);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:12px">Preview of a Wealth tab filled from Akahu. Nothing here is saved, and your real Wealth tab is unchanged.${updated ? ` Values as at ${akahuWhen(updated)}.` : ''}</div>
+    <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px">
+      <div class="metric"><div class="metric-label">Investments</div><div class="metric-value" style="font-size:15px">${f0(totalVal)}</div></div>
+      <div class="metric"><div class="metric-label">Cash</div><div class="metric-value" style="font-size:15px">${f0(cashTotal)}</div></div>
+      <div class="metric"><div class="metric-label">${debt.length ? 'Owing' : 'Total'}</div><div class="metric-value ${debt.length ? 'neg' : ''}" style="font-size:15px">${f0(debt.length ? debtTotal : totalVal + cashTotal)}</div></div>
+    </div>
+    ${inv.length ? card('Investments', `
+      ${inv.map(row).join('')}
+      <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border)">
+        <div class="metric"><div class="metric-label">Invested</div><div class="metric-value" style="font-size:15px">${withRet.length ? f0(costBase) : '—'}</div></div>
+        <div class="metric"><div class="metric-label">Value</div><div class="metric-value" style="font-size:15px">${f0(totalVal)}</div></div>
+        <div class="metric"><div class="metric-label">Return</div><div class="metric-value ${totalRet >= 0 ? 'pos' : 'neg'}" style="font-size:15px">${withRet.length ? (totalRet >= 0 ? '+' : '−') + f0(totalRet) : '—'}<div style="font-size:11px;font-weight:500">${withRet.length ? pct(totalRet, costBase) : ''}</div></div></div>
+      </div>
+      <div class="inv-chart-section">
+        <div class="chart-wrap" style="height:110px;width:110px;flex-shrink:0"><canvas id="akahu-inv-chart" role="img" aria-label="Investments by account"></canvas></div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text2)">${inv.map((a, i) => `<div class="nw-legend-item"><div class="nw-dot" style="background:${INV_COLORS[i % INV_COLORS.length]}"></div>${escH(a.name)}: ${totalVal ? Math.round(val(a) / totalVal * 100) : 0}%</div>`).join('')}</div>
+      </div>
+      ${withRet.length < inv.length ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">${inv.length - withRet.length} account(s) have no return figure, so Invested and Return leave them out.</div>` : ''}`) : ''}
+    ${cash.length ? card('Cash', cash.map(a => `<div class="stat-row"><span class="stat-label">${escH(a.name)} <span style="color:var(--text3);font-size:11px">· ${escH(a.connection?.name || '')}</span></span><span class="stat-val">${fmt(val(a))}</span></div>`).join('')) : ''}
+    ${debt.length ? card('Owing', debt.map(a => `<div class="stat-row"><span class="stat-label">${escH(a.name)} <span style="color:var(--text3);font-size:11px">· ${escH(a.connection?.name || '')}</span></span><span class="stat-val neg">${fmt(val(a))}</span></div>`).join('')) : ''}
+    ${card('Compared with your Wealth tab now', `
+      <div class="stat-row"><span class="stat-label">Investments you've entered by hand</span><span class="stat-val">${fmt(manualInv)}</span></div>
+      <div class="stat-row"><span class="stat-label">Investments from Akahu</span><span class="stat-val">${fmt(totalVal)}</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">These won't match if your hand-entered list includes things Akahu isn't connected to yet (e.g. KiwiSaver), or if it hasn't been updated lately. If this were switched on, each Akahu account would link to one of your investments and update it daily.</div>`)}`;
+}
+function akahuDrawWealthChart(accts) {
+  const el = document.getElementById('akahu-inv-chart');
+  if (akahuInvChart) { akahuInvChart.destroy(); akahuInvChart = null; }
+  if (!el || typeof Chart === 'undefined') return;
+  const inv = accts.filter(a => a.status !== 'INACTIVE' && AKAHU_INV_TYPES.includes(a.type));
+  akahuInvChart = new Chart(el, {
+    type: 'doughnut',
+    data: { labels: inv.map(a => a.name), datasets: [{ data: inv.map(a => Number(a.balance?.current) || 0), backgroundColor: inv.map((_, i) => INV_COLORS[i % INV_COLORS.length]), borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { display: false } } },
+  });
 }
 
 async function sbRenameHousehold() {
