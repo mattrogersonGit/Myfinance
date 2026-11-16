@@ -1831,11 +1831,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.9'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.10'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 10; // 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 11; // 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -3111,7 +3111,7 @@ function renderSavingsCard() {
       <button class="btn-update" onclick="openUpdateSavings()">Update</button>
     </div></div>
     <div class="savings-val">${fmt(savings.current)}</div>
-    <div class="mort-updated">Updated ${dateStr}</div>
+    <div class="mort-updated">${savings.akahu && savings.akahu.ids?.length ? 'Auto-updated' : 'Updated'} ${dateStr}</div>
   `;
 }
 function openSavingsHistory() {
@@ -4106,7 +4106,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.9"></script>
+<script src="property.js?v=2026.11.16.10"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5332,17 +5332,30 @@ function akahuLinkedMortgages() { return mortgages.filter(m => m.akahu && Object
 function akahuPartValue(a) { const b = Number(a.balance?.current) || 0; return round2(a.type === 'LOAN' ? Math.abs(b) : -b); }
 // Returns a short summary for the UI; never throws. Covers linked investments
 // and linked mortgages, with one call to Akahu.
-async function akahuSyncInvestments({ force = false, onlyId = null, onlyMort = null } = {}) {
+async function akahuSyncInvestments({ force = false, onlyId = null, onlyMort = null, onlySav = false } = {}) {
   if (!akahuEnabled()) return { ran: false };
   const isDue = x => force || !x.akahuSynced || Date.now() - Date.parse(x.akahuSynced) > AKAHU_SYNC_DAYS * 86400000;
-  const only = onlyId != null || onlyMort != null;
+  const only = onlyId != null || onlyMort != null || onlySav;
   const due = akahuLinkedInvestments().filter(i => (!only || i.id === onlyId) && isDue(i));
   const dueMort = akahuLinkedMortgages().filter(m => (!only || m.id === onlyMort) && isDue(m));
-  if (!due.length && !dueMort.length) return { ran: false };
+  const dueSav = akahuSavingsLinked() && (!only || onlySav) && isDue(savings);
+  if (!due.length && !dueMort.length && !dueSav) return { ran: false };
   let accts;
   try { accts = (await akahuCall('accounts')).items || []; akahu.accounts = accts; }
   catch (e) { akahu.syncError = e.message; return { ran: true, error: e.message }; }
   const today = todayLocal(), updated = [], missing = [];
+  if (dueSav) {
+    const found = savings.akahu.ids.map(id => accts.find(a => a._id === id && a.status !== 'INACTIVE'));
+    if (found.some(a => !a)) missing.push('Savings (' + savings.akahu.ids.length + ' account' + (savings.akahu.ids.length === 1 ? '' : 's') + ', ' + found.filter(a => !a).length + ' not found)');
+    if (found.some(Boolean)) {
+      if (!savings.history) savings.history = [];
+      const latest = insertHistoryEntry(savings.history, { date: today, value: round2(found.filter(Boolean).reduce((s, a) => s + (Number(a.balance?.current) || 0), 0)) });
+      savings.current = latest.value;
+      savings.updatedAt = latest.date;
+      savings.akahuSynced = new Date().toISOString();
+      updated.push('Savings');
+    }
+  }
   dueMort.forEach(m => {
     const latest = m.history[m.history.length - 1] || { balances: {} };
     const balances = { ...(latest.balances || {}) }, gone = [];
@@ -5373,7 +5386,7 @@ async function akahuSyncInvestments({ force = false, onlyId = null, onlyMort = n
     updated.push(inv.name);
   });
   akahu.syncError = missing.length ? `Nothing found from Akahu for: ${missing.join(', ')}. Check the connection at my.akahu.nz.` : '';
-  if (updated.length) { scheduleSave(); try { renderAssets(); renderDebt(); } catch (e) {} }
+  if (updated.length) { scheduleSave(); try { renderAssets(); renderDebt(); recalcNetWorth(); } catch (e) {} }
   return { ran: true, updated, missing };
 }
 // Called once the household's add-ons have loaded (sign-in / app open).
@@ -5438,6 +5451,50 @@ function akahuUnlink(invId) {
   if (!inv) return;
   inv.akahu = null;
   scheduleSave(); renderAssets(); renderAkahu();
+}
+// Savings (one total on the Wealth tab) links to one or more Akahu bank
+// accounts, added together: savings.akahu = {ids:[...], names:[...]} (null when
+// unlinked), plus savings.akahuSynced. Weekly, like investments.
+function akahuSavingsLinked() { return !!(savings && savings.akahu && savings.akahu.ids && savings.akahu.ids.length); }
+function akahuOpenSavingsLink() {
+  if (!akahu.accounts) return;
+  const opts = akahu.accounts.filter(a => a.status !== 'INACTIVE' && ['SAVINGS', 'CHECKING', 'TERMDEPOSIT'].includes(a.type))
+    .sort((a, b) => (a.type === 'SAVINGS' ? 0 : 1) - (b.type === 'SAVINGS' ? 0 : 1));
+  const cur = new Set(savings.akahu?.ids || []);
+  document.getElementById('modal-title').textContent = 'Link Savings';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--text2);margin-bottom:8px">Your Savings figure is now ${fmt(savings.current || 0)}. Tick the accounts that make it up; their balances are added together.</div>
+    ${opts.map((a, i) => `<label style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
+      <input type="checkbox" id="akahu-sav-${i}" value="${escH(a._id)}"${cur.has(a._id) ? ' checked' : ''} style="width:18px;height:18px;flex-shrink:0">
+      <span style="flex:1;min-width:0">${escH(a.name)} <span style="color:var(--text3);font-size:11px">· ${escH(a.connection?.name || '')} · ${escH(a.formatted_account || a.type)}</span></span>
+      <span style="font-weight:600">${fmt(Number(a.balance?.current) || 0)}</span></label>`).join('')}
+    <div style="font-size:12px;color:var(--text3);margin-top:8px">Today's total is added to the Savings history; earlier history is kept. After that it updates by itself once a week, or when you tap Sync now.</div>`;
+  const btn = document.getElementById('modal-confirm');
+  btn.style.display = ''; btn.disabled = false; btn.textContent = 'Link and update';
+  btn.onclick = async () => {
+    const picked = opts.filter((a, i) => document.getElementById('akahu-sav-' + i).checked);
+    if (!picked.length) { closeModal(); akahuUnlinkSavings(); return; }
+    savings.akahu = { ids: picked.map(a => a._id), names: picked.map(a => `${a.name} · ${a.connection?.name || ''}`) };
+    savings.akahuSynced = null;
+    btn.disabled = true; btn.textContent = 'Updating…';
+    await akahuSyncInvestments({ force: true, onlySav: true });
+    closeModal(); renderAkahu();
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function akahuUnlinkSavings() {
+  savings.akahu = null;
+  scheduleSave(); try { renderAssets(); } catch (e) {} renderAkahu();
+}
+function akahuSavingsRowHtml() {
+  const on = akahuSavingsLinked();
+  if (!on && !akahu.accounts?.some(a => a.type === 'SAVINGS')) return '';
+  return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:0.5px solid var(--border)">
+    <div style="flex:1;min-width:0"><div style="font-size:13px">Savings → <strong>Savings</strong>${on ? '' : ' <span style="color:var(--text3);font-size:11px">· not linked</span>'}</div>
+      ${on ? `<div style="font-size:11px;color:var(--text3)">${savings.akahu.names.map(escH).join(' + ')}<br>${fmt(savings.current || 0)} in the app · last synced ${savings.akahuSynced ? akahuWhen(savings.akahuSynced) : 'never'} · weekly</div>` : ''}</div>
+    ${akahu.accounts ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 9px" onclick="akahuOpenSavingsLink()">${on ? 'Change…' : 'Link…'}</button>` : ''}
+    ${on ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 9px" onclick="akahuUnlinkSavings()">Unlink</button>` : ''}
+  </div>`;
 }
 // Accounts that can fill a mortgage part: loans, plus bank accounts for an offset.
 const AKAHU_MORT_TYPES = ['LOAN', 'CHECKING', 'SAVINGS'];
@@ -5661,9 +5718,9 @@ function akahuLinkedHtml() {
       ${on ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 9px" onclick="akahuUnlinkMortgage('${escH(m.id)}')">Unlink</button>` : ''}
     </div>`;
   }).join('');
-  const anyLinked = linked.length || akahuLinkedMortgages().length || akahuLinkedAccounts().length;
-  const acctRows = akahuAccountRowsHtml();
-  if (!anyLinked && !conns.length && !mortRows && !acctRows) return '';
+  const anyLinked = linked.length || akahuLinkedMortgages().length || akahuLinkedAccounts().length || akahuSavingsLinked();
+  const acctRows = akahuAccountRowsHtml(), savRow = akahuSavingsRowHtml();
+  if (!anyLinked && !conns.length && !mortRows && !acctRows && !savRow) return '';
   return `<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div style="font-size:13px;font-weight:600">Kept up to date</div>
@@ -5681,6 +5738,7 @@ function akahuLinkedHtml() {
         <div style="flex:1;min-width:0;font-size:13px">${escH(c.name)} <span style="color:var(--text3);font-size:11px">· not linked · ${fmt(akahuLinkTotal({ by: 'conn', id: c.id }, akahu.accounts))}</span></div>
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 9px" onclick="akahuOpenLink('${escH(c.id)}')">Link…</button>
       </div>`).join('') : `<div style="font-size:11px;color:var(--text3);padding-top:6px;border-top:0.5px solid var(--border)">Load accounts to link another provider.</div>`}
+    ${savRow}
     ${mortRows}
     ${acctRows}
     ${akahu.syncError ? `<div style="font-size:12px;color:var(--red);margin-top:6px">${escH(akahu.syncError)}</div>` : ''}
