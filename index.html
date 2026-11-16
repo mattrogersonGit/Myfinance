@@ -1310,6 +1310,8 @@
             <select id="rule-cat" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none"></select>
             <button class="btn btn-primary" onclick="addRule()" style="padding:10px 14px">Add</button>
           </div>
+          <input type="text" id="rule-rename" placeholder="Rename to (optional, e.g. Savings)" style="width:100%;box-sizing:border-box;margin-top:8px;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none">
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">With a rename, new transactions containing the keyword come in with this name instead of the bank's.</div>
         </div>
         <div id="s-account" class="s-body">
           <div id="account-content"><div style="font-size:13px;color:var(--text3)">Loading…</div></div>
@@ -1829,11 +1831,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.7'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.8'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 9; // 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 10; // 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -1870,6 +1872,18 @@ function categorise(desc, stream) {
 // any CSV detail (Particulars/Analysis Code) captured at import time, so a rule
 // can key off a loan-part or purpose code even though it isn't shown as the label.
 const txnSearchText = t => (t.desc + (t.detail ? ' ' + t.detail : '')).toLowerCase();
+// The bank's own wording, before any rename (rawDesc is kept when a rule or
+// the review screen renames a new transaction), so rules keep matching it.
+const txnRawText = t => ((t.rawDesc || t.desc) + (t.detail ? ' ' + t.detail : '')).toLowerCase();
+// A rule can also rename: {kw, cat, stream, rename}. Applied to new
+// transactions as they're imported (CSV or Akahu): first matching rule wins.
+function applyRules(t) {
+  const want = t.stream || 'personal', text = txnRawText(t);
+  const r = rules.find(r => (r.stream || 'personal') === want && text.includes(r.kw.toLowerCase()));
+  t.cat = r ? r.cat : 'Other';
+  if (r && r.rename && r.rename !== t.desc) { if (!t.rawDesc) t.rawDesc = t.desc; t.desc = r.rename; }
+  return t;
+}
 function getLast6Months() {
   const now = new Date(); const res = [];
   for (let i=5;i>=0;i--) { const d=new Date(now.getFullYear(),now.getMonth()-i,1); res.push({month:d.getMonth(),year:d.getFullYear(),label:d.toLocaleString('default',{month:'short'})}); }
@@ -3303,7 +3317,7 @@ function parseCSV(text, account) {
     const detail = [prtCol>=0?cols[prtCol]:'', anCol>=0?cols[anCol]:''].map(s=>(s||'').trim()).filter(Boolean).join(' · ');
     const t = {id:idBase++, date, desc, amount, account, stream};
     if (detail) t.detail = detail;
-    t.cat = categorise(txnSearchText(t), stream);
+    applyRules(t);
     txns.push(t);
   }
   return txns;
@@ -3370,7 +3384,7 @@ function renderPendingList() {
     return `<div id="pr-${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
       <div style="flex:1;min-width:0;overflow:hidden">
         <input type="text" value="${safeDesc}" style="font-size:14px;font-weight:500;background:none;border:none;border-bottom:0.5px solid var(--border2);color:var(--text);outline:none;width:100%;padding:0 0 2px 0" oninput="updatePendingDesc(${t.id},this.value)">
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}${t.detail?' · '+t.detail:''}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${dateStr} · ${acct}${t.detail?' · '+t.detail:''}${t.rawDesc?` · bank: ${escH(t.rawDesc)}`:''}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
         <span class="cat-pill" onclick="openPendingCatSheet(${t.id})" style="cursor:pointer;font-size:12px">${catEmoji(t.cat)} ${t.cat} ▾</span>
@@ -3389,7 +3403,11 @@ function renderPendingList() {
 }
 function updatePendingDesc(id, val) {
   const t = pendingTxns.find(x=>x.id===id);
-  if (t) { t.desc = val; scheduleSave(); }
+  if (!t) return;
+  if (!t.rawDesc) t.rawDesc = t.desc;
+  t.desc = val;
+  if (t.desc === t.rawDesc) delete t.rawDesc;
+  scheduleSave();
 }
 function addRuleFromPending(id) {
   const t = pendingTxns.find(x=>x.id===id);
@@ -3398,18 +3416,21 @@ function addRuleFromPending(id) {
   // matches against, via txnSearchText) so a generic payer name that's reused for
   // several different purposes -- e.g. the account holder's own name covering phone, gas, power --
   // produces a rule specific to *this* purpose instead of a rule that grabs all of them.
-  const kw = (t.desc.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
+  // Keyed on the bank's own wording; if you renamed it here, the rule renames too.
+  const raw = t.rawDesc || t.desc;
+  const kw = (raw.trim() + (t.detail ? ' ' + t.detail.trim() : '')).trim();
   if (!kw) return;
   const stream = t.stream || 'personal';
-  rules.unshift({kw, cat:t.cat, stream});
+  const rename = t.rawDesc && t.desc.trim() && t.desc !== t.rawDesc ? t.desc.trim() : null;
+  rules.unshift(rename ? {kw, cat:t.cat, stream, rename} : {kw, cat:t.cat, stream});
   // Apply immediately to every other pending/committed transaction in the same
   // stream that matches, so you don't have to leave this review screen to do it.
   const kwLower = kw.toLowerCase();
-  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && txnSearchText(p).includes(kwLower)) p.cat = t.cat; });
+  pendingTxns.forEach(p => { if ((p.stream||'personal')===stream && txnRawText(p).includes(kwLower)) { p.cat = t.cat; if (rename && p.desc !== rename) { if (!p.rawDesc) p.rawDesc = p.desc; p.desc = rename; } } });
   transactions.forEach(tx => { if ((tx.stream||'personal')===stream && txnSearchText(tx).includes(kwLower)) tx.cat = t.cat; });
   document.getElementById('modal-body').innerHTML = renderPendingList();
   const label = kw.length > 34 ? kw.slice(0, 34) + '…' : kw;
-  showToast(`Rule added: "${label}" → ${t.cat}`);
+  showToast(`Rule added: "${label}" → ${t.cat}${rename ? `, shown as "${rename}"` : ''}`);
   scheduleSave();
 }
 function openPendingReview() {
@@ -3783,7 +3804,7 @@ function renderRules() {
   document.getElementById('rules-list').innerHTML = filtered.map((r)=>`
     <div class="rule-item">
       <span class="rule-kw">${r.kw}</span>
-      <span class="rule-cat">→ ${r.cat}</span>
+      <span class="rule-cat">→ ${r.cat}${r.rename ? ` · shows as "${escH(r.rename)}"` : ''}</span>
       <button class="btn btn-danger" style="padding:4px 10px;font-size:12px" onclick="deleteRule(${rules.indexOf(r)})">✕</button>
     </div>`).join('') || '<div style="font-size:13px;color:var(--text3);padding:8px 0">No rules match</div>';
 }
@@ -3792,9 +3813,13 @@ function addRule() {
   const cat = document.getElementById('rule-cat').value;
   if (!kw) return;
   const stream = catMgmtTarget;
-  rules.unshift({kw, cat, stream});
+  const rename = (document.getElementById('rule-rename')?.value || '').trim();
+  rules.unshift(rename ? {kw, cat, stream, rename} : {kw, cat, stream});
   transactions.forEach(t=>{ if((t.stream||'personal')===stream && txnSearchText(t).includes(kw.toLowerCase())) t.cat=cat; });
+  // Waiting-for-review rows get the rename straight away.
+  pendingTxns.forEach(p=>{ if((p.stream||'personal')===stream && txnRawText(p).includes(kw.toLowerCase())) { p.cat=cat; if (rename && p.desc!==rename) { if (!p.rawDesc) p.rawDesc=p.desc; p.desc=rename; } } });
   document.getElementById('rule-kw').value='';
+  if (document.getElementById('rule-rename')) document.getElementById('rule-rename').value='';
   renderRules(); scheduleSave();
 }
 function deleteRule(i) {
@@ -4020,7 +4045,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.7"></script>
+<script src="property.js?v=2026.11.16.8"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5429,8 +5454,7 @@ function akahuToTxn(x, acc, id) {
   const t = { id, date: akahuDayToDate(akahuNzDay(x.date)), desc: String(x.description || 'Unknown').replace(/\s+/g, ' ').trim(),
     amount: round2(Number(x.amount) || 0), account: acc.id, stream, akahuId: x._id };
   if (detail) t.detail = detail;
-  t.cat = categorise(txnSearchText(t), stream);
-  return t;
+  return applyRules(t);
 }
 // Splits Akahu rows into new transactions and ones the app already has.
 function akahuSortNew(acc, items) {
