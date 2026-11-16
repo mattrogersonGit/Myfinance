@@ -1831,7 +1831,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.8'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.9'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -1843,6 +1843,67 @@ document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION
 // roughly the first half of their day. Read the local calendar fields directly
 // instead so date-input defaults/maxes always match the device's actual date.
 const todayLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+// ─── Dates typed and shown as dd/mm/yyyy ─────────────────────────────────────
+// A browser draws <input type="date"> in its own language's order (a US-English
+// browser shows mm/dd/yyyy). Every date box in the app is left in place, hidden,
+// as the value the code reads and writes (YYYY-MM-DD, its id and onchange
+// unchanged), and a dd/mm/yyyy text box with a calendar button is shown in front
+// of it. Typing d/m/yy, d-m-yyyy or d.m.yyyy works; the button opens the
+// browser's own calendar. Applied by itself to date boxes as they appear.
+function isoToDmy(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; }
+function dmyToIso(s) {
+  const m = /^\s*(\d{1,2})[\/.\-\s](\d{1,2})[\/.\-\s](\d{2}|\d{4})\s*$/.exec(s || '');
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+function dmyEnhance(native) {
+  if (native.dataset.dmy) return;
+  native.dataset.dmy = '1';
+  const wrap = document.createElement('span');
+  wrap.style.cssText = 'display:flex;gap:6px;align-items:stretch;position:relative;width:100%';
+  const txt = document.createElement('input');
+  txt.type = 'text'; txt.inputMode = 'numeric'; txt.placeholder = 'dd/mm/yyyy'; txt.autocomplete = 'off';
+  if (native.getAttribute('style')) txt.setAttribute('style', native.getAttribute('style'));
+  if (native.className) txt.className = native.className;
+  txt.style.flex = '1'; txt.style.minWidth = '0';
+  txt.value = isoToDmy(native.value);
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.textContent = '📅'; btn.title = 'Pick a date'; btn.setAttribute('aria-label', 'Pick a date');
+  btn.style.cssText = 'flex-shrink:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm,8px);padding:0 10px;cursor:pointer;font-size:15px';
+  native.parentNode.insertBefore(wrap, native);
+  wrap.append(txt, btn, native);
+  native.tabIndex = -1;
+  native.setAttribute('aria-hidden', 'true');
+  native.style.cssText = 'position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0;margin:0';
+  const commit = () => {
+    const v = txt.value.trim();
+    const iso = v ? dmyToIso(v) : '';
+    const bad = iso === null || (iso && native.min && iso < native.min) || (iso && native.max && iso > native.max);
+    txt.style.borderColor = bad ? 'var(--red,#e05c5c)' : '';
+    if (bad) return;
+    txt.value = isoToDmy(iso);
+    if (native.value !== iso) {
+      native.value = iso;
+      native.dispatchEvent(new Event('input', { bubbles: true }));
+      native.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  txt.addEventListener('change', commit);
+  txt.addEventListener('blur', commit);
+  txt.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+  native.addEventListener('change', () => { txt.value = isoToDmy(native.value); txt.style.borderColor = ''; });
+  btn.addEventListener('click', () => {
+    commit();
+    try { native.showPicker(); } catch (e) { native.style.pointerEvents = ''; native.focus(); native.click(); }
+  });
+}
+function dmyScan(root) { (root || document).querySelectorAll('input[type="date"]:not([data-dmy])').forEach(dmyEnhance); }
+new MutationObserver(muts => { if (muts.some(m => m.addedNodes.length)) dmyScan(document); })
+  .observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener('DOMContentLoaded', () => dmyScan(document));
 // NZ tax year runs 1 Apr – 31 Mar, keyed by its ENDING calendar year (FY
 // 1 Apr 2025 – 31 Mar 2026 = 2026) -- deliberately separate from budgetYear
 // (a plain calendar year used for the unrelated budgeting feature).
@@ -4045,7 +4106,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.8"></script>
+<script src="property.js?v=2026.11.16.9"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
