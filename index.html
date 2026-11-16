@@ -5091,7 +5091,10 @@ function akahuAccountHtml(a) {
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:6px">Balance updated ${akahuWhen(a.refreshed?.balance)} · transactions ${akahuWhen(a.refreshed?.transactions)}${port ? ` · ${port.length} holdings` : ''}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-      ${hasTx ? btn('Transactions · 90 days', `akahuLoadTxns('${escH(a._id)}',90)`) + btn('1 year', `akahuLoadTxns('${escH(a._id)}',365)`) : '<span style="font-size:11px;color:var(--text3);align-self:center">No transactions from this provider</span>'}
+      ${hasTx || !AKAHU_INV_TYPES.concat('WALLET').includes(a.type)
+        ? btn('Transactions · 90 days', `akahuLoadTxns('${escH(a._id)}',90)`) + btn('1 year', `akahuLoadTxns('${escH(a._id)}',365)`)
+          + (hasTx ? '' : `<span style="font-size:11px;color:var(--text3);align-self:center">Akahu doesn't list transactions for this account yet${(a.attributes || []).length ? '' : ' (no attributes)'}: trying anyway</span>`)
+        : '<span style="font-size:11px;color:var(--text3);align-self:center">No transactions from this provider</span>'}
       ${port ? btn(akahu.open[a._id] ? 'Hide holdings' : 'Holdings', `akahuToggle('open','${escH(a._id)}')`) : ''}
       ${btn(akahu.raw[a._id] ? 'Hide raw' : 'Raw data', `akahuToggle('raw','${escH(a._id)}')`)}
     </div>
