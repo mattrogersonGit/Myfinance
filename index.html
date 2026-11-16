@@ -1831,7 +1831,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.10'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.11'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -4106,7 +4106,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.10"></script>
+<script src="property.js?v=2026.11.16.11"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5488,7 +5488,7 @@ function akahuUnlinkSavings() {
 }
 function akahuSavingsRowHtml() {
   const on = akahuSavingsLinked();
-  if (!on && !akahu.accounts?.some(a => a.type === 'SAVINGS')) return '';
+  if (!on && !akahu.accounts?.some(a => a.status !== 'INACTIVE' && ['SAVINGS', 'CHECKING', 'TERMDEPOSIT'].includes(a.type))) return '';
   return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:0.5px solid var(--border)">
     <div style="flex:1;min-width:0"><div style="font-size:13px">Savings → <strong>Savings</strong>${on ? '' : ' <span style="color:var(--text3);font-size:11px">· not linked</span>'}</div>
       ${on ? `<div style="font-size:11px;color:var(--text3)">${savings.akahu.names.map(escH).join(' + ')}<br>${fmt(savings.current || 0)} in the app · last synced ${savings.akahuSynced ? akahuWhen(savings.akahuSynced) : 'never'} · weekly</div>` : ''}</div>
