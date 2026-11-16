@@ -1831,11 +1831,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.11'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.12'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 11; // 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 12; // 12: Akahu loan-interest link on accounts (akahu.ids, loanNames, interest {cat, repCat}). 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -3505,6 +3505,8 @@ function openPendingReview() {
   // committed yet, it's always safe to re-derive stream from the account's
   // *current* link every time the review screen opens.
   pendingTxns.forEach(t => { t.stream = accountStream(t.account); });
+  // Repayments that loan interest now replaces (see akahuMoveRepayments).
+  if (typeof akahuLinkedAccounts === 'function') akahuLinkedAccounts().forEach(a => { if (a.akahu.interest) akahuMoveRepayments(a); });
   document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
   document.querySelector('.modal-box').classList.add('modal-wide');
   document.getElementById('modal-body').innerHTML = renderPendingList();
@@ -4106,7 +4108,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.11"></script>
+<script src="property.js?v=2026.11.16.12"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5572,7 +5574,99 @@ function akahuToTxn(x, acc, id) {
   const t = { id, date: akahuDayToDate(akahuNzDay(x.date)), desc: String(x.description || 'Unknown').replace(/\s+/g, ' ').trim(),
     amount: round2(Number(x.amount) || 0), account: acc.id, stream, akahuId: x._id };
   if (detail) t.detail = detail;
+  if (acc.akahu?.interest) {
+    // An interest charge is a cost whichever way round the bank reports it;
+    // the loan's name goes in the detail so each line says which loan it was.
+    t.amount = -Math.abs(t.amount);
+    t.detail = [x._loan, detail].filter(Boolean).join(' · ');
+    t.cat = acc.akahu.interest.cat;
+    return t;
+  }
   return applyRules(t);
+}
+// Loan interest (e.g. the beach loans into Property): an app account set to the
+// property's stream links to one or more LOAN accounts and brings in only their
+// interest charges, all in one category: acc.akahu = {id, ids:[...], name, from,
+// interest:{cat, repCat}}. The repayments that used to stand in for the
+// interest (paid from another account in the same stream, in repCat) move, from
+// the same date, to "Loan repayments", which Property counts as a transfer, so
+// interest isn't counted twice. New repayments are moved as they come in.
+const AKAHU_REPAY_CAT = 'Loan repayments';
+function akahuIsInterest(x) {
+  return String(x.type || '').toUpperCase() === 'INTEREST' || /\binterest\b|\bint\b/i.test(`${x.description || ''}`);
+}
+function akahuMoveRepayments(acc) {
+  const it = acc.akahu?.interest;
+  if (!it || !it.repCat) return 0;
+  const stream = accountStream(acc.id);
+  const s = otherIncomeStreams.find(x => x.id === stream);
+  if (s) {
+    if (!(s.cats || []).some(c => c.name === AKAHU_REPAY_CAT)) s.cats = [...(s.cats || []), { name: AKAHU_REPAY_CAT, emoji: '🔁', fixed: false }];
+    if (typeof propSettings === 'function' && s.type === 'Investment Property') {
+      const p = propSettings(s);
+      if ((p.catLines || {})[AKAHU_REPAY_CAT] !== 'transfer') s.property = { ...p, catLines: { ...(p.catLines || {}), [AKAHU_REPAY_CAT]: 'transfer' } };
+    }
+  }
+  let n = 0;
+  [...transactions, ...pendingTxns].forEach(t => {
+    if ((t.stream || 'personal') === stream && t.account !== acc.id && t.cat === it.repCat && t.amount < 0 && dateToIso(t.date) >= acc.akahu.from) { t.cat = AKAHU_REPAY_CAT; n++; }
+  });
+  return n;
+}
+function akahuOpenLoanLink(appId) {
+  const acc = accounts.find(a => a.id === appId);
+  if (!acc || !akahu.accounts) return;
+  const stream = accountStream(acc.id);
+  const s = otherIncomeStreams.find(x => x.id === stream);
+  if (!s) {
+    document.getElementById('modal-title').textContent = 'Loan interest: ' + acc.name;
+    document.getElementById('modal-body').innerHTML = `<div style="font-size:13px;color:var(--text2);line-height:1.5">Set this account's stream to the property first (Settings → Accounts), so its interest goes to that property and not to your personal spending.</div>`;
+    document.getElementById('modal-confirm').style.display = 'none';
+    document.getElementById('modal').classList.add('open');
+    return;
+  }
+  const loans = akahu.accounts.filter(a => a.status !== 'INACTIVE' && a.type === 'LOAN');
+  const cur = new Set(acc.akahu?.interest ? (acc.akahu.ids || [acc.akahu.id]) : []);
+  const cats = (s.cats || []).map(c => c.name).filter(n => n !== AKAHU_REPAY_CAT);
+  const lineOf = n => (typeof propLineFor === 'function' ? propLineFor(s, n) : (/interest|mortgage/i.test(n) ? 'interest' : ''));
+  const intGuess = acc.akahu?.interest?.cat || cats.find(n => lineOf(n) === 'interest') || cats[0];
+  const repGuess = acc.akahu?.interest ? acc.akahu.interest.repCat : intGuess;
+  const fy = (() => { const d = new Date(); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `${y}-04-01`; })();
+  const def = acc.akahu?.from || fy;
+  const sel = (id, list, pick, extra) => `<select id="${id}">${extra || ''}${list.map(n => `<option value="${escH(n)}"${n === pick ? ' selected' : ''}>${escH(n)}</option>`).join('')}</select>`;
+  document.getElementById('modal-title').textContent = 'Loan interest: ' + acc.name;
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Brings in only the interest charged on each loan you tick, into ${escH(s.name)}.</div>
+    ${loans.map((a, i) => `<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
+      <input type="checkbox" id="akahu-loan-${i}"${cur.has(a._id) ? ' checked' : ''} style="width:18px;height:18px;flex-shrink:0">
+      <span style="flex:1;min-width:0">${escH(a.name)} <span style="color:var(--text3);font-size:11px">· ${escH(a.connection?.name || '')} · ${escH(a.formatted_account || '')}</span></span>
+      <span style="font-weight:600">${fmt(Math.abs(Number(a.balance?.current) || 0))}</span></label>`).join('') || '<div style="font-size:13px;color:var(--text3)">No loan accounts in Akahu.</div>'}
+    <div class="input-group" style="margin-top:10px"><label>Interest goes to category</label>${sel('akahu-loan-cat', cats, intGuess)}</div>
+    <div class="input-group"><label>Bring in interest from</label><input type="date" id="akahu-loan-from" value="${def}" max="${todayLocal()}"></div>
+    <div class="input-group"><label>Repayments that stood in for the interest</label>${sel('akahu-loan-rep', cats, repGuess, '<option value="">Leave them as they are</option>')}</div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.5">From the date above, payments out of your other ${escH(s.name)} accounts in that category move to "${AKAHU_REPAY_CAT}", which counts as a transfer, so the interest isn't counted twice. Earlier ones stay as they are. New repayments are moved as they come in. Interest lines go to the review list like any import.</div>`;
+  const btn = document.getElementById('modal-confirm');
+  btn.style.display = ''; btn.disabled = !loans.length; btn.textContent = 'Link and fetch';
+  btn.onclick = async () => {
+    const picked = loans.filter((a, i) => document.getElementById('akahu-loan-' + i).checked);
+    const from = document.getElementById('akahu-loan-from').value;
+    const cat = document.getElementById('akahu-loan-cat').value;
+    const repCat = document.getElementById('akahu-loan-rep').value;
+    if (!picked.length || !from || !cat) return;
+    acc.akahu = { id: picked[0]._id, ids: picked.map(a => a._id), loanNames: Object.fromEntries(picked.map(a => [a._id, a.name])), name: picked.map(a => a.name).join(' + ') + ' · interest', from, interest: { cat, repCat } };
+    acc.akahuSynced = null;
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    const moved = akahuMoveRepayments(acc);
+    const r = await akahuSyncTxns({ force: true, onlyAcc: acc.id });
+    btn.disabled = false;
+    closeModal(); renderAkahu();
+    const x = (r.res || [])[0];
+    if (moved) showToast(`${moved} repayment${moved === 1 ? '' : 's'} moved to ${AKAHU_REPAY_CAT}`, 5000);
+    if (x?.error) { akahu.error = x.error; renderAkahu(); }
+    else if (x?.added) openPendingReview();
+    else showToast('No interest lines found');
+  };
+  document.getElementById('modal').classList.add('open');
 }
 // Splits Akahu rows into new transactions and ones the app already has.
 function akahuSortNew(acc, items) {
@@ -5633,8 +5727,18 @@ async function akahuSyncTxns({ force = false, onlyAcc = null } = {}) {
         const s = dateToIso(new Date(Date.parse(acc.akahuSynced) - AKAHU_TXN_OVERLAP_DAYS * 86400000));
         if (s > start) start = s;
       }
-      const r = akahuSortNew(acc, await akahuFetchTxns(acc.akahu.id, start));
+      let items;
+      if (acc.akahu.interest) {
+        // Loan interest: each linked loan's interest charges only, tagged with the loan.
+        items = [];
+        for (const id of acc.akahu.ids || [acc.akahu.id]) {
+          const loanName = (acc.akahu.loanNames || {})[id] || akahu.accounts?.find(a => a._id === id)?.name || '';
+          (await akahuFetchTxns(id, start)).filter(akahuIsInterest).forEach(x => items.push({ ...x, _loan: loanName }));
+        }
+      } else items = await akahuFetchTxns(acc.akahu.id, start);
+      const r = akahuSortNew(acc, items);
       pendingTxns = pendingTxns.concat(r.out);
+      if (acc.akahu.interest) akahuMoveRepayments(acc);
       acc.akahuSynced = new Date().toISOString();
       acc.akahuLast = { added: r.out.length, matched: r.matched, deleted: r.deleted, error: '' };
       res.push({ name: acc.name, added: r.out.length, matched: r.matched, deleted: r.deleted });
@@ -5643,13 +5747,16 @@ async function akahuSyncTxns({ force = false, onlyAcc = null } = {}) {
       res.push({ name: acc.name, error: e.message });
     }
   }
+  akahuLinkedAccounts().forEach(a => { if (a.akahu.interest) akahuMoveRepayments(a); });
   scheduleSave(); renderPendingBanner();
   return { ran: true, res };
 }
 function akahuOpenAccountLink(appId) {
   const acc = accounts.find(a => a.id === appId);
   if (!acc || !akahu.accounts) return;
+  if (acc.akahu?.interest) return akahuOpenLoanLink(appId);
   const opts = akahu.accounts.filter(a => a.status !== 'INACTIVE' && AKAHU_TXN_TYPES.includes(a.type));
+  const hasLoans = akahu.accounts.some(a => a.status !== 'INACTIVE' && a.type === 'LOAN');
   const mine = transactions.filter(t => t.account === appId);
   const last = mine.length ? new Date(Math.max(...mine.map(t => +t.date))) : null;
   const def = acc.akahu?.from || (last ? dateToIso(new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1)) : dateToIso(new Date(Date.now() - 30 * 86400000)));
@@ -5661,7 +5768,8 @@ function akahuOpenAccountLink(appId) {
     <div class="input-group"><label>Bring in transactions from</label>
       <input type="date" id="akahu-acc-from" value="${def}" max="${todayLocal()}"></div>
     <div style="font-size:12px;color:var(--text3);line-height:1.5">${last ? `Your latest ${escH(acc.name)} transaction in the app is ${last.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}.` : `There are no ${escH(acc.name)} transactions in the app yet.`}
-      Anything already here (same amount within ${AKAHU_MATCH_DAYS} days) or that you deleted before is skipped. New transactions go to the review list with your rules applied; nothing is added until you commit it. After this it checks for new ones when the app opens (at most every ${AKAHU_TXN_SYNC_HOURS} hours) or when you tap Sync now.</div>`;
+      Anything already here (same amount within ${AKAHU_MATCH_DAYS} days) or that you deleted before is skipped. New transactions go to the review list with your rules applied; nothing is added until you commit it. After this it checks for new ones when the app opens (at most every ${AKAHU_TXN_SYNC_HOURS} hours) or when you tap Sync now.</div>
+    ${hasLoans ? `<div style="margin-top:10px"><a href="#" onclick="akahuOpenLoanLink('${escH(acc.id)}');return false" style="color:var(--teal);font-size:13px;text-decoration:none">Use this account for loan interest instead →</a></div>` : ''}`;
   const btn = document.getElementById('modal-confirm');
   btn.style.display = ''; btn.disabled = !opts.length; btn.textContent = 'Link and fetch';
   btn.onclick = async () => {
