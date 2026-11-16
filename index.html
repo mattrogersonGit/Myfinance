@@ -5086,7 +5086,7 @@ function akahuAccountHtml(a) {
       </div>
       <div style="text-align:right">
         <div style="font-size:15px;font-weight:600">${b.current != null ? (b.current < 0 ? '−' : '') + fmt(b.current) : '—'}</div>
-        ${b.available != null && b.available !== b.current ? `<div style="font-size:11px;color:var(--text3)">${fmt(b.available)} available</div>` : ''}
+        ${b.available != null && b.available !== b.current && ['CHECKING', 'SAVINGS', 'CREDITCARD', 'WALLET'].includes(a.type) ? `<div style="font-size:11px;color:var(--text3)">${fmt(b.available)} available</div>` : ''}
       </div>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:6px">Balance updated ${akahuWhen(a.refreshed?.balance)} · transactions ${akahuWhen(a.refreshed?.transactions)}${port ? ` · ${port.length} holdings` : ''}</div>
