@@ -991,9 +991,9 @@
   </ul>
   <div style="font-size:11px;color:#7a7f96;text-align:center;margin-top:8px;padding:0 16px;line-height:1.5">🔒 This app does not connect to your bank. You import transactions manually by downloading a CSV from your bank's internet banking.</div>
   <div id="auth-sb-form" style="width:100%;max-width:320px;margin-top:8px">
-    <input type="email" id="auth-email" placeholder="Email address" autocomplete="email"
+    <input type="email" id="auth-email" placeholder="Email address" autocomplete="email" enterkeyhint="next" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('auth-password').focus()}"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
-    <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password"
+    <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();authScreenAction('signin')}"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:8px">
     <div style="text-align:right;margin-bottom:10px"><a href="#" onclick="sbForgotPassword('auth-email','auth-error');return false" style="color:var(--teal);font-size:12px;text-decoration:none">Forgot password?</a></div>
     <div id="auth-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
@@ -1013,7 +1013,7 @@
     </div>
     <input type="email" id="invite-email" placeholder="Your email address" autocomplete="email"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
-    <input type="password" id="invite-password" placeholder="Choose a password (min 6 chars)" autocomplete="new-password"
+    <input type="password" id="invite-password" placeholder="Choose a password (min 6 chars)" autocomplete="new-password" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();sbInviteSignup()}"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:14px">
     <div id="invite-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
     <button id="invite-btn" onclick="sbInviteSignup()"
@@ -1036,7 +1036,7 @@
     </div>
     <input type="password" id="reset-pass1" placeholder="New password" autocomplete="new-password"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:10px">
-    <input type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password"
+    <input type="password" id="reset-pass2" placeholder="Confirm new password" autocomplete="new-password" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();submitPasswordResetAuth()}"
       style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:15px;padding:13px 16px;outline:none;margin-bottom:14px">
     <div id="reset-pass-error" style="color:#ff6b6b;font-size:13px;margin-bottom:10px;text-align:center;display:none"></div>
     <button id="reset-pass-btn" onclick="submitPasswordResetAuth()"
@@ -1829,7 +1829,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.16.5'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.16.6'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -4020,7 +4020,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.16.5"></script>
+<script src="property.js?v=2026.11.16.6"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5483,7 +5483,7 @@ function renderAccountSection() {
   if (!sbUser) {
     el.innerHTML = `
       <input type="email" id="sb-email" placeholder="Email address" autocomplete="email" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
-      <input type="password" id="sb-password" placeholder="Password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
+      <input type="password" id="sb-password" placeholder="Password" autocomplete="current-password" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();sbAuthAction('signin')}" style="width:100%;box-sizing:border-box;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;padding:10px 12px;outline:none;margin-bottom:8px">
       <div style="text-align:right;margin-bottom:8px"><a href="#" onclick="sbForgotPassword('sb-email','sb-auth-error');return false" style="color:var(--teal);font-size:12px;text-decoration:none">Forgot password?</a></div>
       <div id="sb-auth-error" style="color:var(--red,#ff5f57);font-size:12px;margin-bottom:8px;display:none"></div>
       <div style="display:flex;gap:8px">
