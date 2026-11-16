@@ -24,6 +24,7 @@ async function sbLoadAddons() {
   }
   renderPropertyEntry();
   if (currentPage === 'property') renderProperty();
+  if (typeof akahuAutoSync === 'function') akahuAutoSync();
 }
 // The localStorage override is a beta/testing convenience only (e.g. to try
 // the module in local-only mode) -- remove it before the module is sold.
