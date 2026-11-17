@@ -1831,11 +1831,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.17.3'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.17.4'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 15; // 12: Akahu loan-interest link on accounts (akahu.ids, loanNames, interest {cat, repCat}). 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 16; // 12: Akahu loan-interest link on accounts (akahu.ids, loanNames, interest {cat, repCat}). 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -3429,16 +3429,17 @@ function handleCSV(input, account) {
 function renderPendingBanner() {
   const el = document.getElementById('pending-banner');
   if (!el) return;
-  if (!pendingTxns.length) { el.style.display='none'; return; }
+  const flags = typeof akahuFlagCount === 'function' ? akahuFlagCount() : 0;
+  if (!pendingTxns.length && !flags) { el.style.display='none'; return; }
   el.style.display='block';
   el.innerHTML = `<div style="background:var(--teal);color:#fff;border-radius:var(--radius);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <span style="font-weight:600">${pendingTxns.length} transactions ready to review</span>
+    <span style="font-weight:600">${[pendingTxns.length ? `${pendingTxns.length} transactions ready to review` : '', flags ? `${flags} changed at the bank` : ''].filter(Boolean).join(' · ')}</span>
     <button onclick="openPendingReview()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer">Review →</button>
   </div>`;
 }
 function renderPendingList() {
   const clearAllRow = pendingTxns.length ? `<div style="text-align:right;margin-bottom:6px"><button onclick="clearAllPending()" style="font-size:12px;color:var(--red);background:none;border:none;cursor:pointer;padding:0">Clear all</button></div>` : '';
-  return clearAllRow + pendingTxns.map(t => {
+  return (typeof akahuFlagsHtml === 'function' ? akahuFlagsHtml() : '') + clearAllRow + pendingTxns.map(t => {
     const dateStr = t.date.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
     const acct = accounts.find(a=>a.id===t.account)?.name || t.account;
     const safeDesc = t.desc.replace(/"/g,'&quot;');
@@ -3495,7 +3496,8 @@ function addRuleFromPending(id) {
   scheduleSave();
 }
 function openPendingReview() {
-  if (!pendingTxns.length) return;
+  const flags = typeof akahuFlagCount === 'function' ? akahuFlagCount() : 0;
+  if (!pendingTxns.length && !flags) return;
   // A pending transaction's stream is a one-time snapshot taken when its CSV was
   // first parsed (see parseCSV). If an account gets linked to an Other Income
   // stream *after* some rows were already sitting in the review queue (or a CSV
@@ -3507,11 +3509,11 @@ function openPendingReview() {
   pendingTxns.forEach(t => { t.stream = accountStream(t.account); });
   // Repayments that loan interest now replaces (see akahuMoveRepayments).
   if (typeof akahuLinkedAccounts === 'function') akahuLinkedAccounts().forEach(a => { if (a.akahu.interest) akahuMoveRepayments(a); });
-  document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
+  document.getElementById('modal-title').textContent = pendingTxns.length ? `Review ${pendingTxns.length} new transactions` : 'Changed at the bank';
   document.querySelector('.modal-box').classList.add('modal-wide');
   document.getElementById('modal-body').innerHTML = renderPendingList();
   document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
-  document.getElementById('modal-confirm').style.display = '';
+  document.getElementById('modal-confirm').style.display = pendingTxns.length ? '' : 'none';
   document.getElementById('modal-confirm').onclick = acceptAllPending;
   document.getElementById('modal').classList.add('open');
 }
@@ -3550,7 +3552,7 @@ function rejectPending(id) {
   rememberDeletedTxn(pendingTxns.find(t => t.id === id));
   pendingTxns = pendingTxns.filter(t=>t.id!==id);
   tombstone('pendingTxns', id);
-  if (!pendingTxns.length) { closeModal(); renderPendingBanner(); scheduleSave(); return; }
+  if (!pendingTxns.length) { if (akahuFlagCount()) openPendingReview(); else closeModal(); renderPendingBanner(); scheduleSave(); return; }
   document.getElementById('modal-body').innerHTML = renderPendingList();
   document.getElementById('modal-confirm').textContent = `Commit all (${pendingTxns.length})`;
   scheduleSave();
@@ -3563,7 +3565,7 @@ function acceptPending(id) {
   tombstone('pendingTxns', id);
   pendingTxns = pendingTxns.filter(x=>x.id!==id);
   transactions = transactions.concat(t).sort((a,b)=>b.date-a.date);
-  if (!pendingTxns.length) closeModal();
+  if (!pendingTxns.length) { if (akahuFlagCount()) openPendingReview(); else closeModal(); }
   else {
     document.getElementById('modal-title').textContent = `Review ${pendingTxns.length} new transactions`;
     document.getElementById('modal-body').innerHTML = renderPendingList();
@@ -4108,7 +4110,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.17.3"></script>
+<script src="property.js?v=2026.11.17.4"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5412,7 +5414,8 @@ function akahuAutoSync() {
     .then(() => akahuSyncTxns())
     .then(r => {
       const added = (r.res || []).reduce((s, x) => s + (x.added || 0), 0);
-      if (added) showToast(`${added} new bank transaction${added === 1 ? '' : 's'} to review`, 5000);
+      const changed = (r.res || []).reduce((s, x) => s + (x.changed || 0), 0);
+      if (added || changed) showToast([added ? `${added} new bank transaction${added === 1 ? '' : 's'} to review` : '', changed ? `${changed} changed at the bank` : ''].filter(Boolean).join(', '), 5000);
       if (document.getElementById('s-akahu')?.classList.contains('open')) renderAkahu();
     });
 }
@@ -5601,13 +5604,15 @@ async function akahuSyncNow() {
   const t = await akahuSyncTxns({ force: true });
   akahu.loading = '';
   const added = (t.res || []).reduce((s, x) => s + (x.added || 0), 0);
+  const changed = (t.res || []).reduce((s, x) => s + (x.changed || 0), 0);
   const msg = [];
+  if (changed) msg.push(`${changed} transaction${changed === 1 ? '' : 's'} changed at the bank, to check in the review list.`);
   if (r.updated?.length) msg.push(`Updated ${r.updated.join(', ')}.`);
   if (h.ran) msg.push(h.errors.length ? h.errors.join(' ') : `Home office loan interest: ${h.added} new line${h.added === 1 ? '' : 's'}.`);
   if (t.ran) msg.push(added ? `${added} new transaction${added === 1 ? '' : 's'} to review.` : 'No new transactions.');
   akahu.error = msg.join(' ');
   renderAkahu();
-  if (added) openPendingReview();
+  if (added || changed) openPendingReview();
 }
 
 // ─── Akahu transactions into an app account ─────────────────────────────────
@@ -5866,6 +5871,94 @@ function akahuUnlinkHomeLoan(i) {
     return { ...ho, loans: list };
   });
 }
+// ─── Bank changes after import ──────────────────────────────────────────────
+// Each sync checks the Akahu ids already brought in against the bank's current
+// list for the window just fetched. A different amount (or a date more than 3
+// days off), or one the bank no longer lists, is flagged on the committed
+// transaction (t.akahuFlag = {kind:'changed', amount, date, desc} | {kind:'gone'})
+// for the review list. Nothing changes by itself. "Keep mine" stores what was
+// seen (t.akahuAck) so the same change isn't flagged again. Split pieces share
+// an akahuId, so their amounts are added together. Rows still waiting in the
+// review list just take the bank's new amount.
+const akahuAckKey = f => f.kind === 'gone' ? 'gone' : `${f.amount}|${f.date}`;
+function akahuCheckChanges(acc, items, start) {
+  const byId = new Map(items.map(x => [x._id, x]));
+  pendingTxns.forEach(t => {
+    const x = t.account === acc.id && t.akahuId && byId.get(t.akahuId);
+    if (x && Math.abs(round2(Number(x.amount) || 0) - t.amount) >= 0.005) t.amount = round2(Number(x.amount) || 0);
+  });
+  const groups = new Map();
+  transactions.forEach(t => { if (t.account === acc.id && t.akahuId) { if (!groups.has(t.akahuId)) groups.set(t.akahuId, []); groups.get(t.akahuId).push(t); } });
+  // Only judge "gone" well inside the window (a CSV-matched row's date can be 3 days off the bank's).
+  const goneFrom = dateToIso(new Date(+akahuDayToDate(start) + (AKAHU_MATCH_DAYS + 1) * 86400000));
+  let n = 0;
+  groups.forEach((list, id) => {
+    const x = byId.get(id);
+    const first = list.reduce((a, b) => a.date <= b.date ? a : b), firstDay = dateToIso(first.date);
+    let flag = null;
+    if (x) {
+      const amt = round2(Number(x.amount) || 0), have = round2(list.reduce((s, t) => s + (+t.amount || 0), 0)), day = akahuNzDay(x.date);
+      const dayOff = Math.abs(+akahuDayToDate(day) - +akahuDayToDate(firstDay)) > AKAHU_MATCH_DAYS * 86400000;
+      if (Math.abs(amt - have) >= 0.005 || dayOff) flag = { kind: 'changed', amount: amt, date: day, desc: x.description || '' };
+    } else if (!items.length || firstDay < goneFrom) return; // outside what was fetched: leave it
+    else flag = { kind: 'gone' };
+    const isNew = flag && list[0].akahuAck !== akahuAckKey(flag) && JSON.stringify(list[0].akahuFlag || null) !== JSON.stringify(flag);
+    list.forEach(t => { if (!flag || t.akahuAck === akahuAckKey(flag)) delete t.akahuFlag; else t.akahuFlag = flag; });
+    if (isNew) n++;
+  });
+  return n;
+}
+function akahuFlagGroups() {
+  const m = new Map();
+  transactions.forEach(t => { if (t.akahuFlag && t.akahuId) { if (!m.has(t.akahuId)) m.set(t.akahuId, []); m.get(t.akahuId).push(t); } });
+  return [...m.entries()].map(([id, list]) => ({ id, list, flag: list[0].akahuFlag }));
+}
+function akahuFlagCount() { return akahuFlagGroups().length; }
+function akahuFlagsHtml() {
+  const g = akahuFlagGroups();
+  if (!g.length) return '';
+  const btn = (label, fn, color) => `<button onclick="${fn}" style="font-size:11px;color:${color};background:none;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;padding:3px 8px">${label}</button>`;
+  return `<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px">Changed at the bank since you committed them (${g.length})</div>` + g.map(({ id, list, flag }) => {
+    const t = list[0], have = round2(list.reduce((s, x) => s + (+x.amount || 0), 0));
+    const acct = accounts.find(a => a.id === t.account)?.name || t.account;
+    const what = flag.kind === 'gone' ? 'The bank no longer lists this one (a reversed or cancelled charge?).'
+      : `Bank now: ${fmt(flag.amount)} on ${fmtDay(flag.date)}${flag.desc ? ` · ${escH(flag.desc)}` : ''}`;
+    const sid = escH(id);
+    return `<div style="padding:8px 10px;margin-bottom:6px;border-radius:var(--radius-sm);background:rgba(224,160,48,0.12)">
+      <div style="display:flex;gap:8px;justify-content:space-between"><div style="font-size:13px;font-weight:500;min-width:0">${escH(t.desc)}${list.length > 1 ? ` <span style="font-size:11px;color:var(--text3)">(${list.length} split parts)</span>` : ''}</div><div style="font-size:13px;font-weight:600;white-space:nowrap">${fmt(have)}</div></div>
+      <div style="font-size:11px;color:var(--text3)">${fmtDay(dateToIso(t.date))} · ${escH(acct)} · ${escH(t.cat || '')}</div>
+      <div style="font-size:12px;color:var(--text2);margin:3px 0 6px">${what}</div>
+      <div style="display:flex;gap:6px">${flag.kind === 'gone' ? btn('Delete it', `akahuFlagApply('${sid}')`, 'var(--red)') : btn('Use the bank\'s', `akahuFlagApply('${sid}')`, 'var(--teal)')}${btn('Keep mine', `akahuFlagKeep('${sid}')`, 'var(--text2)')}</div>
+    </div>`;
+  }).join('') + (pendingTxns.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 0">New transactions</div>` : '');
+}
+function akahuFlagDone() {
+  scheduleSave(); renderPendingBanner();
+  if (currentPage === 'transactions') renderTransactions();
+  if (pendingTxns.length || akahuFlagCount()) openPendingReview(); else closeModal();
+}
+function akahuFlagApply(akId) {
+  const list = transactions.filter(t => t.akahuId === akId && t.akahuFlag);
+  if (!list.length) return;
+  const f = list[0].akahuFlag;
+  if (f.kind === 'gone') {
+    list.forEach(t => { rememberDeletedTxn(t); tombstone('transactions', t.id); });
+    transactions = transactions.filter(t => !list.includes(t));
+  } else {
+    // A split keeps its parts: the difference goes on the biggest one.
+    const have = round2(list.reduce((s, t) => s + (+t.amount || 0), 0));
+    const big = list.reduce((a, b) => Math.abs(b.amount) > Math.abs(a.amount) ? b : a);
+    big.amount = round2(big.amount + round2(f.amount - have));
+    const day = akahuDayToDate(f.date);
+    if (Math.abs(+day - +akahuDayToDate(dateToIso(list[0].date))) > AKAHU_MATCH_DAYS * 86400000) list.forEach(t => { t.date = day; });
+    list.forEach(t => { delete t.akahuFlag; t.akahuAck = akahuAckKey(f); });
+  }
+  akahuFlagDone();
+}
+function akahuFlagKeep(akId) {
+  transactions.forEach(t => { if (t.akahuId === akId && t.akahuFlag) { t.akahuAck = akahuAckKey(t.akahuFlag); delete t.akahuFlag; } });
+  akahuFlagDone();
+}
 // Splits Akahu rows into new transactions and ones the app already has.
 function akahuSortNew(acc, items) {
   const from = acc.akahu.from;
@@ -5936,12 +6029,13 @@ async function akahuSyncTxns({ force = false, onlyAcc = null } = {}) {
           (await akahuFetchTxns(id, start > piFrom ? start : piFrom)).filter(x => akahuIsInterest(x) && akahuNzDay(x.date) >= piFrom).forEach(x => items.push({ ...x, _loan: loanName }));
         }
       } else items = await akahuFetchTxns(acc.akahu.id, start);
+      const changed = acc.akahu.interest ? 0 : akahuCheckChanges(acc, items, start);
       const r = akahuSortNew(acc, items);
       pendingTxns = pendingTxns.concat(r.out);
       if (acc.akahu.interest) akahuMoveRepayments(acc);
       acc.akahuSynced = new Date().toISOString();
-      acc.akahuLast = { added: r.out.length, matched: r.matched, deleted: r.deleted, error: '' };
-      res.push({ name: acc.name, added: r.out.length, matched: r.matched, deleted: r.deleted });
+      acc.akahuLast = { added: r.out.length, matched: r.matched, deleted: r.deleted, changed, error: '' };
+      res.push({ name: acc.name, added: r.out.length, matched: r.matched, deleted: r.deleted, changed });
     } catch (e) {
       acc.akahuLast = { ...(acc.akahuLast || {}), error: e.message };
       res.push({ name: acc.name, error: e.message });
@@ -6001,7 +6095,7 @@ function akahuAccountRowsHtml() {
   return `<div style="font-size:12px;font-weight:600;color:var(--text2);margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border)">Transactions into your accounts</div>` +
     accounts.map(acc => {
       const on = acc.akahu && acc.akahu.id, l = acc.akahuLast || {};
-      const last = on ? `from ${fmtDay(acc.akahu.from)} · last checked ${acc.akahuSynced ? akahuWhen(acc.akahuSynced) : 'never'}${acc.akahuSynced && !l.error ? ` · ${l.added || 0} new${l.matched ? `, ${l.matched} already here` : ''}${l.deleted ? `, ${l.deleted} deleted before` : ''}` : ''}` : '';
+      const last = on ? `from ${fmtDay(acc.akahu.from)} · last checked ${acc.akahuSynced ? akahuWhen(acc.akahuSynced) : 'never'}${acc.akahuSynced && !l.error ? ` · ${l.added || 0} new${l.matched ? `, ${l.matched} already here` : ''}${l.deleted ? `, ${l.deleted} deleted before` : ''}${l.changed ? `, ${l.changed} changed at the bank` : ''}` : ''}` : '';
       return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:0.5px solid var(--border)">
         <div style="flex:1;min-width:0"><div style="font-size:13px">${escH(acc.icon || '🏦')} <strong>${escH(acc.name)}</strong>${on ? ` ← ${escH(acc.akahu.name)}` : ' <span style="color:var(--text3);font-size:11px">· not linked</span>'}</div>
           ${on ? `<div style="font-size:11px;color:var(--text3)">${last}</div>` : ''}
