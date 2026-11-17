@@ -1873,6 +1873,9 @@ function dmyEnhance(native) {
   const btn = document.createElement('button');
   btn.type = 'button'; btn.textContent = '📅'; btn.title = 'Pick a date'; btn.setAttribute('aria-label', 'Pick a date');
   btn.style.cssText = 'flex-shrink:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm,8px);padding:0 10px;cursor:pointer;font-size:15px';
+  // In a row of fields, the date takes the box's own flex share, not the full width.
+  const rowFlex = /flex/.test(getComputedStyle(native.parentNode).display) && getComputedStyle(native.parentNode).flexDirection.startsWith('row');
+  if (rowFlex) { wrap.style.width = ''; wrap.style.flex = native.style.flex || '1 1 0'; wrap.style.minWidth = '0'; }
   native.parentNode.insertBefore(wrap, native);
   wrap.append(txt, btn, native);
   native.tabIndex = -1;

@@ -3651,7 +3651,7 @@ function propSetupHtml(s) {
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Interest only: the loan repayments from the property account are the interest. Principal &amp; interest, from the date: the interest comes from the loan accounts linked in Settings → Data connections, and the repayments count as transfers.</div></div>` : ''}
     <div class="input-group"><label>Purchase price ($)</label><input type="number" id="ps-price" min="0" step="1" value="${p.purchasePrice ?? ''}" placeholder="e.g. 650000"></div>
     <div class="input-group"><label>Latest council rating valuation (capital value)</label>
-      <div style="display:flex;gap:8px"><input type="number" id="ps-rv" min="0" step="1000" value="${rv.amount ?? ''}" placeholder="$" style="flex:1"><input type="date" id="ps-rv-date" value="${escH(rv.date || '')}" style="flex:1"></div>
+      <div style="display:flex;gap:8px"><input type="number" id="ps-rv" min="0" step="1000" value="${rv.amount ?? ''}" placeholder="$" style="flex:1 1 0;min-width:0"><input type="date" id="ps-rv-date" value="${escH(rv.date || '')}" style="flex:0 0 175px"></div>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Used for the mixed-use 2% test (the more recent of this and the purchase price) and the equity figure. The date is when the valuation took effect.</div></div>
     <div class="input-group"><label>Property bank account</label><select id="ps-account"><option value="">— Not set —</option>${accOpts}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">The account rent is paid into and bills come out of. Used for the cash flow forecast.</div></div>
