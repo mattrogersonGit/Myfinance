@@ -338,8 +338,31 @@ function propYearNavHtml() {
 let propChartData = null;
 const propCharts = {};
 // Booking income (gross + flat-rate credit + adjustments) for nights in [from, to).
+// Cancellations. b.cancelled is what everything reads. It comes from the export
+// (cancelFrom 'export'), from the 'no longer in this export' question, or from
+// the user (cancelSet 'yes' / 'no', which re-imports keep). A cancelled booking
+// that the platform still paid out (status completed, payout > 0) keeps its
+// money in income but has no nights.
+function bookingPaidCancel(b) { return !!(b.cancelled && b.status === 'completed' && Number(b.payout) > 0); }
+// Past stays never paid: still 'upcoming' a week after check-in. Probably
+// cancelled before the stay, unless the user said it's still due (unpaidOk).
+function propUnpaidPast(s) {
+  const cut = addDaysIso(todayLocal(), -7);
+  return bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.unpaidOk && b.status === 'upcoming' && b.checkIn && b.checkIn < cut)
+    .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+}
+function setBookingCancelled(id, on, from) {
+  const b = bookings.find(x => x.id === id);
+  if (!b) return;
+  b.cancelled = !!on; b.cancelSet = on ? 'yes' : 'no';
+  if (!on) b.unpaidOk = true;
+  scheduleSave(); renderProperty();
+  if (from === 'detail') openBookingDetail(id);
+  else showToast(on ? 'Marked as cancelled: off the calendar and nights' : 'Kept as booked', 3000);
+}
+function bookingCancelLabel(b) { return !b.cancelled ? '' : b.cancelSet === 'yes' || b.cancelFrom === 'export' ? 'cancelled' : 'cancelled?'; }
 function propBookingIncomeBetween(s, from, to) {
-  return bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.belowMarket).reduce((a, b) => {
+  return bookings.filter(b => b.streamId === s.id && (!b.cancelled || bookingPaidCancel(b)) && !b.belowMarket).reduce((a, b) => {
     const r = bookingShareInRange(b, from, to);
     return a + ((b.gross || 0) + (b.hostTax || 0) + (b.adjustments || 0)) * r.share;
   }, 0);
@@ -648,6 +671,7 @@ function propBookingsHtml(s) {
   const up = list.filter(b => b.status==='upcoming');
   const done = list.filter(b => b.status==='completed').reverse();
   const matches = computePayoutMatches(s);
+  const unpaid = new Set(propUnpaidPast(s).map(b => b.id));
   const {start: ys, end: ye} = taxYearRange(propTaxYear);
   const yrPayouts = propPayouts.filter(p => p.streamId===s.id && p.date >= ys && p.date < ye);
   const missingPayouts = yrPayouts.filter(p => !matches.payoutTxn.has(p.id));
@@ -660,7 +684,7 @@ function propBookingsHtml(s) {
     </div>` : '';
   const row = b => { const bank = bookingBankStatus(b, matches); return `<div onclick="openBookingDetail('${escH(b.id)}')" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;${b.cancelled?'opacity:0.45':''}">
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:500">${fmtDay(b.checkIn)} · ${b.nights} night${b.nights===1?'':'s'}${b.cancelled?' · <span style="color:var(--red,#e5484d)">cancelled?</span>':''}${bank==='found'?' <span title="Payout found in bank" style="color:var(--teal);font-size:12px">✓ bank</span>':bank==='missing'?' <span title="Payout not found in bank" style="color:var(--red,#e5484d);font-size:12px">⚠ bank</span>':''}</div>
+        <div style="font-size:14px;font-weight:500">${fmtDay(b.checkIn)} · ${b.nights} night${b.nights===1?'':'s'}${b.cancelled?` · <span style="color:var(--red,#e5484d)">${bookingCancelLabel(b)}${bookingPaidCancel(b)?' (paid)':''}</span>`:''}${unpaid.has(b.id)?' · <span style="color:#d97706">not paid, cancelled?</span>':''}${bank==='found'?' <span title="Payout found in bank" style="color:var(--teal);font-size:12px">✓ bank</span>':bank==='missing'?' <span title="Payout not found in bank" style="color:var(--red,#e5484d);font-size:12px">⚠ bank</span>':''}</div>
         <div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(platformName(b.platform))} · ${escH(b.guest || b.code)}</div>
       </div>
       <div style="text-align:right"><div style="font-size:14px;font-weight:600">${fmt(b.payout)}</div><div style="font-size:11px;color:var(--text3)">gross ${fmt(b.gross)}</div></div>
@@ -685,7 +709,7 @@ function openBookingDetail(id) {
   document.getElementById('modal-title').textContent = `${platformName(b.platform)} · ${b.code}`;
   document.getElementById('modal-body').innerHTML = `
     ${propRow('Guest', escH(b.guest || '—'))}
-    ${propRow('Status', b.cancelled ? 'Possibly cancelled' : (b.status==='completed' ? 'Completed (paid)' : 'Upcoming'))}
+    ${propRow('Status', b.cancelled ? (bookingCancelLabel(b) === 'cancelled' ? 'Cancelled' : 'Possibly cancelled') + (bookingPaidCancel(b) ? ' · paid out' : '') : (b.status==='completed' ? 'Completed (paid)' : b.checkIn < addDaysIso(todayLocal(), -7) ? 'Not paid yet' : 'Upcoming'))}
     ${propRow('Booked', fmtDay(b.bookedOn))}
     ${propRow('Stay', `${fmtDay(b.checkIn)} → ${fmtDay(b.checkOut)} (${b.nights} night${b.nights===1?'':'s'})`)}
     ${propRow('Gross earnings', fmt(b.gross))}
@@ -695,7 +719,11 @@ function openBookingDetail(id) {
     ${b.adjustments ? propRow('Adjustments', fmtSigned(b.adjustments)) : ''}
     ${propRow('<strong>Payout</strong>', `<strong>${fmt(b.payout)}</strong>`)}
     ${b.platformTax ? propRow('GST remitted by platform (info)', fmt(b.platformTax)) : ''}
-    ${(b.payments||[]).length > 1 ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">Paid in ${b.payments.length} parts: ${b.payments.map(p=>`${fmtDay(p.date)} ${fmt(p.amount)}`).join(' · ')}</div>` : ''}`;
+    ${(b.payments||[]).length > 1 ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">Paid in ${b.payments.length} parts: ${b.payments.map(p=>`${fmtDay(p.date)} ${fmt(p.amount)}`).join(' · ')}</div>` : ''}
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px" onclick="setBookingCancelled('${escH(b.id)}', ${b.cancelled ? 'false' : 'true'}, 'detail')">${b.cancelled ? 'Not cancelled' : 'Mark as cancelled'}</button>
+      <span style="font-size:11px;color:var(--text3);flex:1;min-width:160px">${b.cancelled ? 'Puts it back on the calendar and in the nights.' : 'Takes it off the calendar and the nights. Any payout the platform still made stays in income.'}</span>
+    </div>`;
   const btn = document.getElementById('modal-confirm');
   btn.textContent = 'Delete booking';
   btn.onclick = () => {
@@ -1043,7 +1071,7 @@ function propPayoutMissReason(s, p, matches) {
 // A booking is "in the bank" when every payment date it was paid on has a
 // payout that was matched to a deposit.
 function bookingBankStatus(b, matches) {
-  if (b.status !== 'completed' || b.cancelled) return null;
+  if (b.status !== 'completed' || (b.cancelled && !bookingPaidCancel(b))) return null;
   const pays = propPayouts.filter(p => p.streamId === b.streamId);
   const ok = (b.payments || []).every(pm => pays.some(p => p.date === pm.date && matches.payoutTxn.has(p.id)));
   return ok ? 'found' : 'missing';
@@ -1653,6 +1681,10 @@ function propChecklistRaw(s, ty) {
   if (propPayouts.some(x => x.streamId === s.id)) bkRows.push({ st: oldMiss.length ? 'bad' : missPay.length ? 'warn' : 'good', label: 'Payouts found in the bank',
     detail: missPay.length ? `${missPay.length} not found: ${missPay.slice(0, 4).map(x => `${fmt(x.amount)} due ${fmtDay(x.arriveBy || x.date)} (${propPayoutMissReason(s, x, matches)})`).join('; ')}${missPay.length > 4 ? '…' : ''}.` : 'all matched',
     action: missPay.length ? `<button class="btn-update" onclick="setPropTab('bookings')">Show</button>` : '' });
+  propUnpaidPast(s).filter(b => b.checkIn < end && (b.checkOut || b.checkIn) > start).slice(0, 8).forEach(b => bkRows.push({ st: 'warn',
+    label: `${fmtDay(b.checkIn)} · ${b.nights} night${b.nights === 1 ? '' : 's'} · ${escH(platformName(b.platform))}`,
+    detail: `not paid${b.payout ? ` (${fmt(b.payout)} expected)` : ''}, so probably cancelled before the stay`,
+    action: `<span style="display:flex;gap:6px"><button class="btn-update" onclick="setBookingCancelled('${escH(b.id)}', true)">Cancelled</button><button class="btn-update" onclick="setBookingCancelled('${escH(b.id)}', false)">Still due</button></span>` }));
   items.push({ group: 'Bookings', rows: bkRows });
 
   // 5. To review: personal transactions in the property's category, and
@@ -2322,7 +2354,7 @@ function propCalendarHtml(s) {
   const monthLabelTxt = first.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
   // The month at a glance.
   let mNights = 0, mEarned = 0;
-  bookings.filter(b => b.streamId === s.id && !b.cancelled && !b.belowMarket && b.nights).forEach(b => { const r = bookingShareInRange(b, monthStart, monthEnd); mNights += r.nights; mEarned += (b.payout || 0) * r.share; });
+  bookings.filter(b => b.streamId === s.id && (!b.cancelled || bookingPaidCancel(b)) && !b.belowMarket && b.nights).forEach(b => { const r = bookingShareInRange(b, monthStart, monthEnd); if (!b.cancelled) mNights += r.nights; mEarned += (b.payout || 0) * r.share; });
   const mPrivate = propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd && (d.type === 'personal' || d.type === 'family') && !d.dayOnly).length;
   const mOther = propDays.filter(d => d.streamId === s.id && d.date >= monthStart && d.date < monthEnd && d.type === 'booked' && !d.belowMarket).length;
   const stats = `<div class="pcal-stats"><span>Booked <b>${mNights + mOther}</b> night${mNights + mOther === 1 ? '' : 's'}</span><span>Earned <b>${fmt(mEarned).replace(/\.\d\d$/, '')}</b></span><span>Private <b>${mPrivate}</b></span><span>Occupancy <b>${Math.round((mNights + mOther) / daysIn * 100)}%</b></span></div>`;
@@ -3892,8 +3924,11 @@ function importPlatformBookings(parsed, s) {
     const status = p.status || parsed.kind;
     // Never let an older upcoming export downgrade a booking already paid out.
     if (ex && ex.status === 'completed' && status === 'upcoming') { kept++; return; }
+    const paidCancel = status === 'cancelled' && Number(p.payout) > 0 && (p.payments || []).some(x => x.date && x.date <= todayLocal());
+    const cancelled = status === 'cancelled' || (ex?.cancelSet ? ex.cancelSet === 'yes' : false);
     const rec = { ...(ex || {}), id, streamId: s.id, platform, ...p,
-      status: status === 'cancelled' ? (ex?.status || 'upcoming') : status, cancelled: status === 'cancelled', importedAt: todayLocal() };
+      status: status === 'cancelled' ? (paidCancel ? 'completed' : (ex?.status || 'upcoming')) : status, cancelled, importedAt: todayLocal() };
+    if (status === 'cancelled') rec.cancelFrom = 'export'; else delete rec.cancelFrom;
     if (ex) { Object.assign(ex, rec); updated++; } else { bookings.push(rec); added++; }
     reviveTombstone('bookings', id);
   });
@@ -3912,7 +3947,7 @@ function importPlatformBookings(parsed, s) {
     const today = todayLocal();
     const missing = bookings.filter(b => b.streamId===s.id && b.platform===platform && b.status==='upcoming' && !b.cancelled && b.checkIn >= today && !seen.has(b.id));
     if (missing.length && confirm(`${missing.length} upcoming booking${missing.length===1?' is':'s are'} no longer in this export:\n\n${missing.map(b=>`${fmtDay(b.checkIn)} · ${b.nights} nights · ${fmt(b.payout)}`).join('\n')}\n\nMark ${missing.length===1?'it':'them'} as cancelled? (They'll be left out of totals and forecasts.)`)) {
-      missing.forEach(b => b.cancelled = true); flagged = missing.length;
+      missing.forEach(b => { b.cancelled = true; delete b.cancelSet; }); flagged = missing.length;
     }
   }
   // "Other booking" calendar marks were a stand-in for stays that weren't
