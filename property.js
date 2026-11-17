@@ -1150,6 +1150,24 @@ function propForecastAdds(s, ty, matches, cur) {
   const rent = { income: 0, fees: 0 };
   return { asAt: today, lines, items, rent, total: round2(items.reduce((a, i) => a + i.amount, 0)) };
 }
+// Flat-rate credits (Airbnb's Host Remitted Tax, Bookabach's GST flat-rate
+// credit), from 2024-25, for owners not registered for GST. Chosen per tax
+// year (frcByYear), no need to tell IRD:
+//  'include': the credits are income; costs are claimed including GST (default);
+//  'exclude': the credits are excluded income; costs of the marketplace income
+//             are claimed excluding GST (3/23 off), split by the share of rent
+//             that came through a platform.
+// Lines that carry no GST (interest), or where it isn't clear-cut (travel at
+// the IRD km rate, home office, depreciation), are left as they are.
+const PROP_FRC_FROM = 2025;
+const PROP_GST_LINES = ['insurance', 'power', 'management', 'purchases', 'rates', 'rm', 'phone', 'cleaning', 'accountancy', 'other'];
+function propFrcFor(s, ty) { return ty < PROP_FRC_FROM ? 'include' : ((propSettings(s).frcByYear || {})[ty] || 'include'); }
+function setPropFrc(v) {
+  const s = currentPropStream(); if (!s) return;
+  const p = propSettings(s);
+  s.property = { ...p, frcByYear: { ...(p.frcByYear || {}), [propTaxYear]: v === 'exclude' ? 'exclude' : 'include' } };
+  scheduleSave(); renderProperty();
+}
 function computePropPnL(s, ty, matches, opts = {}) {
   const pm = computePayoutMatches(s);
   if (matches && matches !== pm) return computePropPnLRaw(s, ty, matches, opts);
@@ -1202,13 +1220,14 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
   const share = basis === 'mixeduse' ? (usage.share ?? 1) : basis === 'actualcost' ? usage.availShare : 1;
   // Under the mixed-use rules, rent from private use (a stay below 80% of
   // market rent) is exempt, so it and its platform fee come out.
-  let privateRent = 0, privateFees = 0;
+  let privateRent = 0, privateFees = 0, privateFrc = 0;
   if (basis === 'mixeduse') {
     const { start, end } = taxYearRange(ty);
     bookings.filter(b => b.streamId === s.id && !b.cancelled && b.belowMarket).forEach(b => {
       const r = bookingShareInRange(b, start, end); if (!r.share) return;
       privateRent += ((b.gross || 0) + (b.hostTax || 0) + (b.adjustments || 0)) * r.share;
       privateFees += (b.serviceFee || 0) * r.share;
+      privateFrc += (b.hostTax || 0) * r.share;
     });
   }
   const apportioned = new Set(PROP_APPORTIONABLE);
@@ -1218,9 +1237,17 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
   // asset is deductible, a gain (depreciation recovered) is income.
   const dep = propDepreciationForYear(s, ty);
   lines.depreciation = dep.depreciation + dep.loss;
-  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments + (fc ? fc.rent.income : 0) - privateRent;
+  const frc = opts.frc || propFrcFor(s, ty);
+  const frcAmt = Math.max(0, c.hostTax + u.hostTax - privateFrc);
+  const bookingIncome = c.gross + u.gross + c.hostTax + u.hostTax + c.adjustments + u.adjustments + (fc ? fc.rent.income : 0) - privateRent - (frc === 'exclude' ? frcAmt : 0);
   const rent = bookingIncome + otherIncome;
-  const commissions = c.fees + u.fees + lines.commissions + (fc ? fc.rent.fees : 0) - privateFees;
+  // Excluding the credits: take the GST out of costs, for the platform share.
+  const mpShare = frc === 'exclude' ? (rent > 0 ? Math.min(1, Math.max(0, bookingIncome / rent)) : 1) : 0;
+  const gstCut = 3 / 23 * mpShare, gstSet = new Set(frc === 'exclude' ? PROP_GST_LINES : []);
+  let gstOut = 0;
+  const commissionsInc = c.fees + u.fees + lines.commissions + (fc ? fc.rent.fees : 0) - privateFees;
+  const commissions = commissionsInc * (1 - gstCut);
+  gstOut += commissionsInc - commissions;
   const expenseLines = [...PROP_LINES.filter(l => l.kind === 'expense' && l.id !== 'commissions'), { id: 'depreciation', label: 'Depreciation' }]
     .map(l => {
       const full = lines[l.id] || 0, cut = apportioned.has(l.id) && share < 1;
@@ -1229,7 +1256,9 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
       if (l.id === 'depreciation' && dep.loss) label += ' (incl. loss on disposal)';
       if (l.id === 'homeoffice' && homeOffice.value) label += ` (${homeOffice.pct}% of household costs)`;
       if (l.id === 'interest' && interestRule.pct < 1 && interestPaid) label += ` (${Math.round(interestRule.pct * 100)}% of ${fmt(interestPaid)} paid, under the interest limitation rules)`;
-      return { id: l.id, label, amount: cut ? full * share : full, full, apportioned: cut, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [], forecast: fc ? fc.lines[l.id] || 0 : 0 };
+      let amount = cut ? full * share : full, fullAmt = full;
+      if (gstSet.has(l.id) && gstCut) { const g = amount * gstCut; gstOut += g; amount -= g; fullAmt = full * (1 - gstCut); }
+      return { id: l.id, label, amount, full: fullAmt, apportioned: cut, gstOff: gstSet.has(l.id) && gstCut > 0, txns: lineTxns[l.id] || [], costs: lineCosts[l.id] || [], forecast: fc ? fc.lines[l.id] || 0 : 0 };
     });
   const depRecovered = dep.recovered * share;
   const totalExpenses = commissions + expenseLines.reduce((a, l) => a + l.amount, 0);
@@ -1239,6 +1268,7 @@ function computePropPnLRaw(s, ty, matches = computePayoutMatches(s), opts = {}) 
     taxNet: mua ? mua.taxNet : net, mua,
     y, otherIncome, otherIncomeTxns, bookingIncome, rent, commissions, expenseLines, totalExpenses,
     net: rent + depRecovered - totalExpenses, depRecovered, dep, hasUpcoming: u.count > 0, travel: trav, homeOffice, usage, share, basis, forecast: fc, privateRent, interestRule, interestPaid,
+    frc, frcAmt, gstOut, mpShare,
   };
 }
 
@@ -2593,6 +2623,22 @@ function setPropMuaOptOut(on) {
   s.property = { ...p, muaOptOut: o };
   scheduleSave(); renderProperty();
 }
+function propFrcHtml(s, pnl) {
+  if (propTaxYear < PROP_FRC_FROM || !(pnl.frcAmt > 0)) return '';
+  const other = computePropPnLRaw(s, propTaxYear, undefined, { forecast: propForecastOn(), frc: pnl.frc === 'exclude' ? 'include' : 'exclude', noChain: true });
+  const inc = pnl.frc === 'exclude' ? other : pnl, exc = pnl.frc === 'exclude' ? pnl : other;
+  const better = exc.net < inc.net - 0.5 ? 'exclude' : inc.net < exc.net - 0.5 ? 'include' : null;
+  const opt = (v, title, sub, r) => `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:0.5px solid var(--border);cursor:pointer">
+      <input type="radio" name="prop-frc" ${pnl.frc === v ? 'checked' : ''} onchange="setPropFrc('${v}')" style="width:18px;height:18px;margin-top:2px;flex-shrink:0">
+      <span style="flex:1;min-width:0"><span style="font-size:13px;font-weight:500">${title}</span>${better === v ? ' <span style="font-size:11px;color:var(--teal);font-weight:600">lower tax</span>' : ''}<br><span style="font-size:11px;color:var(--text3)">${sub}</span></span>
+      <span style="font-size:13px;white-space:nowrap">${fmtSigned(r.net)}</span></label>`;
+  return `<div style="margin-top:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:2px">Flat-rate credits for ${taxYearLabel(propTaxYear)} (${fmt(pnl.frcAmt)})</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Not registered for GST? You choose each year how the platforms' flat-rate credits are treated. IRD doesn't need to be told. Net profit each way:</div>
+      ${opt('include', 'Count them as income', 'Costs claimed including GST.', inc)}
+      ${opt('exclude', 'Leave them out', `Costs marked † claimed excluding GST (${fmt(exc.gstOut)} less)${exc.mpShare < 0.999 ? `, for the ${Math.round(exc.mpShare * 100)}% of rent that came through a platform` : ''}. Interest, travel, home office and depreciation are left as they are: check those with your accountant.`, exc)}
+    </div>`;
+}
 function propTaxHtml(s) {
   if (propTaxView === 'returns') return propYearNavHtml() + propTaxToggleHtml() + propForecastToggleHtml() + propReturnsHtml(s);
   const pnl = computePropPnL(s, propTaxYear, undefined, { forecast: propForecastOn() });
@@ -2609,10 +2655,10 @@ function propTaxHtml(s) {
       <div class="card-title" style="margin-bottom:8px">Profit or loss${pnl.forecast ? ' (forecast)' : ''}</div>
       ${pnl.hasUpcoming ? '<div style="font-size:11px;color:var(--amber,#b7791f);margin-bottom:6px">Includes upcoming bookings, so this is a forecast until they complete.</div>' : ''}
       ${propRow('<strong>Rent received</strong>', `<strong>${fmt(pnl.rent)}</strong>`)}
-      ${propRow('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
+      ${propRow(`&nbsp;&nbsp;Bookings (gross${pnl.frc === 'exclude' ? '' : ' + Host Remitted Tax'} + adjustments)`, fmt(pnl.bookingIncome))}
       ${pnl.forecast?.rent.income ? propRow('&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--text3)">incl. not yet booked (forecast)</span>', `<span style="color:var(--text3)">${fmt(pnl.forecast.rent.income)}</span>`) : ''}
       ${pnl.otherIncome ? `<div onclick="openPropLineTxns('income')" style="cursor:pointer">${propRow(`&nbsp;&nbsp;Other bank deposits (${pnl.otherIncomeTxns.length}) <span style="font-size:10px;color:var(--teal)">›</span>`, fmt(pnl.otherIncome))}</div>` : ''}
-      ${propRow('Commissions (Airbnb fees)', fmt(pnl.commissions))}
+      ${propRow('Commissions (Airbnb fees)' + (pnl.frc === 'exclude' && pnl.gstOut ? ' †' : ''), fmt(pnl.commissions))}
       ${pnl.share < 1 ? `<div style="font-size:11px;color:var(--text3);padding:6px 0">${pnl.basis === 'actualcost'
         ? `Actual cost basis: lines marked * are shared costs, claimed for the ${pnl.usage.availDays} of ${pnl.usage.days} days the property was rented or available (${Math.round(pnl.share*1000)/10}%).`
         : `Mixed-use basis: lines marked * are shared costs, cut to the income-use share of ${Math.round(pnl.share*1000)/10}% (${pnl.usage.income} income days, ${pnl.usage.personalDays} private).`}</div>` : ''}
@@ -2624,7 +2670,7 @@ function propTaxHtml(s) {
         }
         const n = l.txns.length + l.costs.length;
         const fcTag = l.forecast ? ` <span style="font-size:11px;color:var(--text3)">incl. ${fmt(l.forecast)} forecast</span>` : '';
-        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : '') + fcTag, l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
+        const row = propRow(escH(l.label) + (l.apportioned ? ' *' : '') + (l.gstOff ? ' †' : '') + (n ? ' <span style="font-size:10px;color:var(--teal)">›</span>' : '') + fcTag, l.apportioned ? `${fmt(l.amount)} <span style="font-size:11px;color:var(--text3)">of ${fmt(l.full)}</span>` : fmt(l.amount));
         return n ? `<div onclick="openPropLineTxns('${l.id}')" style="cursor:pointer">${row}</div>` : row;
       }).join('')}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:6px"><span style="font-size:11px;color:var(--text3)">Tap a line with › to see its transactions.</span>
@@ -2633,6 +2679,7 @@ function propTaxHtml(s) {
       ${pnl.depRecovered ? propRow('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
       ${propRow('Total expenses', fmt(pnl.totalExpenses))}
       ${propRow('<strong>Net profit (loss)</strong>', `<strong class="${pnl.net>=0?'pos':'neg'}">${fmtSigned(pnl.net)}</strong>`)}
+      ${propFrcHtml(s, pnl)}
       ${pnl.mua && Math.abs(pnl.taxNet - pnl.net) >= 0.005 ? propRow(`<strong>For tax, after ${pnl.mua.optedOut ? 'opting out' : pnl.mua.quarantined ? 'quarantine' : 'quarantined loss used'}</strong>`, `<strong>${fmtSigned(pnl.taxNet)}</strong>`) : ''}
       ${owners.length ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:12px 0 2px">Split between owners${pnl.taxNet !== pnl.net ? ' (for tax)' : ''}</div>${owners.map(o => propRow(`${escH(o.name)} (${o.share}%)`, fmtSigned(pnl.taxNet * o.share / 100))).join('')}
         ${pnl.taxNet < 0 && pnl.basis !== 'mixeduse' ? `<div style="font-size:11px;color:var(--text3);padding-top:4px">A loss here is ring-fenced: each owner can only use it against residential rental profit, now or in later years, not against salary. See <a href="#" onclick="propTaxView='returns';renderProperty();return false" style="color:var(--teal)">Owners' returns</a>.</div>` : ''}` : ''}
