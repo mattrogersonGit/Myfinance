@@ -1595,12 +1595,17 @@ function propChecklistRaw(s, ty) {
     const pending = pendingTxns.filter(t => t.account === id).length;
     let st = propBehind(last, target, past ? 7 : 14);
     if (pending && st === 'good') st = 'warn';
-    return { id, name: a?.name || id, last, pending, st };
+    // An Akahu loan-interest account on an interest-only property brings nothing
+    // in: the repayments from the property's bank account are the interest.
+    const io = !!(a?.akahu?.interest && typeof akahuLoanPiFrom === 'function' && !akahuLoanPiFrom(a));
+    if (io && !pending) st = 'good';
+    return { id, name: a?.name || id, last, pending, st, io };
   });
   items.push({ group: 'Bank statements', rows: bank.map(b => ({
     st: b.st, label: b.name,
-    detail: `${b.last ? `imported up to ${fmtDay(b.last)}` : 'nothing imported'}${b.pending ? ` · ${b.pending} waiting for review in Import` : ''}`,
-    action: `<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="handleCSV(this, '${escH(b.id)}')"></label>`,
+    detail: b.io && !b.pending ? 'interest only (Setup → Loan repayments): nothing to import, the repayments are the interest'
+      : `${b.last ? `imported up to ${fmtDay(b.last)}` : 'nothing imported'}${b.pending ? ` · ${b.pending} waiting for review in Import` : ''}`,
+    action: b.io && !b.pending ? '' : `<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="handleCSV(this, '${escH(b.id)}')"></label>`,
   })) });
 
   // 2. Loan statements, when home office counts a mortgage category.
