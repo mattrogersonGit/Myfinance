@@ -1467,10 +1467,10 @@ function propPackHtml(s, ty) {
 <h2>Profit or loss</h2>
 <table class="summary"><tbody>
 ${row('Rent received', fmt(pnl.rent), 'tot')}
-${row('&nbsp;&nbsp;Bookings (gross + Host Remitted Tax + adjustments)', fmt(pnl.bookingIncome))}
+${row(`&nbsp;&nbsp;Bookings (gross${pnl.frc === 'exclude' ? '' : ' + Host Remitted Tax'} + adjustments)`, fmt(pnl.bookingIncome))}
 ${pnl.otherIncome ? row('&nbsp;&nbsp;Other bank deposits', fmt(pnl.otherIncome)) : ''}
-${row('Commissions (platform fees)', fmt(pnl.commissions))}
-${pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005).map(l => row(e(l.label) + (l.apportioned ? ` <span class="muted">(${fmt(l.full)} × ${shareTxt})</span>` : ''), fmt(l.amount))).join('')}
+${row('Commissions (platform fees)' + (pnl.frc === 'exclude' && pnl.gstOut ? ' <span class="muted">(excl. GST)</span>' : ''), fmt(pnl.commissions))}
+${pnl.expenseLines.filter(l => Math.abs(l.amount) >= 0.005).map(l => row(e(l.label) + (l.apportioned ? ` <span class="muted">(${fmt(l.full)} × ${shareTxt})</span>` : '') + (l.gstOff ? ' <span class="muted">(excl. GST)</span>' : ''), fmt(l.amount))).join('')}
 ${pnl.depRecovered ? row('Depreciation recovered (income)', fmt(pnl.depRecovered)) : ''}
 ${row('Total expenses', fmt(pnl.totalExpenses))}
 ${row('Net profit (loss)', m(pnl.net), 'tot')}
@@ -1481,8 +1481,8 @@ ${pnl.mua.quarantined ? row('Loss quarantined this year (income under 2% of valu
 ${pnl.mua.used ? row('Brought-forward loss used this year', fmt(pnl.mua.used)) : ''}
 ${row('Quarantined loss carried forward', fmt(pnl.mua.close))}
 ${row('Profit (loss) for tax', m(pnl.taxNet), 'tot')}` : ''}
-${owners.map(o => row(`&nbsp;&nbsp;${e(o.name)} (${o.share}%)`, m(pnl.net * o.share / 100))).join('')}
 </tbody></table>
+${propPackSectionsHtml(s, ty, d)}
 
 <h2>Use of the property</h2>
 <table class="summary"><tbody>
@@ -1539,8 +1539,86 @@ ${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span clas
 <tr class="tot"><td colspan="2">Total</td><td class="n">${fmt(d.dep.open)}</td><td class="n">${d.dep.bought ? fmt(d.dep.bought) : ''}</td><td class="n">${fmt(d.dep.depreciation)}</td><td class="n">${fmt(d.dep.close)}</td></tr>
 </tbody></table>` : ''}
 
-<p class="muted" style="margin-top:28px">Prepared from the owners' bank imports, booking platform reports and records kept in MyFinance. For the accountant's review; figures are not a tax return.</p>
+<h2>About this pack</h2>
+<p class="muted">Prepared by the owners from their bank imports (bank CSV statements and, where connected, bank feeds), the booking platforms' reports and records they keep in MyFinance, using the rules and assumptions listed above. MyFinance isn't a tax agent and this isn't tax advice or a tax return: it's a working summary for the accountant to review. The accountant's figures and the return they file are final. Rates and thresholds are from the NZ tax rules table dated ${NZ_TAX_RULES_VERSION.split('-').reverse().join('/')}.</p>
 </body></html>`;
+}
+// Pack sections: owners, basis of calculation, assumptions to check and
+// carry-forward balances.
+function propPackSectionsHtml(s, ty, d) {
+  const { p, pnl } = d;
+  const e = v => escH(String(v ?? ''));
+  const m = v => (v < 0 ? '−' : '') + fmt(v);
+  const row = (l, v, cls = '') => `<tr class="${cls}"><td>${l}</td><td class="n">${v}</td></tr>`;
+  const owners = p.owners.filter(o => o.name && o.share);
+  const shareTxt = pnl.share < 1 ? `${Math.round(pnl.share * 1000) / 10}%` : '100%';
+  const taxNet = pnl.mua ? pnl.taxNet : pnl.net;
+  const income = pnl.rent + (pnl.depRecovered || 0);
+  const ringfenced = propBasisFor(s, ty) !== 'mixeduse';
+  const rf = owners.map(o => {
+    const parts = ownerShareOfProperties(o.name, ty);
+    const step = ownerRingfenceStep(parts, ownerRingfenceOpening(o.name, ty));
+    return { o, step, others: parts.filter(x => x.name !== s.name).length };
+  });
+
+  // Owners
+  let h = `<h2>Owners</h2>
+<table><thead><tr><th>Owner</th><th class="n">Share</th><th class="n">Income</th><th class="n">Expenses</th><th class="n">Profit (loss) for tax</th></tr></thead><tbody>
+${owners.map(o => `<tr><td>${e(o.name)}</td><td class="n">${o.share}%</td><td class="n">${fmt(income * o.share / 100)}</td><td class="n">${fmt(pnl.totalExpenses * o.share / 100)}</td><td class="n">${m(taxNet * o.share / 100)}</td></tr>`).join('')}
+${owners.length > 1 ? `<tr class="tot"><td>Total</td><td class="n">${owners.reduce((a, o) => a + Number(o.share), 0)}%</td><td class="n">${fmt(income)}</td><td class="n">${fmt(pnl.totalExpenses)}</td><td class="n">${m(taxNet)}</td></tr>` : ''}
+</tbody></table>
+${owners.reduce((a, o) => a + Number(o.share), 0) !== 100 ? '<div class="muted">The owners\' shares don\'t add up to 100%: check them in Setup.</div>' : ''}`;
+
+  // Basis of calculation
+  const ir = pnl.interestRule || {};
+  const frc = ty >= PROP_FRC_FROM && pnl.frcAmt > 0 ? pnl.frc : null;
+  const basisTxt = pnl.basis === 'mixeduse'
+    ? `Mixed-use asset rules (subpart DG). Holding costs (rates, insurance, interest, power, repairs and the like) and depreciation are claimed at the income share: ${pnl.usage.income} income days ÷ (${pnl.usage.income} income days + ${pnl.usage.personalDays} private days) = ${shareTxt}. Costs only for guests (cleaning, platform fees) are claimed in full.${pnl.privateRent ? ` Rent of ${fmt(pnl.privateRent)} from family or below-market stays (under ${Math.round(taxRuleValue('belowMarketPct', ty) * 100)}% of market) is left out and those nights count as private.` : ''}`
+    : pnl.basis === 'actualcost'
+    ? `Actual cost: holding costs claimed for the days rented or available, ${pnl.usage.availDays} of ${pnl.usage.days} days (${shareTxt}).`
+    : 'All costs claimed in full: no private use in the year.';
+  const items = [
+    ['Deduction basis', basisTxt],
+    ['Rental income', `Bookings are counted by the nights that fall in the tax year (a stay over 31 March is split). Income is the guest price before the platform's fee, plus adjustments${frc === 'exclude' ? '' : ' and the Host Remitted Tax'}; the platform fee is claimed as commission. Cancelled stays are left out unless the platform still paid out.`],
+    ['Interest', ir.kind === 'exempt' ? 'Claimed in full: the owners have marked the property as not residential or excluded from the interest limitation rules.'
+      : `Interest limitation: ${e(String(PROP_INTEREST_RULES[ir.kind] || ir.kind).replace(/^\w/, c => c.toLowerCase()))}${ir.guessed ? ' (worked out from the purchase date)' : ''}, ${Math.round((ir.pct ?? 1) * 100)}% of interest claimed for ${taxYearLabel(ty)}.`],
+  ];
+  if (frc) items.push(['Flat-rate credits', frc === 'exclude'
+    ? `Left out of income (${fmt(pnl.frcAmt)}). The owners aren't registered for GST, so costs of the platform income are claimed excluding GST (3/23 off${pnl.mpShare < 0.999 ? `, for the ${Math.round(pnl.mpShare * 100)}% of rent that came through a platform` : ''}): ${fmt(pnl.gstOut)} less in total. Interest, travel, home office and depreciation are left as they are.`
+    : `Counted as income (${fmt(pnl.frcAmt)}). The owners aren't registered for GST and claim costs including GST.`]);
+  if (d.trav.trips) items.push(['Travel', `IRD kilometre rates for the business km of ${d.trav.trips} logged trips${d.trav.rateSource === 'own' ? ' (rate entered by the owners)' : ''}.`]);
+  if (d.ho.pct) items.push(['Home office', `${d.ho.pct}% of the household's running costs, not apportioned for mixed use.`]);
+  if (d.dep.rows.length) items.push(['Depreciation', `IRD rates per asset as listed in the depreciation table${d.dep.boost ? `, including Investment Boost of ${fmt(d.dep.boost)} (20% of new assets bought from 22/05/2025)` : ''}${d.dep.writeOff ? `, and ${fmt(d.dep.writeOff)} of low-value assets written off` : ''}. Assets are depreciated by month of purchase; none in the year of sale.`]);
+  if (ringfenced && owners.length) items.push(['Ring-fencing', 'Residential property that isn\'t taxed under the mixed-use rules: a loss can\'t be set against the owners\' other income. It\'s worked out per owner across all their residential properties and carried forward.']);
+  h += `<h2>Basis of calculation</h2><table class="summary"><tbody>${items.map(([k, v]) => `<tr><td style="width:22%;font-weight:600">${k}</td><td>${v}</td></tr>`).join('')}</tbody></table>`;
+
+  // Assumptions and things to check
+  const { start, end } = taxYearRange(ty);
+  const chk = [];
+  if (pnl.hasUpcoming) chk.push('Some stays in the year haven\'t been paid out yet: they\'re counted at the amounts the platform expects to pay.');
+  const unpaid = propUnpaidPast(s).filter(b => b.checkIn >= start && b.checkIn < end);
+  if (unpaid.length) chk.push(`${unpaid.length} past stay${unpaid.length === 1 ? ' hasn\'t' : 's haven\'t'} been paid out and may have been cancelled: ${unpaid.map(b => `${fmtDay(b.checkIn)} (${e(b.guest || b.code)})`).join(', ')}.`);
+  if (ir.guessed && ir.noDate) chk.push('No purchase date is entered, so the interest rule assumes the property was bought before 27 March 2021.');
+  if (ir.notCovered) chk.push(`Interest for ${taxYearLabel(ty)} is claimed in full: years before 2022-23 aren't in the rules table.`);
+  if (ir.rule && ir.rule.status === 'estimate') chk.push(`The interest % for ${taxYearLabel(ty)} is an estimate from ${taxYearLabel(ir.rule.ty)}.`);
+  if (d.trav.trips && d.trav.rateSource === 'estimate') chk.push(`IRD hadn't published the ${taxYearLabel(ty)} kilometre rates, so ${taxYearLabel(d.trav.ird.ty)}'s were used.`);
+  if (d.trav.trips && !d.trav.carKm) chk.push('No odometer readings: all business km are claimed at the tier 1 rate up to 14,000 km.');
+  (d.ho.byCat || []).forEach(c => { if (c.loan && c.loan.paidAfter) chk.push(`Home office: ${e(c.name)} interest after ${fmtDay(c.loan.coveredTo)} is ${c.loan.ratio != null ? 'estimated from the interest share of earlier repayments' : 'counted as the full repayment (no interest share known)'}.`); });
+  if (pnl.mua && pnl.mua.valueMissing) chk.push('No property value is entered, so the mixed-use 2% loss test couldn\'t be done and the loss is shown in full.');
+  if (frc === 'exclude') chk.push('Flat-rate credits left out: check whether travel, home office and depreciation should also be claimed excluding GST.');
+  if (d.dep.boost) chk.push('Investment Boost: check each asset was new (or new to NZ) and isn\'t part of a residential building.');
+  h += `<h2>Assumptions to check</h2>${chk.length ? `<ul>${chk.map(x => `<li>${x}</li>`).join('')}</ul>` : '<div class="muted">None flagged.</div>'}`;
+
+  // Carry-forward balances
+  const cf = [];
+  if (pnl.mua) cf.push(row('Mixed-use quarantined loss: brought forward', fmt(pnl.mua.open)), pnl.mua.quarantined ? row('&nbsp;&nbsp;quarantined this year', fmt(pnl.mua.quarantined)) : '', pnl.mua.used ? row('&nbsp;&nbsp;used this year', '−' + fmt(pnl.mua.used)) : '', row('Mixed-use quarantined loss: carried forward', fmt(pnl.mua.close), 'tot'));
+  if (ringfenced) rf.forEach(({ o, step, others }) => { if (step.open || step.loss || step.used || step.close) cf.push(
+    row(`${e(o.name)}: ring-fenced loss brought forward${others ? ` <span class="muted">(all ${others + 1} of their residential properties)</span>` : ''}`, fmt(step.open)),
+    step.loss ? row('&nbsp;&nbsp;loss ring-fenced this year', fmt(step.loss)) : '', step.used ? row('&nbsp;&nbsp;used against profit this year', '−' + fmt(step.used)) : '',
+    row(`${e(o.name)}: ring-fenced loss carried forward`, fmt(step.close), 'tot')); });
+  if (d.dep.rows.length) cf.push(row('Depreciation: closing book value of assets', fmt(d.dep.close), 'tot'));
+  if (cf.length) h += `<h2>Carry-forward balances</h2><table class="summary"><tbody>${cf.join('')}</tbody></table>`;
+  return h;
 }
 function propPackFileName(s, ty, ext) { return `${s.name} ${taxYearLabel(ty)} year-end pack.${ext}`.replace(/[\\/:*?"<>|]/g, ''); }
 function propDownload(name, text, type) {
