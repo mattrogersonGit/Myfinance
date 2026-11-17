@@ -1534,8 +1534,8 @@ ${c.loan.paidAfter ? `<tr><td colspan="3">Repayments after ${fmtDay(c.loan.cover
 
 ${d.dep.rows.length ? `<h2>Depreciation ${taxYearLabel(ty)}</h2>
 <table><thead><tr><th>Asset</th><th>Method</th><th class="n">Opening</th><th class="n">Bought</th><th class="n">Depreciation</th><th class="n">Closing</th></tr></thead><tbody>
-${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span class="muted">bought ${fmtDay(a.purchased)} · year ${ty - taxYearOf(isoToDate(a.purchased)) + 1}</span>` : ''}${r.sale != null ? ` <span class="muted">sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}</span>` : ''}</td>
-  <td class="nw">${a.method === 'none' || !Number(a.rate) ? 'None' : `${Math.round(Number(a.rate) * 1000) / 10}% ${e(a.method)}`}</td><td class="n">${fmt(r.open)}</td><td class="n">${r.bought ? fmt(r.bought) : ''}</td><td class="n">${fmt(r.dep || 0)}</td><td class="n">${fmt(r.close)}</td></tr>`).join('')}
+${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span class="muted">bought ${fmtDay(a.purchased)} · year ${ty - taxYearOf(isoToDate(a.purchased)) + 1}</span>` : ''}${r.sale != null ? ` <span class="muted">sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}</span>` : ''}${r.boost ? ` <span class="muted">incl. Investment Boost ${fmt(r.boost)} (20% of cost)</span>` : ''}${r.writeOff ? ' <span class="muted">low-value asset written off</span>' : ''}</td>
+  <td class="nw">${r.writeOff ? 'Write-off' : a.method === 'none' || !Number(a.rate) ? 'None' : `${Math.round(Number(a.rate) * 1000) / 10}% ${e(a.method)}`}</td><td class="n">${fmt(r.open)}</td><td class="n">${r.bought ? fmt(r.bought) : ''}</td><td class="n">${fmt(r.dep || 0)}</td><td class="n">${fmt(r.close)}</td></tr>`).join('')}
 <tr class="tot"><td colspan="2">Total</td><td class="n">${fmt(d.dep.open)}</td><td class="n">${d.dep.bought ? fmt(d.dep.bought) : ''}</td><td class="n">${fmt(d.dep.depreciation)}</td><td class="n">${fmt(d.dep.close)}</td></tr>
 </tbody></table>` : ''}
 
@@ -2995,6 +2995,19 @@ function deleteTaxRow(ownerIdx, rowIdx) {
 // accountant's schedule) so history before the app doesn't have to be rebuilt.
 // Depreciation is rounded to whole dollars per asset, like the schedule.
 const PROP_DEP_METHODS = { DV: 'Diminishing value', SL: 'Straight line', none: 'Not depreciated' };
+// Low-value write-off: an asset costing no more than the threshold (incl. GST
+// when not GST-registered) can be deducted in full in the year it's bought.
+// The threshold was $500 before 17/03/2020, $5,000 to 16/03/2021, $1,000 since.
+// Identical items bought from one supplier at the same time count together.
+function propLowValueLimit(iso) { return !iso ? 1000 : iso < '2020-03-17' ? 500 : iso < '2021-03-17' ? 5000 : 1000; }
+function propCanWriteOff(a) { return !!a.purchased && !a.opening && a.group !== 'Land' && a.group !== 'Buildings' && (Number(a.cost) || 0) > 0 && (Number(a.cost) || 0) <= propLowValueLimit(a.purchased); }
+// Investment Boost: 20% of the cost of a new (or new to NZ) depreciable asset
+// bought from 22/05/2025 is deducted in the year it's bought; the other 80% is
+// then depreciated as if it were the full cost. Not for residential buildings,
+// land, or second-hand assets from NZ. It counts as depreciation, so a sale
+// above book value recovers it.
+const PROP_BOOST_FROM = '2025-05-22', PROP_BOOST_RATE = 0.2;
+function propCanBoost(a) { return !!a.purchased && !a.opening && a.purchased >= PROP_BOOST_FROM && a.group !== 'Land' && a.group !== 'Buildings' && a.method !== 'none' && (Number(a.cost) || 0) > 0; }
 function propAssetYear(a, ty) {
   const buyTy = a.purchased ? taxYearOf(isoToDate(a.purchased)) : null;
   const openTy = a.opening && a.opening.ty != null ? Number(a.opening.ty) : null;
@@ -3003,24 +3016,33 @@ function propAssetYear(a, ty) {
   const saleTy = a.disposed?.date ? taxYearOf(isoToDate(a.disposed.date)) : null;
   if (saleTy != null && ty > saleTy) return null;
   const rate = Number(a.rate) || 0, cost = Number(a.cost) || 0;
+  const writeOff = a.writeOff && propCanWriteOff(a), boostAmt = !writeOff && a.boost && propCanBoost(a) ? Math.round(cost * PROP_BOOST_RATE) : 0;
+  // Written off: only the year it was bought (and a later sale) shows.
+  if (writeOff && ty > buyTy && saleTy !== ty) return null;
+  const base = cost - boostAmt;
   let value = openTy != null ? Number(a.opening.value) || 0 : 0, row = null;
   for (let y = startTy; y <= ty; y++) {
     const open = value;
     const bought = openTy == null && y === buyTy ? cost : 0;
-    let dep = 0, gain = 0, sale = null;
+    let dep = 0, gain = 0, sale = null, boost = 0, wo = 0;
     if (saleTy === y) {
       // No depreciation in the year of disposal; the difference between the
       // sale price and book value is a gain (recovered) or a loss.
       sale = Number(a.disposed.price) || 0;
       gain = sale - (open + bought);
       value = 0;
+    } else if (writeOff && bought) {
+      dep = wo = bought; value = 0;
     } else {
       const months = bought ? 12 - ((isoToDate(a.purchased).getMonth() + 9) % 12) : 12; // months owned, counting the purchase month
-      if (a.method === 'DV') dep = Math.round((open + bought) * rate * months / 12);
-      else if (a.method === 'SL') dep = Math.min(open + bought, Math.round(cost * rate * months / 12));
+      if (bought && boostAmt) boost = boostAmt;
+      const start = open + bought - boost;
+      if (a.method === 'DV') dep = Math.round(start * rate * months / 12);
+      else if (a.method === 'SL') dep = Math.min(start, Math.round(base * rate * months / 12));
+      dep += boost;
       value = open + bought - dep;
     }
-    row = { open, bought, dep, close: value, sale, gain };
+    row = { open, bought, dep, close: value, sale, gain, boost, writeOff: wo };
   }
   return row;
 }
@@ -3032,7 +3054,7 @@ function propDepreciationForYear(s, ty) {
   const recovered = rows.reduce((t, x) => t + (x.r.gain > 0 ? Math.min(x.r.gain, Math.max(0, (Number(x.a.cost) || 0) - (x.r.open + x.r.bought))) : 0), 0);
   // Buildings can't claim a loss on disposal.
   const loss = rows.reduce((t, x) => t + (x.r.gain < 0 && x.a.group !== 'Buildings' ? -x.r.gain : 0), 0);
-  return { rows, depreciation: sum('dep'), open: sum('open'), bought: sum('bought'), close: sum('close'), recovered, loss };
+  return { rows, depreciation: sum('dep'), boost: sum('boost'), writeOff: sum('writeOff'), open: sum('open'), bought: sum('bought'), close: sum('close'), recovered, loss };
 }
 function propAssetsHtml(s) {
   const p = propSettings(s);
@@ -3040,9 +3062,12 @@ function propAssetsHtml(s) {
   const pnl = computePropPnL(s, propTaxYear);
   const groups = {};
   d.rows.forEach(x => (groups[x.a.group || 'Other assets'] = groups[x.a.group || 'Other assets'] || []).push(x));
-  const rateTxt = a => a.method === 'none' || !Number(a.rate) ? 'Not depreciated' : `${Math.round(Number(a.rate) * 1000) / 10}% ${a.method}`;
+  const rateTxt = a => a.writeOff && propCanWriteOff(a) ? 'Written off (low value)' : a.method === 'none' || !Number(a.rate) ? 'Not depreciated' : `${Math.round(Number(a.rate) * 1000) / 10}% ${a.method}`;
+  const hint = (a, r) => r.boost ? ` · incl. Investment Boost ${fmt(r.boost)}`
+    : r.bought && !a.writeOff && propCanWriteOff(a) ? ' · <span style="color:var(--teal)">could be written off</span>'
+    : r.bought && !a.boost && propCanBoost(a) ? ' · <span style="color:var(--teal)">Investment Boost?</span>' : '';
   const rowHtml = ({ a, r }) => `<div onclick="openPropAsset('${a.id}')" style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
-      <div style="min-width:0"><div>${escH(a.name)}</div><div style="font-size:11px;color:var(--text3)">${rateTxt(a)}${a.purchased ? ' · bought ' + fmtDay(a.purchased) : ''}${r.bought ? ' · new this year' : ''}${r.sale != null ? ` · sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}` : ''}</div></div>
+      <div style="min-width:0"><div>${escH(a.name)}</div><div style="font-size:11px;color:var(--text3)">${rateTxt(a)}${a.purchased ? ' · bought ' + fmtDay(a.purchased) : ''}${r.bought ? ' · new this year' : ''}${hint(a, r)}${r.sale != null ? ` · sold ${fmtDay(a.disposed.date)} for ${fmt(r.sale)}` : ''}</div></div>
       <div style="text-align:right;white-space:nowrap"><div>${r.sale != null ? (r.gain >= 0 ? '+' : '−') + fmt(r.gain) : a.method === 'none' ? '<span style="color:var(--text3)">—</span>' : fmt(r.dep)}</div><div style="font-size:11px;color:var(--text3)">${fmt(r.open + r.bought)} → ${fmt(r.close)}</div></div>
     </div>`;
   const deductible = pnl.expenseLines.find(l => l.id === 'depreciation');
@@ -3052,6 +3077,8 @@ function propAssetsHtml(s) {
       ${propRow('Opening book value', fmt(d.open))}
       ${d.bought ? propRow('Bought this year', fmt(d.bought)) : ''}
       ${propRow('<strong>Depreciation</strong>', `<strong>${fmt(d.depreciation)}</strong>`)}
+      ${d.boost ? propRow('&nbsp;&nbsp;incl. Investment Boost (20% of new assets)', fmt(d.boost)) : ''}
+      ${d.writeOff ? propRow('&nbsp;&nbsp;incl. low-value assets written off', fmt(d.writeOff)) : ''}
       ${d.loss ? propRow('Loss on disposal', fmt(d.loss)) : ''}
       ${d.recovered ? propRow('Depreciation recovered', fmt(d.recovered)) : ''}
       ${deductible && deductible.apportioned ? propRow(`Personal share (${Math.round((1 - pnl.share) * 1000) / 10}%)`, '−' + fmt(deductible.full - deductible.amount)) + propRow('<strong>Claimed in the P&amp;L</strong>', `<strong>${fmt(deductible.amount)}</strong>`) : ''}
@@ -3068,7 +3095,7 @@ function propAssetsHtml(s) {
         <button class="btn btn-primary" onclick="openPropAsset()">+ Add asset</button>
         <button class="btn" onclick="document.getElementById('prop-csv-input').click()">Import asset list (CSV)</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">CSV columns: name, group, purchased, cost, rate, method (DV, SL or none), and optionally opening_value and opening_date (book value at the start of a tax year, from your accountant's depreciation schedule). Assets costing $1,000 or less can usually be expensed instead. Rates are IRD's. Check them with your accountant.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">CSV columns: name, group, purchased, cost, rate, method (DV, SL or none), and optionally opening_value and opening_date (book value at the start of a tax year, from your accountant's depreciation schedule), write_off and boost (yes/no). Assets costing $1,000 or less can be written off in the year they're bought; new assets bought from 22/05/2025 can claim Investment Boost (20% up front). Rates are IRD's. Check them with your accountant.</div>
     </div>`;
 }
 function propAssetById(s, id) { return (propSettings(s).assets || []).find(a => String(a.id) === String(id)); }
@@ -3084,6 +3111,11 @@ function openPropAsset(id) {
     <div class="input-group"><label>Cost ($)</label><input type="number" id="pa-cost" min="0" step="0.01" value="${v(a?.cost)}"></div>
     <div class="input-group"><label>Method</label><select id="pa-method">${Object.entries(PROP_DEP_METHODS).map(([k, l]) => `<option value="${k}" ${(a?.method || 'DV') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="input-group"><label>IRD rate (%)</label><input type="number" id="pa-rate" min="0" step="0.5" value="${a && a.rate != null ? Math.round(a.rate * 1000) / 10 : ''}"></div>
+    <div class="input-group"><label>Claim</label><select id="pa-claim">
+      <option value="">Depreciation only</option>
+      <option value="writeoff" ${a?.writeOff ? 'selected' : ''}>Write off in full (low-value asset)</option>
+      <option value="boost" ${a?.boost ? 'selected' : ''}>Investment Boost (20% up front) + depreciation</option>
+    </select><div style="font-size:11px;color:var(--text3);margin-top:4px">Write off: cost of $1,000 or less (from 17/03/2021; identical items bought together from one supplier count as one). Investment Boost: new, or new to NZ, bought from 22/05/2025; not land, buildings or second-hand from NZ. Neither applies to an asset with an opening value.</div></div>
     <div class="input-group"><label>Opening book value ($, optional: from your accountant's schedule)</label><input type="number" id="pa-open" min="0" step="0.01" value="${v(a?.opening?.value)}"></div>
     <div class="input-group"><label>…at the start of tax year</label><select id="pa-openty"><option value="">Use cost from the purchase date</option>${Array.from({ length: 12 }, (_, i) => taxYearOf(new Date()) + 1 - i).map(ty => `<option value="${ty}" ${a?.opening?.ty == ty ? 'selected' : ''}>${taxYearLabel(ty)}</option>`).join('')}</select></div>
     <div class="input-group"><label>Sold or scrapped on (optional)</label><input type="date" id="pa-sold" value="${v(a?.disposed?.date)}"></div>
@@ -3100,6 +3132,14 @@ function openPropAsset(id) {
     if (g('pa-openty') && num('pa-open') != null) rec.opening = { ty: Number(g('pa-openty')), value: num('pa-open') };
     if (g('pa-sold')) rec.disposed = { date: g('pa-sold'), price: num('pa-price') ?? 0 };
     if (!rec.purchased && !rec.opening) { alert('Enter a purchase date, or an opening value and tax year.'); return; }
+    const claim = g('pa-claim');
+    if (claim === 'writeoff') {
+      if (!propCanWriteOff(rec)) { alert(`Only an asset with a purchase date and no opening value, costing ${fmt(propLowValueLimit(rec.purchased))} or less (not land or buildings), can be written off.`); return; }
+      rec.writeOff = true;
+    } else if (claim === 'boost') {
+      if (!propCanBoost(rec)) { alert('Investment Boost needs a purchase date on or after 22/05/2025, no opening value, a depreciation method, and not land or buildings.'); return; }
+      rec.boost = true;
+    }
     const p = propSettings(s), list = [...(p.assets || [])];
     const i = list.findIndex(x => x.id === rec.id);
     if (i >= 0) list[i] = rec; else list.push(rec);
@@ -3132,6 +3172,9 @@ function parseAssetCSV(text) {
     const rec = { name: get('name'), group: get('group') || 'Furniture & Fittings', purchased: date(get('purchased')), cost: num(get('cost')) || 0, method, rate: method === 'none' ? 0 : rate };
     const ov = num(get('opening_value')), od = date(get('opening_date'));
     if (ov != null && od) rec.opening = { ty: taxYearOf(isoToDate(od)), value: ov };
+    const yes = n => /^(y|yes|true|1)$/i.test(get(n));
+    if (yes('write_off') && propCanWriteOff(rec)) rec.writeOff = true;
+    else if (yes('boost') && propCanBoost(rec)) rec.boost = true;
     return rec;
   }).filter(r => r.name && (r.purchased || r.opening));
 }
@@ -3140,7 +3183,7 @@ function importPropAssets(list, s) {
   let added = 0, updated = 0;
   list.forEach((r, i) => {
     const ex = cur.find(a => a.name.toLowerCase() === r.name.toLowerCase() && (a.purchased || '') === (r.purchased || ''));
-    if (ex) { Object.assign(ex, r); updated++; }
+    if (ex) { delete ex.writeOff; delete ex.boost; Object.assign(ex, r); updated++; }
     else { cur.push({ id: 'as' + Date.now() + '_' + i, ...r }); added++; }
   });
   s.property = { ...p, assets: cur };
