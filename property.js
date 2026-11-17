@@ -3634,6 +3634,11 @@ function propSetupHtml(s) {
     <div class="input-group"><label>Purchase date</label><input type="date" id="ps-purchase" value="${escH(p.purchaseDate)}"></div>
     <div class="input-group"><label>Interest limitation</label><select id="ps-interest">${Object.entries(PROP_INTEREST_RULES).map(([k, l]) => `<option value="${k}" ${(p.interestRule || 'auto') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">From 1 October 2021 to 31 March 2025 only part of the interest on a residential property loan could be claimed: 75% in 2022–23, 50% in 2023–24 and 80% in 2024–25 if bought before 27 March 2021; nothing until 2024–25 if bought later. New builds are exempt. 100% again from 2025–26.</div></div>
+    ${typeof akahuEnabled === 'function' && akahuEnabled() ? `<div class="input-group"><label>Loan repayments</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><select id="ps-loantype" style="flex:1;min-width:150px" onchange="document.getElementById('ps-pifrom-wrap').style.display=this.value==='pi'?'':'none'">
+        <option value="io" ${p.loanType !== 'pi' ? 'selected' : ''}>Interest only</option><option value="pi" ${p.loanType === 'pi' ? 'selected' : ''}>Principal &amp; interest</option></select>
+        <span id="ps-pifrom-wrap" style="flex:1;min-width:150px;${p.loanType === 'pi' ? '' : 'display:none'}"><input type="date" id="ps-pifrom" value="${escH(p.piFrom || '')}" title="From"></span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Interest only: the loan repayments from the property account are the interest. Principal &amp; interest, from the date: the interest comes from the loan accounts linked in Settings → Data connections, and the repayments count as transfers.</div></div>` : ''}
     <div class="input-group"><label>Purchase price ($)</label><input type="number" id="ps-price" min="0" step="1" value="${p.purchasePrice ?? ''}" placeholder="e.g. 650000"></div>
     <div class="input-group"><label>Latest council rating valuation (capital value)</label>
       <div style="display:flex;gap:8px"><input type="number" id="ps-rv" min="0" step="1000" value="${rv.amount ?? ''}" placeholder="$" style="flex:1"><input type="date" id="ps-rv-date" value="${escH(rv.date || '')}" style="flex:1"></div>
@@ -3717,6 +3722,16 @@ function savePropSetup() {
     travelKm: isNaN(km) ? null : km,
     cleanAddsTravel: document.getElementById('ps-cleantravel').checked,
   };
+  if (document.getElementById('ps-loantype')) {
+    const lt = document.getElementById('ps-loantype').value, from = document.getElementById('ps-pifrom').value;
+    if (lt === 'pi' && !from) { alert('Enter the date the loans went to principal & interest.'); return; }
+    s.property.loanType = lt; s.property.piFrom = lt === 'pi' ? from : null;
+    // Move the repayments aside, or back, to match.
+    akahuMoveRepayments.back = 0;
+    const moved = akahuLinkedAccounts().filter(a => a.akahu.interest && accountStream(a.id) === s.id).reduce((n, a) => n + akahuMoveRepayments(a), 0);
+    if (moved) showToast(`${moved} repayment${moved === 1 ? '' : 's'} moved to ${AKAHU_REPAY_CAT}`, 5000);
+    if (akahuMoveRepayments.back) showToast(`${akahuMoveRepayments.back} repayment${akahuMoveRepayments.back === 1 ? '' : 's'} moved back from ${AKAHU_REPAY_CAT}`, 5000);
+  }
   // Basis is saved for the year shown; the first choice also becomes the default.
   const basis = document.getElementById('ps-basis').value;
   s.property.basisByYear = { ...(s.property.basisByYear || {}), [propTaxYear]: basis };
