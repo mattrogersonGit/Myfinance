@@ -1831,11 +1831,11 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.17.1'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.17.2'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
-const DATA_SCHEMA = 13; // 12: Akahu loan-interest link on accounts (akahu.ids, loanNames, interest {cat, repCat}). 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
+const DATA_SCHEMA = 14; // 12: Akahu loan-interest link on accounts (akahu.ids, loanNames, interest {cat, repCat}). 11: Akahu link on savings (savings.akahu {ids, names}, akahuSynced). 10: rules can rename (rename), rawDesc keeps the bank's wording on renamed transactions. 9: Akahu link on accounts (akahu, akahuSynced, akahuLast), akahuId on transactions and deleted records. 8: Akahu link on mortgages (akahu per part, akahuSynced). 7: Akahu link on investments (akahu, akahuSynced). 6: vehicle type and interest limitation rule in property settings. 5: manual payout matches (linkTxn / rejectTxn on payouts). 4: ring-fenced loss brought forward on tax returns. 2: repair days, below-market flags, actual-cost basis. 3: basis per year, property value, mixed-use quarantine
 let sbNeedsUpdate = false;
 document.getElementById('app-version').textContent = 'MyFinance v' + APP_VERSION;
 // new Date().toISOString().slice(0,10) converts to UTC first, so anyone east
@@ -4108,7 +4108,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.17.1"></script>
+<script src="property.js?v=2026.11.17.2"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
@@ -5397,6 +5397,7 @@ function akahuAutoSync() {
   if (akahuAutoSyncDone || !akahuEnabled() || typeof sbNeedsUpdate !== 'undefined' && sbNeedsUpdate) return;
   akahuAutoSyncDone = true;
   akahuSyncInvestments()
+    .then(() => akahuSyncHomeLoans().catch(() => {}))
     .then(() => akahuSyncTxns())
     .then(r => {
       const added = (r.res || []).reduce((s, x) => s + (x.added || 0), 0);
@@ -5538,11 +5539,13 @@ function akahuUnlinkMortgage(mid) {
 async function akahuSyncNow() {
   akahu.loading = 'Updating linked items…'; renderAkahu();
   const r = await akahuSyncInvestments({ force: true });
+  const h = await akahuSyncHomeLoans({ force: true });
   const t = await akahuSyncTxns({ force: true });
   akahu.loading = '';
   const added = (t.res || []).reduce((s, x) => s + (x.added || 0), 0);
   const msg = [];
   if (r.updated?.length) msg.push(`Updated ${r.updated.join(', ')}.`);
+  if (h.ran) msg.push(h.errors.length ? h.errors.join(' ') : `Home office loan interest: ${h.added} new line${h.added === 1 ? '' : 's'}.`);
   if (t.ran) msg.push(added ? `${added} new transaction${added === 1 ? '' : 's'} to review.` : 'No new transactions.');
   akahu.error = msg.join(' ');
   renderAkahu();
@@ -5689,6 +5692,121 @@ function akahuOpenLoanLink(appId) {
     else showToast('No interest lines found');
   };
   document.getElementById('modal').classList.add('open');
+}
+// ─── Akahu loan interest into a property's home office ──────────────────────
+// Home office counts only the interest on the household mortgage, from interest
+// lines kept per loan in s.property.homeOffice.loans (first loaded from the
+// loan account's CSV statement). A loan there can also link to its Akahu loan
+// account: loan.akahu = {id, name, from, synced, last}. Each sync adds the new
+// interest lines (with akahuId), skipping any a CSV already loaded (same
+// interest within 3 days). Nothing goes into the transactions.
+function akahuHomeLoans() {
+  const out = [];
+  otherIncomeStreams.forEach(s => (s.property?.homeOffice?.loans || []).forEach(l => { if (l.akahu?.id) out.push({ s, l }); }));
+  return out;
+}
+function akahuLoanRecs(items) {
+  const ints = items.filter(akahuIsInterest);
+  // Interest is a debit on the loan; a line the other way is an adjustment.
+  const neg = ints.filter(x => +x.amount < 0).length >= ints.length / 2;
+  return ints.map(x => ({ date: akahuNzDay(x.date), amount: +x.amount, desc: x.description || 'Interest', interest: Math.round((neg ? -x.amount : +x.amount) * 100) / 100, akahuId: x._id }));
+}
+function akahuMergeLoanRecs(l, recs) {
+  l.recs = l.recs || [];
+  const have = new Set(l.recs.filter(r => r.akahuId).map(r => r.akahuId));
+  const pool = l.recs.filter(r => !r.akahuId).map(r => ({ r, d: +akahuDayToDate(r.date) }));
+  let added = 0, matched = 0;
+  const fresh = [];
+  recs.forEach(x => {
+    if (have.has(x.akahuId)) return;
+    have.add(x.akahuId);
+    const d = +akahuDayToDate(x.date);
+    const m = pool.find(p => !p.used && Math.abs(p.r.interest - x.interest) < 0.005 && Math.abs(p.d - d) <= AKAHU_MATCH_DAYS * 86400000);
+    if (m) { m.used = true; m.r.akahuId = x.akahuId; matched++; return; }
+    fresh.push(x); added++;
+  });
+  l.recs = [...l.recs, ...fresh].sort((a, b) => a.date.localeCompare(b.date));
+  return { added, matched };
+}
+async function akahuSyncHomeLoans({ force = false, only = null } = {}) {
+  if (!akahuEnabled()) return { ran: false, added: 0, errors: [] };
+  const due = akahuHomeLoans().filter(x => (!only || x.l === only) &&
+    (force || !x.l.akahu.synced || Date.now() - Date.parse(x.l.akahu.synced) > AKAHU_TXN_SYNC_HOURS * 3600000));
+  let added = 0;
+  const errors = [];
+  for (const { l } of due) {
+    try {
+      let start = l.akahu.from;
+      if (l.akahu.synced) {
+        const st = dateToIso(new Date(Date.parse(l.akahu.synced) - AKAHU_TXN_OVERLAP_DAYS * 86400000));
+        if (st > start) start = st;
+      }
+      const items = (await akahuFetchTxns(l.akahu.id, start)).filter(x => akahuNzDay(x.date) >= l.akahu.from);
+      const r = akahuMergeLoanRecs(l, akahuLoanRecs(items));
+      l.akahu.synced = new Date().toISOString();
+      l.akahu.last = { ...r, error: '' };
+      added += r.added;
+    } catch (e) {
+      l.akahu.last = { ...(l.akahu.last || {}), error: e.message };
+      errors.push(`${l.name}: ${e.message}`);
+    }
+  }
+  if (due.length) { scheduleSave(); if (currentPage === 'property' && typeof renderProperty === 'function') renderProperty(); }
+  return { ran: !!due.length, added, errors };
+}
+async function akahuOpenHomeLoanLink(i) {
+  const s = typeof currentPropStream === 'function' && currentPropStream(); if (!s) return;
+  if (!akahu.accounts) {
+    showToast('Loading Akahu accounts…');
+    await akahuLoadAccounts();
+    if (!akahu.accounts) { alert(akahu.error || 'Could not load the Akahu accounts.'); return; }
+  }
+  const loans = s.property?.homeOffice?.loans || [];
+  const l = i != null ? loans[i] : null;
+  const opts = akahu.accounts.filter(a => a.status !== 'INACTIVE' && a.type === 'LOAN');
+  const fy = (() => { const d = new Date(); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `${y}-04-01`; })();
+  const def = l?.akahu?.from || fy;
+  document.getElementById('modal-title').textContent = l ? `Link ${l.name} to Akahu` : 'Link a home loan from Akahu';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Pick the loan account. Its interest lines are added to the home office's loan interest with each sync. Lines already loaded from a CSV aren't added twice.</div>
+    ${opts.map((a, k) => `<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px;cursor:pointer">
+      <input type="radio" name="akahu-hl" id="akahu-hl-${k}" value="${k}"${l?.akahu?.id === a._id ? ' checked' : ''} style="width:18px;height:18px;flex-shrink:0" onchange="const n=document.getElementById('akahu-hl-name');if(n&&!n.dataset.typed)n.value=this.dataset.name" data-name="${escH(a.name)}">
+      <span style="flex:1;min-width:0">${escH(a.name)} <span style="color:var(--text3);font-size:11px">· ${escH(a.connection?.name || '')} · ${escH(a.formatted_account || '')}</span></span>
+      <span style="font-weight:600">${fmt(Math.abs(Number(a.balance?.current) || 0))}</span></label>`).join('') || '<div style="font-size:13px;color:var(--text3)">No loan accounts in Akahu.</div>'}
+    ${l ? '' : `<div class="input-group" style="margin-top:10px"><label>Name in the app</label><input type="text" id="akahu-hl-name" oninput="this.dataset.typed=1" placeholder="e.g. Home loan 1"><div style="font-size:11px;color:var(--text3);margin-top:4px">Use the same name as a loan already loaded from a CSV to add to it.</div></div>`}
+    <div class="input-group"${l ? ' style="margin-top:10px"' : ''}><label>Bring in interest from</label><input type="date" id="akahu-hl-from" value="${def}" max="${todayLocal()}"></div>`;
+  const btn = document.getElementById('modal-confirm');
+  btn.style.display = ''; btn.disabled = !opts.length; btn.textContent = 'Link and fetch';
+  btn.onclick = async () => {
+    const k = opts.findIndex((a, j) => document.getElementById('akahu-hl-' + j).checked);
+    const from = document.getElementById('akahu-hl-from').value;
+    const name = l ? l.name : (document.getElementById('akahu-hl-name').value || '').trim() || opts[k]?.name;
+    if (k < 0 || !from || !name) return;
+    const a = opts[k];
+    let target = null;
+    updatePropHo(ho => {
+      const list = [...(ho.loans || [])];
+      let j = i != null ? i : list.findIndex(x => x.name.toLowerCase() === name.toLowerCase());
+      if (j < 0) { list.push({ name, recs: [] }); j = list.length - 1; }
+      target = list[j] = { ...list[j], recs: [...(list[j].recs || [])], akahu: { id: a._id, name: a.name, from } };
+      return { ...ho, loans: list, loanCat: ho.loanCat || (ho.cats || []).find(n => /mortgage/i.test(n)) || null };
+    });
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    const r = await akahuSyncHomeLoans({ force: true, only: target });
+    btn.disabled = false;
+    closeModal(); if (typeof refreshPropHomeOffice === 'function') refreshPropHomeOffice();
+    const last = target.akahu.last || {};
+    if (r.errors.length) alert(r.errors.join('\n'));
+    else showToast(last.added || last.matched ? `${name}: ${last.added} interest line${last.added === 1 ? '' : 's'} added${last.matched ? `, ${last.matched} already loaded` : ''}` : `${name}: no interest lines found in Akahu`, 5000);
+  };
+  document.getElementById('modal').classList.add('open');
+}
+function akahuUnlinkHomeLoan(i) {
+  updatePropHo(ho => {
+    const list = [...(ho.loans || [])];
+    if (list[i]) list[i] = { ...list[i], akahu: null };
+    return { ...ho, loans: list };
+  });
 }
 // Splits Akahu rows into new transactions and ones the app already has.
 function akahuSortNew(acc, items) {

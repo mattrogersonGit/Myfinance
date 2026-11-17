@@ -1610,11 +1610,16 @@ function propChecklistRaw(s, ty) {
     const rows = [];
     if (!ho.loanCat) rows.push({ st: 'bad', label: 'Repayments category not set', detail: `Home office includes ${escH(mortCats.join(', '))}. Say which category holds the repayments in ${link('Setup', "setPropTab('setup')")} so only the interest is counted.` });
     else if (!loans.length) rows.push({ st: 'bad', label: 'No loan statements loaded', detail: `The full repayments in ${escH(ho.loanCat)} are being counted, principal included. Load each loan account's statement below.` });
-    loans.forEach((l, i) => {
-      const last = l.recs.reduce((m, r) => r.date > m ? r.date : m, '');
-      rows.push({ st: propBehind(last, target, 35, 70), label: l.name, detail: `interest loaded up to ${fmtDay(last)} · ${l.recs.length} lines`,
-        action: `<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this, ${i})"></label>` });
+    const ak = typeof akahuEnabled === 'function' && akahuEnabled();
+    (ho.loans || []).forEach((l, i) => {
+      if (!(l.recs || []).length && !l.akahu?.id) return;
+      const last = (l.recs || []).reduce((m, r) => r.date > m ? r.date : m, '');
+      const A = l.akahu?.id ? l.akahu : null, err = A?.last?.error;
+      rows.push({ st: err ? 'bad' : propBehind(last, target, 35, 70), label: l.name,
+        detail: `${last ? `interest loaded up to ${fmtDay(last)} · ${l.recs.length} lines` : 'no interest lines yet'}${A ? ` · from Akahu (${escH(A.name)}), checked ${A.synced ? fmtDay(dateToIso(new Date(A.synced))) : 'never'}` : ''}${err ? ` · <span style="color:var(--red,#d64545)">${escH(err)}</span>` : ''}`,
+        action: `<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${ak ? `<button class="btn-update" style="white-space:nowrap" onclick="akahuOpenHomeLoanLink(${i})">${A ? 'Akahu…' : 'Link Akahu'}</button>${A ? `<button class="btn-update" style="white-space:nowrap" onclick="akahuUnlinkHomeLoan(${i})">Unlink</button>` : ''}` : ''}<label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this, ${i})"></label></span>` });
     });
+    if (ak) rows.push({ st: null, label: '', body: `<button class="btn-update" style="margin:4px 0 2px" onclick="akahuOpenHomeLoanLink(null)">Link a loan from Data connections</button>` });
     rows.push({ st: null, label: '', body: `<div style="display:flex;align-items:center;gap:8px;padding:4px 0 2px">
         <input type="text" id="prop-loan-name" placeholder="New loan, e.g. Home loan 2" style="flex:1;min-width:0;background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:6px;outline:none">
         <label class="btn-update" style="cursor:pointer;white-space:nowrap">Load CSV<input type="file" accept=".csv,text/csv" style="display:none" onchange="importPropLoanCsv(this)"></label></div>
