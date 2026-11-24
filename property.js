@@ -743,6 +743,9 @@ function openBookingDetail(id) {
 const PROP_LINES = [
   {id:'income',      label:'Rental income (bank deposits)', kind:'income'},
   {id:'transfer',    label:'Transfer (not income or expense)', kind:'none'},
+  // Capital spending (improvements, assets): kept off the P&L and listed on the
+  // Assets tab so each payment can be put on the register.
+  {id:'capital',     label:'Capital: improvements & assets', kind:'none'},
   {id:'commissions', label:'Commissions',              kind:'expense'},
   {id:'insurance',   label:'Insurance',                kind:'expense'},
   {id:'interest',    label:'Interest on loans',        kind:'expense'},
@@ -946,7 +949,8 @@ function removePropRegular(i) { updatePropRegular(list => list.filter((_, j) => 
 function setPropRegular(i, field, val) { updatePropRegular(list => { list[i] = { ...list[i], [field]: field === 'words' ? val.trim() : val }; return list; }); }
 
 const PROP_LINE_GUESSES = [
-  ['transfer',    /equity|transfer|top.?up|drawing|principal|saving/i],
+  ['capital',     /improvement|capital|renovat|landscap|\bassets?\b/i],
+  ['transfer',   /equity|transfer|top.?up|drawing|principal|saving/i],
   ['commissions', /commission|platform|service fee/i],
   ['income',      /income|rent|airbnb|booking|bach|guest/i],
   ['insurance',   /insur/i],
@@ -1420,7 +1424,7 @@ function propPackData(s, ty) {
   const trips = propDaysInYear(s, ty, 'travel').sort((a, b) => a.date.localeCompare(b.date));
   const cleans = propDaysInYear(s, ty, 'cleaning').sort((a, b) => a.date.localeCompare(b.date));
   const personal = propDays.filter(d => d.streamId === s.id && d.date >= start && d.date < end && ['personal', 'family'].includes(d.type)).sort((a, b) => a.date.localeCompare(b.date));
-  return { p, pnl, bks, trips, cleans, personal, dep: propDepreciationForYear(s, ty), ho: pnl.homeOffice, usage: pnl.usage, trav: pnl.travel };
+  return { p, pnl, bks, trips, cleans, personal, dep: propDepreciationForYear(s, ty), capital: propCapitalPayments(s, ty), ho: pnl.homeOffice, usage: pnl.usage, trav: pnl.travel };
 }
 // Runs of consecutive dates as "3 Jan – 9 Jan 2026 (7)".
 function propDateRuns(dates) {
@@ -1539,6 +1543,13 @@ ${d.dep.rows.map(({ a, r }) => `<tr><td>${e(a.name)}${a.purchased ? ` <span clas
 <tr class="tot"><td colspan="2">Total</td><td class="n">${fmt(d.dep.open)}</td><td class="n">${d.dep.bought ? fmt(d.dep.bought) : ''}</td><td class="n">${fmt(d.dep.depreciation)}</td><td class="n">${fmt(d.dep.close)}</td></tr>
 </tbody></table>` : ''}
 
+${d.capital.length ? `<h2>Capital spending ${taxYearLabel(ty)}</h2>
+<div class="muted">Not in the profit and loss. Improvements and assets paid for in the year, and where each sits on the asset register.</div>
+<table><tbody>
+${d.capital.map(x => `<tr><td class="nw">${fmtDay(x.date)}</td><td>${e(x.desc)}${x.src === 'cost' ? ' <span class="muted">(entered by hand)</span>' : ''}</td><td>${x.asset ? `${e(x.asset.name)} <span class="muted">(${e(x.asset.group || 'Other assets')})</span>` : '<span class="muted">not on the register</span>'}</td><td class="n">${m(x.amount)}</td></tr>`).join('')}
+<tr class="tot"><td colspan="3">Total capital spending</td><td class="n">${fmt(d.capital.reduce((t, x) => t + x.amount, 0))}</td></tr>
+</tbody></table>` : ''}
+
 <h2>About this pack</h2>
 <p class="muted">Prepared by the owners from their bank imports (bank CSV statements and, where connected, bank feeds), the booking platforms' reports and records they keep in MyFinance, using the rules and assumptions listed above. MyFinance isn't a tax agent and this isn't tax advice or a tax return: it's a working summary for the accountant to review. The accountant's figures and the return they file are final. Rates and thresholds are from the NZ tax rules table dated ${NZ_TAX_RULES_VERSION.split('-').reverse().join('/')}.</p>
 </body></html>`;
@@ -1606,6 +1617,9 @@ ${owners.reduce((a, o) => a + Number(o.share), 0) !== 100 ? '<div class="muted">
   (d.ho.byCat || []).forEach(c => { if (c.loan && c.loan.paidAfter) chk.push(`Home office: ${e(c.name)} interest after ${fmtDay(c.loan.coveredTo)} is ${c.loan.ratio != null ? 'estimated from the interest share of earlier repayments' : 'counted as the full repayment (no interest share known)'}.`); });
   if (pnl.mua && pnl.mua.valueMissing) chk.push('No property value is entered, so the mixed-use 2% loss test couldn\'t be done and the loss is shown in full.');
   if (frc === 'exclude') chk.push('Flat-rate credits left out: check whether travel, home office and depreciation should also be claimed excluding GST.');
+  const capOpen = (d.capital || []).filter(x => !x.asset);
+  if (capOpen.length) chk.push(`${capOpen.length} capital payment${capOpen.length === 1 ? ' isn\'t' : 's aren\'t'} on the asset register: ${capOpen.map(x => `${fmtDay(x.date)} ${e(x.desc)} ${fmt(x.amount)}`).join('; ')}.`);
+  if ((d.capital || []).some(x => x.asset && x.asset.group === 'Improvements')) chk.push('Improvements are on the register as not depreciated. Some (such as fencing or landscaping) may have their own depreciation rate.');
   if (d.dep.boost) chk.push('Investment Boost: check each asset was new (or new to NZ) and isn\'t part of a residential building.');
   h += `<h2>Assumptions to check</h2>${chk.length ? `<ul>${chk.map(x => `<li>${x}</li>`).join('')}</ul>` : '<div class="muted">None flagged.</div>'}`;
 
@@ -1825,6 +1839,8 @@ function propChecklistRaw(s, ty) {
   manual.push(tick('receipts', 'Receipts and cash costs added', `anything not paid from an imported account, with ${link('+ Add a cost', 'openPropCost()')}`));
   const dep = propDepreciationForYear(s, ty);
   manual.push(tick('assets', 'Assets bought or sold recorded', `${dep.rows.length} asset${dep.rows.length === 1 ? '' : 's'} in the ${link('register', "setPropTab('assets')")}`));
+  const capOpen = propCapitalPayments(s, ty).filter(x => !x.asset);
+  if (capOpen.length) manual.push({ st: 'warn', label: 'Capital spending', detail: `${capOpen.length} payment${capOpen.length === 1 ? '' : 's'} (${fmt(capOpen.reduce((t, x) => t + x.amount, 0))}) on the Capital line not on the asset register yet`, action: `<button class="btn-update" onclick="setPropTab('assets')">Assets</button>` });
   if (ho.pct) {
     const extra = Number((ho.extra || {})[ty]) || 0;
     const dbl = extra && (ho.loanCat ? (ho.cats || []).includes(ho.loanCat) : mortCats.length);
@@ -3078,14 +3094,19 @@ const PROP_DEP_METHODS = { DV: 'Diminishing value', SL: 'Straight line', none: '
 // The threshold was $500 before 17/03/2020, $5,000 to 16/03/2021, $1,000 since.
 // Identical items bought from one supplier at the same time count together.
 function propLowValueLimit(iso) { return !iso ? 1000 : iso < '2020-03-17' ? 500 : iso < '2021-03-17' ? 5000 : 1000; }
-function propCanWriteOff(a) { return !!a.purchased && !a.opening && a.group !== 'Land' && a.group !== 'Buildings' && (Number(a.cost) || 0) > 0 && (Number(a.cost) || 0) <= propLowValueLimit(a.purchased); }
+// Asset groups. Improvements (steps, landscaping, artificial grass) are capital
+// spending on the property: not depreciated by default and, like land and
+// buildings, can't be written off or claim Investment Boost.
+const PROP_ASSET_GROUPS = ['Furniture & Fittings', 'Plant & Equipment', 'Improvements', 'Buildings', 'Land', 'Other assets'];
+const PROP_FIXED_GROUPS = new Set(['Improvements', 'Buildings', 'Land']);
+function propCanWriteOff(a) { return !!a.purchased && !a.opening && !PROP_FIXED_GROUPS.has(a.group) && (Number(a.cost) || 0) > 0 && (Number(a.cost) || 0) <= propLowValueLimit(a.purchased); }
 // Investment Boost: 20% of the cost of a new (or new to NZ) depreciable asset
 // bought from 22/05/2025 is deducted in the year it's bought; the other 80% is
 // then depreciated as if it were the full cost. Not for residential buildings,
 // land, or second-hand assets from NZ. It counts as depreciation, so a sale
 // above book value recovers it.
 const PROP_BOOST_FROM = '2025-05-22', PROP_BOOST_RATE = 0.2;
-function propCanBoost(a) { return !!a.purchased && !a.opening && a.purchased >= PROP_BOOST_FROM && a.group !== 'Land' && a.group !== 'Buildings' && a.method !== 'none' && (Number(a.cost) || 0) > 0; }
+function propCanBoost(a) { return !!a.purchased && !a.opening && a.purchased >= PROP_BOOST_FROM && !PROP_FIXED_GROUPS.has(a.group) && a.method !== 'none' && (Number(a.cost) || 0) > 0; }
 function propAssetYear(a, ty) {
   const buyTy = a.purchased ? taxYearOf(isoToDate(a.purchased)) : null;
   const openTy = a.opening && a.opening.ty != null ? Number(a.opening.ty) : null;
@@ -3130,8 +3151,8 @@ function propDepreciationForYear(s, ty) {
   // A gain is recovered income only up to the depreciation claimed; anything
   // above cost is capital, so cap it at cost minus opening/purchase value.
   const recovered = rows.reduce((t, x) => t + (x.r.gain > 0 ? Math.min(x.r.gain, Math.max(0, (Number(x.a.cost) || 0) - (x.r.open + x.r.bought))) : 0), 0);
-  // Buildings can't claim a loss on disposal.
-  const loss = rows.reduce((t, x) => t + (x.r.gain < 0 && x.a.group !== 'Buildings' ? -x.r.gain : 0), 0);
+  // Buildings and improvements to them can't claim a loss on disposal.
+  const loss = rows.reduce((t, x) => t + (x.r.gain < 0 && x.a.group !== 'Buildings' && x.a.group !== 'Improvements' ? -x.r.gain : 0), 0);
   return { rows, depreciation: sum('dep'), boost: sum('boost'), writeOff: sum('writeOff'), open: sum('open'), bought: sum('bought'), close: sum('close'), recovered, loss };
 }
 function propAssetsHtml(s) {
@@ -3163,6 +3184,7 @@ function propAssetsHtml(s) {
       ${propRow('Closing book value', fmt(d.close))}
       <div style="font-size:11px;color:var(--text3);margin-top:8px">Tap an asset to edit it. Values on the right are the opening value (plus purchases) → closing value. ${propBasisFor(s, propTaxYear) !== 'full' ? `On the ${propBasisLabel(propBasisFor(s, propTaxYear)).toLowerCase()} basis, depreciation is cut to the same share as other holding costs.` : ''}</div>
     </div>
+    ${propCapitalHtml(s)}
     ${Object.entries(groups).map(([g, list]) => `<div class="card">
       <div class="card-title" style="margin-bottom:4px">${escH(g)}</div>
       ${list.map(rowHtml).join('')}
@@ -3176,28 +3198,83 @@ function propAssetsHtml(s) {
       <div style="font-size:11px;color:var(--text3);margin-top:8px">CSV columns: name, group, purchased, cost, rate, method (DV, SL or none), and optionally opening_value and opening_date (book value at the start of a tax year, from your accountant's depreciation schedule), write_off and boost (yes/no). Assets costing $1,000 or less can be written off in the year they're bought; new assets bought from 22/05/2025 can claim Investment Boost (20% up front). Rates are IRD's. Check them with your accountant.</div>
     </div>`;
 }
+// Capital payments: transactions and hand-entered costs on the Capital line,
+// each linked to the asset it paid for (asset.paidBy holds their ids).
+function propPaymentById(pid) {
+  const t = transactions.find(x => String(x.id) === String(pid));
+  if (t) return { id: t.id, date: dateToIso(t.date), amount: round2(-t.amount), desc: t.desc || t.cat || 'Payment', src: 'txn' };
+  const c = propCosts.find(x => String(x.id) === String(pid));
+  if (c) return { id: c.id, date: c.date, amount: round2(Number(c.amount) || 0), desc: c.note || 'Cost entered by hand', src: 'cost' };
+  return null;
+}
+function propCapitalPayments(s, ty) {
+  const linked = new Map();
+  (propSettings(s).assets || []).forEach(a => (a.paidBy || []).forEach(id => linked.set(String(id), a)));
+  return [
+    ...propTxnsInYear(s, ty).filter(t => propLineForTxn(s, t) === 'capital').map(t => propPaymentById(t.id)),
+    ...propCostsInYear(s, ty).filter(c => c.line === 'capital').map(c => propPaymentById(c.id)),
+  ].filter(Boolean).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0).map(x => ({ ...x, asset: linked.get(String(x.id)) || null }));
+}
+function propAssetGroupChanged(g) {
+  if (!PROP_FIXED_GROUPS.has(g)) return;
+  const m = document.getElementById('pa-method'), r = document.getElementById('pa-rate');
+  if (m) m.value = 'none';
+  if (r) r.value = 0;
+}
+function linkPropPayment(pid, assetId) {
+  const s = currentPropStream(); if (!s || !assetId) return;
+  const p = propSettings(s);
+  s.property = { ...p, assets: (p.assets || []).map(a => String(a.id) === String(assetId) ? { ...a, paidBy: [...new Set([...(a.paidBy || []), String(pid)])] } : a) };
+  scheduleSave(); renderProperty();
+}
+function propCapitalHtml(s) {
+  const list = propCapitalPayments(s, propTaxYear);
+  if (!list.length) return '';
+  const assets = propSettings(s).assets || [];
+  const open = list.filter(x => !x.asset);
+  const total = list.reduce((t, x) => t + x.amount, 0);
+  const sel = 'background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:12px;padding:5px 6px;max-width:150px';
+  return `<div class="card">
+      <div class="card-title" style="margin-bottom:4px">Capital spending ${taxYearLabel(propTaxYear)}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Payments on the Capital line aren't in the P&amp;L. Put each one on the register, as a new asset or linked to one already there.${open.length ? ` <span style="color:var(--amber,#d97706)">${open.length} not on the register yet.</span>` : ''}</div>
+      ${list.map(x => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px">
+        <div style="min-width:0"><div>${escH(x.desc)}</div><div style="font-size:11px;color:var(--text3)">${fmtDay(x.date)}${x.src === 'cost' ? ' · entered by hand' : ''}${x.asset ? ` · on the register as <a href="#" onclick="openPropAsset('${escH(String(x.asset.id))}');return false" style="color:var(--teal)">${escH(x.asset.name)}</a>` : ''}</div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">${fmt(x.amount)}
+          ${x.asset ? '' : `<button class="btn-update" onclick="openPropAsset(null, '${escH(String(x.id))}')">Add as asset</button>${assets.length ? `<select style="${sel}" onchange="linkPropPayment('${escH(String(x.id))}', this.value)"><option value="">or link to…</option>${assets.map(a => `<option value="${escH(String(a.id))}">${escH(a.name)}</option>`).join('')}</select>` : ''}`}</div>
+      </div>`).join('')}
+      ${propRow('<strong>Total</strong>', `<strong>${fmt(total)}</strong>`)}
+    </div>`;
+}
 function propAssetById(s, id) { return (propSettings(s).assets || []).find(a => String(a.id) === String(id)); }
-function openPropAsset(id) {
+function openPropAsset(id, payId) {
   const s = currentPropStream(); if (!s) return;
   const a = id != null ? propAssetById(s, id) : null;
   const v = (x) => x == null ? '' : escH(String(x));
+  // Started from a capital payment: fill in from it, as a non-depreciated improvement.
+  const pay = !a && payId != null ? propPaymentById(payId) : null;
+  const paid = [...new Set([...(a?.paidBy || []), ...(pay ? [String(pay.id)] : [])])].map(propPaymentById).filter(Boolean);
+  const paidTotal = paid.reduce((t, x) => t + x.amount, 0);
   document.getElementById('modal-title').textContent = a ? 'Edit asset' : 'Add asset';
   document.getElementById('modal-body').innerHTML = `
-    <div class="input-group"><label>Name</label><input type="text" id="pa-name" value="${v(a?.name)}" placeholder="e.g. Heat pump"></div>
-    <div class="input-group"><label>Group</label><select id="pa-group">${['Furniture & Fittings','Plant & Equipment','Buildings','Land','Other assets'].map(g => `<option ${ (a?.group || 'Furniture & Fittings') === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
-    <div class="input-group"><label>Purchase date</label><input type="date" id="pa-date" value="${v(a?.purchased)}"></div>
-    <div class="input-group"><label>Cost ($)</label><input type="number" id="pa-cost" min="0" step="0.01" value="${v(a?.cost)}"></div>
-    <div class="input-group"><label>Method</label><select id="pa-method">${Object.entries(PROP_DEP_METHODS).map(([k, l]) => `<option value="${k}" ${(a?.method || 'DV') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="input-group"><label>Name</label><input type="text" id="pa-name" value="${v(a?.name ?? pay?.desc)}" placeholder="e.g. Heat pump"></div>
+    <div class="input-group"><label>Group</label><select id="pa-group" onchange="propAssetGroupChanged(this.value)">${PROP_ASSET_GROUPS.map(g => `<option ${(a?.group || (pay ? 'Improvements' : 'Furniture & Fittings')) === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Improvements: capital work on the property, such as steps, decks, fencing or landscaping. Not depreciated unless your accountant gives a rate.</div></div>
+    <div class="input-group"><label>Purchase date</label><input type="date" id="pa-date" value="${v(a?.purchased ?? pay?.date)}"></div>
+    <div class="input-group"><label>Cost ($)</label><input type="number" id="pa-cost" min="0" step="0.01" value="${v(a?.cost ?? pay?.amount)}"></div>
+    <div class="input-group"><label>Method</label><select id="pa-method">${Object.entries(PROP_DEP_METHODS).map(([k, l]) => `<option value="${k}" ${(a?.method || (pay ? 'none' : 'DV')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="input-group"><label>IRD rate (%)</label><input type="number" id="pa-rate" min="0" step="0.5" value="${a && a.rate != null ? Math.round(a.rate * 1000) / 10 : ''}"></div>
     <div class="input-group"><label>Claim</label><select id="pa-claim">
       <option value="">Depreciation only</option>
       <option value="writeoff" ${a?.writeOff ? 'selected' : ''}>Write off in full (low-value asset)</option>
       <option value="boost" ${a?.boost ? 'selected' : ''}>Investment Boost (20% up front) + depreciation</option>
-    </select><div style="font-size:11px;color:var(--text3);margin-top:4px">Write off: cost of $1,000 or less (from 17/03/2021; identical items bought together from one supplier count as one). Investment Boost: new, or new to NZ, bought from 22/05/2025; not land, buildings or second-hand from NZ. Neither applies to an asset with an opening value.</div></div>
+    </select><div style="font-size:11px;color:var(--text3);margin-top:4px">Write off: cost of $1,000 or less (from 17/03/2021; identical items bought together from one supplier count as one). Investment Boost: new, or new to NZ, bought from 22/05/2025; not land, buildings, improvements or second-hand from NZ. Neither applies to an asset with an opening value.</div></div>
     <div class="input-group"><label>Opening book value ($, optional: from your accountant's schedule)</label><input type="number" id="pa-open" min="0" step="0.01" value="${v(a?.opening?.value)}"></div>
     <div class="input-group"><label>…at the start of tax year</label><select id="pa-openty"><option value="">Use cost from the purchase date</option>${Array.from({ length: 12 }, (_, i) => taxYearOf(new Date()) + 1 - i).map(ty => `<option value="${ty}" ${a?.opening?.ty == ty ? 'selected' : ''}>${taxYearLabel(ty)}</option>`).join('')}</select></div>
     <div class="input-group"><label>Sold or scrapped on (optional)</label><input type="date" id="pa-sold" value="${v(a?.disposed?.date)}"></div>
     <div class="input-group"><label>Sale price ($, 0 if scrapped)</label><input type="number" id="pa-price" min="0" step="0.01" value="${v(a?.disposed?.price)}"></div>
+    ${paid.length ? `<div class="input-group"><label>Paid by</label>
+      ${paid.map(x => `<label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer"><input type="checkbox" class="pa-paid" value="${escH(String(x.id))}" checked style="width:16px;height:16px;margin:0;flex:none"><span style="flex:1;min-width:0">${fmtDay(x.date)} · ${escH(x.desc)}</span><span>${fmt(x.amount)}</span></label>`).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${paid.length > 1 ? `Payments total ${fmt(paidTotal)}. ` : ''}Untick a payment to unlink it.</div></div>` : ''}
     ${a ? `<button class="btn" style="color:var(--red,#e5484d);margin-top:4px" onclick="deletePropAsset('${a.id}')">Delete asset</button>` : ''}`;
   const btn = document.getElementById('modal-confirm');
   btn.textContent = 'Save';
@@ -3209,13 +3286,15 @@ function openPropAsset(id) {
       method: g('pa-method'), rate: g('pa-method') === 'none' ? 0 : (num('pa-rate') ?? 0) / 100 };
     if (g('pa-openty') && num('pa-open') != null) rec.opening = { ty: Number(g('pa-openty')), value: num('pa-open') };
     if (g('pa-sold')) rec.disposed = { date: g('pa-sold'), price: num('pa-price') ?? 0 };
+    const paidBy = [...document.querySelectorAll('#modal-body .pa-paid:checked')].map(x => x.value);
+    if (paidBy.length) rec.paidBy = paidBy;
     if (!rec.purchased && !rec.opening) { alert('Enter a purchase date, or an opening value and tax year.'); return; }
     const claim = g('pa-claim');
     if (claim === 'writeoff') {
-      if (!propCanWriteOff(rec)) { alert(`Only an asset with a purchase date and no opening value, costing ${fmt(propLowValueLimit(rec.purchased))} or less (not land or buildings), can be written off.`); return; }
+      if (!propCanWriteOff(rec)) { alert(`Only an asset with a purchase date and no opening value, costing ${fmt(propLowValueLimit(rec.purchased))} or less (not land, buildings or improvements), can be written off.`); return; }
       rec.writeOff = true;
     } else if (claim === 'boost') {
-      if (!propCanBoost(rec)) { alert('Investment Boost needs a purchase date on or after 22/05/2025, no opening value, a depreciation method, and not land or buildings.'); return; }
+      if (!propCanBoost(rec)) { alert('Investment Boost needs a purchase date on or after 22/05/2025, no opening value, a depreciation method, and not land, buildings or improvements.'); return; }
       rec.boost = true;
     }
     const p = propSettings(s), list = [...(p.assets || [])];
@@ -3316,7 +3395,7 @@ function propReviewSuggestion(s, t, matches) {
   if (line && propLineKind(line) === 'expense') return { keep: false, newLine: line };
   return { keep: false, cat: (cats.find(c => c.name === 'Other') || cats[0])?.name };
 }
-const PROP_NEW_CAT_NAMES = { insurance:'Insurance', interest:'Mortgage Interest', power:'Power', rates:'Rates', phone:'Internet', cleaning:'Cleaning', rm:'Repairs & Maintenance', purchases:'Purchases', management:'Property Management', accountancy:'Accountancy Fees', travel:'Travel', commissions:'Platform Commissions', other:'Other' };
+const PROP_NEW_CAT_NAMES = { insurance:'Insurance', interest:'Mortgage Interest', power:'Power', rates:'Rates', phone:'Internet', cleaning:'Cleaning', rm:'Repairs & Maintenance', purchases:'Purchases', management:'Property Management', accountancy:'Accountancy Fees', travel:'Travel', commissions:'Platform Commissions', capital:'Improvements', other:'Other' };
 function propReviewHtml(s) {
   const linked = ensurePropPersonalCat(s);
   const srcCats = [...new Set([linked, ...propReviewSourceCats()])];
@@ -3648,7 +3727,7 @@ function openPropCost(id) {
   const c = id ? propCosts.find(x => x.id === id) : null;
   const { start, end } = taxYearRange(propTaxYear);
   const defDate = (() => { const t = todayLocal(); return t >= start && t < end ? t : dateToIso(new Date(isoToDate(end).getTime() - 86400000)); })();
-  const lines = PROP_LINES.filter(l => l.kind === 'expense');
+  const lines = PROP_LINES.filter(l => l.kind === 'expense' || l.id === 'capital');
   document.getElementById('modal-title').textContent = c ? 'Edit cost' : 'Add a cost paid outside the app';
   document.getElementById('modal-body').innerHTML = `
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">For a property cost paid from an account that isn't in the app, such as the accountant's fee. If it is in your transactions, move that instead so it isn't counted twice.</div>
