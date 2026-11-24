@@ -244,10 +244,12 @@
     .stat-val { font-weight: 600; }
 
     /* Bottom sheet category selector */
-    #cat-sheet { position: fixed; bottom: 0; left: 50%; width: 280px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px 14px 0 0; padding: 10px 12px calc(14px + var(--safe-bottom)); z-index: 400; transform: translateX(-50%) translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); max-height: 55vh; overflow-y: auto; }
-    #cat-sheet.open { transform: translateX(-50%) translateY(0); }
+    /* Opens as a popover next to the pill that was tapped (placeCatSheet). */
+    #cat-sheet { position: fixed; top: 50%; left: 50%; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 10px 12px 12px; z-index: 400; max-height: 55vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: none; }
+    #cat-sheet.open { display: block; }
     #sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 399; display: none; }
     #sheet-overlay.open { display: block; }
+    #cat-sheet .sheet-handle { display: none; }
     .sheet-handle { width: 32px; height: 4px; background: var(--border2); border-radius: 2px; margin: 0 auto 8px; }
     .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .sheet-title { font-size: 14px; font-weight: 600; }
@@ -1831,7 +1833,7 @@ function paywallHtml(reason) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Shown at the bottom of Settings so it's obvious which build a device is
 // running. Bump on every release (YYYY.MM.DD, plus .N for same-day releases).
-const APP_VERSION = '2026.11.24.1'; // also update property.js?v= further down
+const APP_VERSION = '2026.11.24.2'; // also update property.js?v= further down
 // Version of the saved data's shape. Bump it whenever a release adds a saved
 // key or field that an older copy of the app would drop when it saves: a copy
 // that finds newer data in the cloud stops saving and asks to be reloaded.
@@ -2449,6 +2451,29 @@ function openCatSheet(txnId) {
     </div>`).join('');
   document.getElementById('cat-sheet').classList.add('open');
   document.getElementById('sheet-overlay').classList.add('open');
+  placeCatSheet();
+}
+// Place the category/stream picker next to the element that opened it (below
+// it, or above when there's more room there), kept on screen and clear of the
+// bottom bar. Centred when there's no element to go by.
+function placeCatSheet() {
+  const sh = document.getElementById('cat-sheet');
+  const ev = window.event, el = ev && ev.target && ev.target.getBoundingClientRect ? ev.target : null;
+  const nav = document.getElementById('bottom-nav');
+  const navTop = nav && nav.offsetParent !== null ? nav.getBoundingClientRect().top : window.innerHeight;
+  const maxBottom = Math.min(window.innerHeight, navTop) - 8;
+  sh.scrollTop = 0;
+  const w = sh.offsetWidth, h = Math.min(sh.scrollHeight, sh.offsetHeight || sh.scrollHeight);
+  let top, left;
+  if (el) {
+    const r = el.getBoundingClientRect();
+    const below = maxBottom - r.bottom - 6, above = r.top - 14;
+    top = below >= h || below >= above ? r.bottom + 6 : r.top - 6 - h;
+    left = r.left;
+  } else { top = (maxBottom - h) / 2; left = (window.innerWidth - w) / 2; }
+  top = Math.max(8, Math.min(top, maxBottom - h));
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  sh.style.top = top + 'px'; sh.style.left = left + 'px';
 }
 function closeCatSheet() {
   document.getElementById('cat-sheet').classList.remove('open');
@@ -2478,6 +2503,7 @@ function openStreamSheet(txnId) {
     </div>`).join('');
   document.getElementById('cat-sheet').classList.add('open');
   document.getElementById('sheet-overlay').classList.add('open');
+  placeCatSheet();
 }
 function setTxnStream(id, streamVal) {
   const t = transactions.find(x=>x.id===id);
@@ -3542,6 +3568,7 @@ function openPendingCatSheet(id) {
     </div>`).join('');
   document.getElementById('cat-sheet').classList.add('open');
   document.getElementById('sheet-overlay').classList.add('open');
+  placeCatSheet();
 }
 function setPendingCat(id, cat) {
   const t = pendingTxns.find(x=>x.id===id);
@@ -4113,7 +4140,7 @@ function deleteRecurring(i) {
 // Property module lives in property.js (loaded next). Keep its ?v= in step
 // with APP_VERSION so browsers fetch the new copy on each release.
 </script>
-<script src="property.js?v=2026.11.24.1"></script>
+<script src="property.js?v=2026.11.24.2"></script>
 <script>
 // ─── Persistence ──────────────────────────────────────────────────────────────
 let saveTimer;
